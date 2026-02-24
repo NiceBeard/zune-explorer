@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data:; font-src 'self';">
+    <title>Zune</title>
+    <link rel="stylesheet" href="../assets/css/styles.css">
+</head>
+<body>
+    <div class="zune-container">
+        <!-- Main panoramic 3D container -->
+        <div class="panoramic-container" id="panoramic-container">
+            
+            <!-- Recent Files Panel (behind left) -->
+            <div class="panel recent-panel">
+                <h1 class="panel-header">recent</h1>
+                <div class="recent-content">
+                    <div class="recent-scroll" id="recent-files">
+                        <div class="empty-state">no recent files</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Main Menu Panel (center default) -->
+            <div class="panel menu-panel">
+                <!-- Recent files sidebar -->
+                <div class="recent-sidebar" id="recent-sidebar">
+                    <div class="recent-grid" id="recent-preview">
+                        <div class="recent-empty">no recent files</div>
+                    </div>
+                </div>
+                
+                <div class="menu-container">
+                    <h2 class="menu-subtitle">explore</h2>
+                    <nav class="vertical-menu" id="vertical-menu">
+                        <button class="menu-item" data-category="music">
+                            <span class="menu-text">music</span>
+                            <span class="menu-count" id="music-count">0</span>
+                        </button>
+                        <button class="menu-item" data-category="videos">
+                            <span class="menu-text">videos</span>
+                            <span class="menu-count" id="videos-count">0</span>
+                        </button>
+                        <button class="menu-item" data-category="pictures">
+                            <span class="menu-text">pictures</span>
+                            <span class="menu-count" id="pictures-count">0</span>
+                        </button>
+                        <button class="menu-item" data-category="documents">
+                            <span class="menu-text">documents</span>
+                            <span class="menu-count" id="documents-count">0</span>
+                        </button>
+                        <button class="menu-item" data-category="applications">
+                            <span class="menu-text">applications</span>
+                            <span class="menu-count" id="applications-count">0</span>
+                        </button>
+                    </nav>
+                </div>
+            </div>
+            
+            <!-- Category Content Panel (behind right) -->
+            <div class="panel content-panel" id="content-panel">
+                <div class="content-header">
+                    <button class="back-button" id="back-button">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                    <div class="title-group">
+                        <div class="breadcrumb" id="breadcrumb"></div>
+                        <h1 class="content-title" id="content-title"></h1>
+                    </div>
+                    <div class="view-toggle">
+                        <button class="view-btn active" id="grid-view-btn" data-view="grid">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <rect x="2" y="2" width="6" height="6" stroke="currentColor" stroke-width="1.5"/>
+                                <rect x="12" y="2" width="6" height="6" stroke="currentColor" stroke-width="1.5"/>
+                                <rect x="2" y="12" width="6" height="6" stroke="currentColor" stroke-width="1.5"/>
+                                <rect x="12" y="12" width="6" height="6" stroke="currentColor" stroke-width="1.5"/>
+                            </svg>
+                        </button>
+                        <button class="view-btn" id="list-view-btn" data-view="list">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <path d="M3 6H17M3 10H17M3 14H17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="content-area">
+                    <div class="file-display" id="file-display">
+                        <!-- Dynamic content goes here -->
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+    </div>
+
+    <div class="context-menu" id="context-menu">
+        <button class="context-menu-item" data-action="open">Open</button>
+        <button class="context-menu-item" data-action="show-in-folder">Show in Finder</button>
+        <div class="context-menu-separator"></div>
+        <button class="context-menu-item" data-action="delete">Delete</button>
+    </div>
+
+    <script src="../assets/js/renderer.js"></script>
+</body>
+</html>
