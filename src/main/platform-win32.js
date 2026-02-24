@@ -111,7 +111,7 @@ async function getRecentFiles(homePath) {
     '.mp4', '.mov', '.avi', '.mkv', '.wmv', '.flv', '.webm', '.m4v',
     '.jpg', '.jpeg', '.png', '.gif', '.svg', '.bmp', '.webp', '.ico', '.heic', '.heif',
     '.pdf', '.txt', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.rtf', '.md',
-    '.app', '.exe', '.dmg', '.pkg', '.deb', '.msi'
+    '.exe', '.msi'
   ];
 
   const files = [];
@@ -185,12 +185,14 @@ async function getRecentFiles(homePath) {
 async function getAppIcon(appPath) {
   try {
     const icon = await app.getFileIcon(appPath, { size: 'large' });
+    if (icon.isEmpty()) {
+      return { success: false, error: 'No icon found' };
+    }
     const buffer = icon.toPNG();
     const base64 = buffer.toString('base64');
-    const dataUrl = `data:image/png;base64,${base64}`;
-    return { success: true, iconDataUrl: dataUrl };
-  } catch (error) {
-    return { success: false, error: error.message };
+    return { success: true, iconDataUrl: `data:image/png;base64,${base64}` };
+  } catch {
+    return { success: false, error: 'No icon found' };
   }
 }
 
