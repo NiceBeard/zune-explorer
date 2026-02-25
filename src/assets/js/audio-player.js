@@ -57,7 +57,7 @@ class AudioPlayer {
     try {
       const metadata = await window.electronAPI.getAudioMetadata(file.path);
       this.currentMetadata = metadata;
-      this.audio.src = `file://${file.path}`;
+      this.audio.src = 'file://' + file.path.split('/').map(encodeURIComponent).join('/');
       await this.audio.play();
       this.isPlaying = true;
       this.emit('trackchange', { file, metadata, index: this.currentIndex, queue: this.queue });
@@ -93,7 +93,13 @@ class AudioPlayer {
 
     let nextIndex;
     if (this.shuffle) {
-      nextIndex = Math.floor(Math.random() * this.queue.length);
+      if (this.queue.length <= 1) {
+        nextIndex = 0;
+      } else {
+        do {
+          nextIndex = Math.floor(Math.random() * this.queue.length);
+        } while (nextIndex === this.currentIndex);
+      }
     } else {
       nextIndex = this.currentIndex + 1;
     }
