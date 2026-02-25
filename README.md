@@ -7,13 +7,18 @@ A file explorer inspired by the Zune HD interface, built with Electron. Features
 - **Horizontal panoramic navigation** between file categories
 - **Dark theme** with Zune HD-inspired orange accent colors
 - Files automatically organized into **music**, **videos**, **pictures**, **documents**, and **applications**
-- Recently accessed files surfaced via macOS Spotlight metadata
-- Native app icon extraction for `.app` files
-- Frameless window with custom title bar
+- **Documents** category provides a browsable file system with smart root directories
+- Recently accessed files surfaced via platform-native APIs
+- Native app icon extraction
+- Frameless window with custom title bar on Windows
+
+## Supported Platforms
+
+- **macOS** — uses Spotlight (`mdfind`, `mdls`) for recent files, `sips` for icon conversion
+- **Windows** — uses Windows Recent folder for recent files, Start Menu for application discovery
 
 ## Requirements
 
-- macOS (uses `mdfind`, `mdls`, and `sips` for file metadata and icon conversion)
 - Node.js 14+
 
 ## Getting Started

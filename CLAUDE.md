@@ -1,7 +1,18 @@
 # Zune Explorer - Development Guide
 
 ## Project Overview
-A Zune HD-inspired file explorer built with Electron, featuring a panoramic horizontal scrolling interface.
+A Zune HD-inspired file explorer built with Electron, featuring a panoramic horizontal scrolling interface. Runs on macOS and Windows.
+
+## Architecture
+
+### Platform Modules
+Platform-specific code is isolated in `src/main/platform-darwin.js` and `src/main/platform-win32.js`. Both export the same interface:
+- `getAllowedPrefixes()` — security path validation prefixes
+- `scanApplications(homePath)` — discover installed applications
+- `getRecentFiles(homePath)` — platform-native recent file discovery
+- `getAppIcon(appPath)` — extract application icons
+
+`main.js` loads the correct module at startup via `process.platform`.
 
 ## Zune HD Design Principles
 Based on the Zune HD interface design:
@@ -25,11 +36,11 @@ Based on the Zune HD interface design:
 
 ### File Categories
 The app organizes files into 5 main sections:
-1. **music** - Audio files (.mp3, .wav, .m4a, .flac)
-2. **videos** - Video files (.mp4, .mov, .avi, .mkv)
-3. **pictures** - Image files (.jpg, .png, .gif, .svg)
-4. **documents** - Document files (.pdf, .txt, .doc, .xlsx)
-5. **applications** - Executable files (.app, .exe, .dmg)
+1. **music** - Audio files (.mp3, .wav, .m4a, .flac) — auto-scanned
+2. **videos** - Video files (.mp4, .mov, .avi, .mkv) — auto-scanned
+3. **pictures** - Image files (.jpg, .png, .gif, .svg) — auto-scanned
+4. **documents** - Document files (.pdf, .txt, .doc, .xlsx) — browsable file system
+5. **applications** - Executable files (.app on macOS, .exe on Windows) — auto-scanned
 
 ### Interaction Design
 - Smooth horizontal scrolling via mouse wheel, trackpad, and arrow keys
@@ -52,3 +63,6 @@ npm run build # Build for distribution
 - [ ] Smooth animations and transitions
 - [ ] Empty sections show appropriate placeholders
 - [ ] File metadata (size, date) is displayed correctly
+- [ ] Windows: custom title bar shows with working controls
+- [ ] Windows: applications discovered from Start Menu
+- [ ] Windows: recent files populated from Recent folder
