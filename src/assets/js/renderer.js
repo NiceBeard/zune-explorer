@@ -30,16 +30,32 @@ class ZuneExplorer {
     }
 
     async init() {
+        this.platform = await window.electronAPI.getPlatform();
+        if (this.platform === 'win32') {
+            document.body.classList.add('platform-win32');
+        }
         this.homePath = await window.electronAPI.getHomeDirectory();
-        this.smartRoots = [
-            { name: 'Desktop',   path: `${this.homePath}/Desktop` },
-            { name: 'Documents', path: `${this.homePath}/Documents` },
-            { name: 'Downloads', path: `${this.homePath}/Downloads` },
-            { name: 'Music',     path: `${this.homePath}/Music` },
-            { name: 'Movies',    path: `${this.homePath}/Movies` },
-            { name: 'Pictures',  path: `${this.homePath}/Pictures` },
-            { name: 'Home',      path: this.homePath },
-        ];
+        if (this.platform === 'win32') {
+            this.smartRoots = [
+                { name: 'Desktop',   path: `${this.homePath}\\Desktop` },
+                { name: 'Documents', path: `${this.homePath}\\Documents` },
+                { name: 'Downloads', path: `${this.homePath}\\Downloads` },
+                { name: 'Music',     path: `${this.homePath}\\Music` },
+                { name: 'Videos',    path: `${this.homePath}\\Videos` },
+                { name: 'Pictures',  path: `${this.homePath}\\Pictures` },
+                { name: 'Home',      path: this.homePath },
+            ];
+        } else {
+            this.smartRoots = [
+                { name: 'Desktop',   path: `${this.homePath}/Desktop` },
+                { name: 'Documents', path: `${this.homePath}/Documents` },
+                { name: 'Downloads', path: `${this.homePath}/Downloads` },
+                { name: 'Music',     path: `${this.homePath}/Music` },
+                { name: 'Movies',    path: `${this.homePath}/Movies` },
+                { name: 'Pictures',  path: `${this.homePath}/Pictures` },
+                { name: 'Home',      path: this.homePath },
+            ];
+        }
         await this.scanFileSystem();
         this.updateFileCounts();
         await this.loadRecentFiles();
@@ -97,6 +113,20 @@ class ZuneExplorer {
                 this.showRecent();
             }
         });
+
+        // Title bar controls (Windows)
+        const minimizeBtn = document.getElementById('minimize-btn');
+        const maximizeBtn = document.getElementById('maximize-btn');
+        const closeBtn = document.getElementById('close-btn');
+        if (minimizeBtn) {
+            minimizeBtn.addEventListener('click', () => window.electronAPI.windowMinimize());
+        }
+        if (maximizeBtn) {
+            maximizeBtn.addEventListener('click', () => window.electronAPI.windowMaximize());
+        }
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => window.electronAPI.windowClose());
+        }
     }
 
     setupKeyboardNavigation() {
@@ -209,10 +239,11 @@ class ZuneExplorer {
         } else {
             const folderName = this.currentPath === this.homePath
                 ? 'Home'
-                : this.currentPath.split('/').pop();
+                : this.currentPath.split(/[/\\]/).pop();
             title.textContent = folderName;
 
-            const parentPath = this.currentPath.substring(0, this.currentPath.lastIndexOf('/'));
+            const lastSep = Math.max(this.currentPath.lastIndexOf('/'), this.currentPath.lastIndexOf('\\'));
+            const parentPath = this.currentPath.substring(0, lastSep);
             const displayPath = parentPath.replace(this.homePath, '~');
             breadcrumb.textContent = displayPath || '~';
         }
@@ -489,11 +520,11 @@ class ZuneExplorer {
     }
 
     async scanMediaFiles() {
-        // Scan category-specific directories recursively (up to 3 levels)
+        const sep = this.platform === 'win32' ? '\\' : '/';
         const categoryDirs = {
-            music: [`${this.homePath}/Music`],
-            videos: [`${this.homePath}/Movies`],
-            pictures: [`${this.homePath}/Pictures`],
+            music: [`${this.homePath}${sep}Music`],
+            videos: [this.platform === 'win32' ? `${this.homePath}${sep}Videos` : `${this.homePath}${sep}Movies`],
+            pictures: [`${this.homePath}${sep}Pictures`],
         };
 
         for (const [category, dirs] of Object.entries(categoryDirs)) {
@@ -502,10 +533,9 @@ class ZuneExplorer {
             }
         }
 
-        // Scan common directories (1 level) for all media types
         const commonDirs = [
-            `${this.homePath}/Desktop`,
-            `${this.homePath}/Downloads`,
+            `${this.homePath}${sep}Desktop`,
+            `${this.homePath}${sep}Downloads`,
         ];
         for (const dir of commonDirs) {
             await this.scanDirectoryForMedia(dir);
@@ -558,16 +588,10 @@ class ZuneExplorer {
 
     async scanApplications() {
         try {
-            // Scan system Applications folder
-            await this.scanApplicationsInDirectory('/Applications');
-            
-            // Scan system Applications folder (macOS 10.15+)
-            await this.scanApplicationsInDirectory('/System/Applications');
-            
-            // Scan user Applications folder
-            const homePath = await window.electronAPI.getHomeDirectory();
-            await this.scanApplicationsInDirectory(`${homePath}/Applications`);
-            
+            const result = await window.electronAPI.scanApplications();
+            if (result.success) {
+                this.categorizedFiles.applications = result.applications;
+            }
         } catch (error) {
             console.error('Error scanning applications:', error);
         }
@@ -615,30 +639,6 @@ class ZuneExplorer {
             }
         } catch (error) {
             console.error('Error loading recent files:', error);
-        }
-    }
-
-    async scanApplicationsInDirectory(appsPath) {
-        try {
-            const result = await window.electronAPI.getDirectoryContents(appsPath);
-            
-            if (result.success) {
-                result.files.forEach(file => {
-                    if (file.isDirectory && file.name.endsWith('.app')) {
-                        // Create an application entry
-                        const appFile = {
-                            ...file,
-                            name: file.name.replace('.app', ''), // Remove .app extension for display
-                            extension: '.app',
-                            isApplication: true
-                        };
-                        this.categorizedFiles.applications.push(appFile);
-                        // Don't automatically add to recent - only add when actually opened
-                    }
-                });
-            }
-        } catch (error) {
-            console.error(`Error scanning applications directory ${appsPath}:`, error);
         }
     }
 
