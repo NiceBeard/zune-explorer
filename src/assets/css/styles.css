@@ -845,3 +845,183 @@ body.platform-win32 .zune-container {
     background: #e81123;
     color: white;
 }
+
+/* ==============================
+   Music Player - Bottom Bar
+   ============================== */
+.player-bottom-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 64px;
+    background: rgba(10, 10, 10, 0.98);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    display: none;
+    align-items: center;
+    gap: 16px;
+    padding: 0 20px;
+    z-index: 500;
+    cursor: pointer;
+    backdrop-filter: blur(20px);
+}
+
+.player-bottom-bar.visible {
+    display: flex;
+}
+
+.player-bar-art {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #1a1a1a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.player-bar-art-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.player-bar-info {
+    flex: 0 0 180px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.player-bar-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--zune-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.player-bar-artist {
+    font-size: 12px;
+    color: var(--zune-text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.player-bar-progress {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.player-bar-time {
+    font-size: 11px;
+    color: var(--zune-text-dim);
+    font-variant-numeric: tabular-nums;
+    min-width: 36px;
+    text-align: center;
+}
+
+.player-bar-progress-track {
+    flex: 1;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    cursor: pointer;
+    position: relative;
+}
+
+.player-bar-progress-track:hover {
+    height: 6px;
+}
+
+.player-bar-progress-fill {
+    height: 100%;
+    background: var(--zune-orange);
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.1s linear;
+}
+
+.player-bar-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.player-btn {
+    background: none;
+    border: none;
+    color: var(--zune-text-secondary);
+    cursor: pointer;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+}
+
+.player-btn:hover {
+    color: var(--zune-text);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.player-btn-play {
+    width: 42px;
+    height: 42px;
+    background: rgba(255, 105, 0, 0.2);
+    color: var(--zune-orange);
+}
+
+.player-btn-play:hover {
+    background: rgba(255, 105, 0, 0.35);
+    color: var(--zune-orange);
+}
+
+/* Equalizer bars */
+.player-equalizer {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 20px;
+    flex-shrink: 0;
+    padding-right: 4px;
+}
+
+.eq-bar {
+    width: 3px;
+    background: var(--zune-orange);
+    border-radius: 1px;
+    animation: eq-bounce 0.8s ease-in-out infinite alternate;
+}
+
+.eq-bar:nth-child(1) { height: 8px; animation-delay: 0s; animation-duration: 0.7s; }
+.eq-bar:nth-child(2) { height: 14px; animation-delay: 0.15s; animation-duration: 0.55s; }
+.eq-bar:nth-child(3) { height: 10px; animation-delay: 0.3s; animation-duration: 0.65s; }
+.eq-bar:nth-child(4) { height: 6px; animation-delay: 0.1s; animation-duration: 0.8s; }
+
+.player-equalizer.paused .eq-bar {
+    animation-play-state: paused;
+}
+
+@keyframes eq-bounce {
+    0% { height: 4px; }
+    100% { height: 20px; }
+}
+
+/* Adjust content area when bottom bar is visible */
+body.player-active .content-area {
+    padding-bottom: 80px;
+}
+
+body.player-active .recent-panel {
+    padding-bottom: 80px;
+}
