@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getRecentFiles: () => ipcRenderer.invoke('get-recent-files'),
   getPlatform: () => ipcRenderer.invoke('get-platform'),
   scanApplications: () => ipcRenderer.invoke('scan-applications'),
+  getAudioMetadata: (path) => ipcRenderer.invoke('get-audio-metadata', path),
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
   windowMaximize: () => ipcRenderer.invoke('window-maximize'),
   windowClose: () => ipcRenderer.invoke('window-close')

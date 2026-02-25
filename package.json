@@ -9,14 +9,21 @@
     "build": "electron-builder",
     "dist": "electron-builder --publish=never"
   },
-  "keywords": ["electron", "file-explorer", "zune", "desktop-app"],
+  "keywords": [
+    "electron",
+    "file-explorer",
+    "zune",
+    "desktop-app"
+  ],
   "author": "NiceBeard",
   "license": "MIT",
   "devDependencies": {
     "electron": "^31.2.0",
     "electron-builder": "^24.13.3"
   },
-  "dependencies": {},
+  "dependencies": {
+    "music-metadata": "^11.12.1"
+  },
   "build": {
     "appId": "com.zuneexplorer.app",
     "productName": "Zune Explorer",
@@ -29,11 +36,17 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ]
     },
@@ -55,11 +68,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "build-resources/icon.png"

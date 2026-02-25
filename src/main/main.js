@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
+const { parseFile } = require('music-metadata');
 
 const platform = require('./platform-' + (process.platform === 'win32' ? 'win32' : 'darwin') + '.js');
 
@@ -206,6 +207,39 @@ ipcMain.handle('scan-applications', async () => {
   } catch (error) {
     console.error('Error scanning applications:', error);
     return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-audio-metadata', async (event, filePath) => {
+  if (!isAllowedPath(filePath)) {
+    return { success: false, error: 'Access denied' };
+  }
+  try {
+    const metadata = await parseFile(filePath);
+    const result = {
+      success: true,
+      title: metadata.common.title || path.basename(filePath, path.extname(filePath)),
+      artist: metadata.common.artist || 'Unknown Artist',
+      album: metadata.common.album || 'Unknown Album',
+      duration: metadata.format.duration || 0,
+    };
+    if (metadata.common.picture && metadata.common.picture.length > 0) {
+      const pic = metadata.common.picture[0];
+      const base64 = pic.data.toString('base64');
+      result.albumArt = `data:${pic.format};base64,${base64}`;
+    } else {
+      result.albumArt = null;
+    }
+    return result;
+  } catch (error) {
+    return {
+      success: true,
+      title: path.basename(filePath, path.extname(filePath)),
+      artist: 'Unknown Artist',
+      album: 'Unknown Album',
+      duration: 0,
+      albumArt: null,
+    };
   }
 });
 
