@@ -26,6 +26,8 @@ class ZuneExplorer {
         this.browsingMode = false;       // true when browsing directories (vs root view)
         this.homePath = null;            // cached home directory path
         this.smartRoots = [];            // populated in init()
+        this.audioPlayer = null;
+        this.nowPlayingOpen = false;
         this.init();
     }
 
@@ -63,6 +65,7 @@ class ZuneExplorer {
         this.setupEventListeners();
         this.setupKeyboardNavigation();
         this.focusMenu();
+        this.setupPlayer();
     }
 
     setupEventListeners() {
@@ -131,6 +134,13 @@ class ZuneExplorer {
 
     setupKeyboardNavigation() {
         document.addEventListener('keydown', (e) => {
+            // Escape closes Now Playing panel from any view
+            if (e.key === 'Escape' && this.nowPlayingOpen) {
+                e.preventDefault();
+                this.closeNowPlaying();
+                return;
+            }
+
             switch(this.currentView) {
                 case 'menu':
                     this.handleMenuKeyboard(e);
@@ -143,6 +153,71 @@ class ZuneExplorer {
                     break;
             }
         });
+    }
+
+    setupPlayer() {
+        this.audioPlayer = new AudioPlayer();
+
+        // Bottom bar click opens Now Playing
+        const bottomBar = document.getElementById('player-bottom-bar');
+        bottomBar.addEventListener('click', (e) => {
+            if (e.target.closest('.player-bar-controls') || e.target.closest('.player-bar-progress-track')) return;
+            this.openNowPlaying();
+        });
+
+        // Bottom bar controls
+        document.getElementById('player-bar-prev').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.audioPlayer.previous();
+        });
+        document.getElementById('player-bar-play').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.audioPlayer.togglePlayPause();
+        });
+        document.getElementById('player-bar-next').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.audioPlayer.next();
+        });
+
+        // Bottom bar progress seek
+        document.getElementById('player-bar-progress-track').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const track = e.currentTarget;
+            const rect = track.getBoundingClientRect();
+            const percent = ((e.clientX - rect.left) / rect.width) * 100;
+            this.audioPlayer.seek(percent);
+        });
+
+        // Now Playing controls
+        document.getElementById('np-back-btn').addEventListener('click', () => this.closeNowPlaying());
+        document.getElementById('np-prev').addEventListener('click', () => this.audioPlayer.previous());
+        document.getElementById('np-play').addEventListener('click', () => this.audioPlayer.togglePlayPause());
+        document.getElementById('np-next').addEventListener('click', () => this.audioPlayer.next());
+        document.getElementById('np-shuffle').addEventListener('click', () => this.audioPlayer.toggleShuffle());
+        document.getElementById('np-repeat').addEventListener('click', () => this.audioPlayer.toggleRepeat());
+
+        // Now Playing progress seek
+        document.getElementById('np-progress-track').addEventListener('click', (e) => {
+            const track = e.currentTarget;
+            const rect = track.getBoundingClientRect();
+            const percent = ((e.clientX - rect.left) / rect.width) * 100;
+            this.audioPlayer.seek(percent);
+        });
+
+        // Player events
+        this.audioPlayer.on('trackchange', (data) => this.onTrackChange(data));
+        this.audioPlayer.on('play', () => this.onPlayStateChange(true));
+        this.audioPlayer.on('pause', () => this.onPlayStateChange(false));
+        this.audioPlayer.on('timeupdate', (data) => this.onTimeUpdate(data));
+        this.audioPlayer.on('shufflechange', (active) => {
+            document.getElementById('np-shuffle').classList.toggle('active', active);
+        });
+        this.audioPlayer.on('repeatchange', (mode) => {
+            const btn = document.getElementById('np-repeat');
+            btn.classList.toggle('active', mode !== 'none');
+            btn.title = mode === 'one' ? 'Repeat One' : mode === 'all' ? 'Repeat All' : 'Repeat';
+        });
+        this.audioPlayer.on('queueend', () => this.onPlayStateChange(false));
     }
 
     handleMenuKeyboard(e) {
@@ -1036,12 +1111,142 @@ class ZuneExplorer {
         });
     }
 
+    onTrackChange(data) {
+        const { metadata } = data;
+
+        // Show bottom bar
+        document.getElementById('player-bottom-bar').classList.add('visible');
+        document.body.classList.add('player-active');
+
+        // Update bottom bar
+        document.getElementById('player-bar-title').textContent = metadata.title;
+        document.getElementById('player-bar-artist').textContent = metadata.artist;
+
+        // Update Now Playing
+        document.getElementById('np-artist').textContent = metadata.artist.toUpperCase();
+        document.getElementById('np-album').textContent = metadata.album;
+        document.getElementById('np-title').textContent = metadata.title;
+
+        // Album art
+        const barImg = document.getElementById('player-bar-art-img');
+        const barPlaceholder = document.querySelector('.player-bar-art-placeholder');
+        const npImg = document.getElementById('np-art-img');
+        const npPlaceholder = document.querySelector('.np-art-placeholder');
+
+        if (metadata.albumArt) {
+            barImg.src = metadata.albumArt;
+            barImg.style.display = 'block';
+            if (barPlaceholder) barPlaceholder.style.display = 'none';
+
+            npImg.src = metadata.albumArt;
+            npImg.style.display = 'block';
+            if (npPlaceholder) npPlaceholder.style.display = 'none';
+        } else {
+            barImg.style.display = 'none';
+            if (barPlaceholder) barPlaceholder.style.display = 'block';
+
+            npImg.style.display = 'none';
+            if (npPlaceholder) npPlaceholder.style.display = 'block';
+        }
+
+        // Update queue display
+        this.updateQueueDisplay();
+    }
+
+    onPlayStateChange(playing) {
+        const playPath = playing ? 'M6 4h4v16H6zm8 0h4v16h-4z' : 'M8 5v14l11-7z';
+
+        // Update SVG paths via setAttribute (DOM-safe)
+        document.getElementById('player-bar-play-path').setAttribute('d', playPath);
+        document.getElementById('np-play-path').setAttribute('d', playPath);
+
+        // Equalizer animation
+        const eq = document.getElementById('player-equalizer');
+        eq.classList.toggle('paused', !playing);
+    }
+
+    onTimeUpdate(data) {
+        const { currentTime, duration } = data;
+        const percent = duration ? (currentTime / duration) * 100 : 0;
+        const remaining = duration - currentTime;
+
+        // Bottom bar
+        document.getElementById('player-bar-progress-fill').style.width = percent + '%';
+        document.getElementById('player-bar-elapsed').textContent = this.audioPlayer.formatTime(currentTime);
+        document.getElementById('player-bar-remaining').textContent = '-' + this.audioPlayer.formatTime(remaining);
+
+        // Now Playing
+        document.getElementById('np-progress-fill').style.width = percent + '%';
+        document.getElementById('np-elapsed').textContent = this.audioPlayer.formatTime(currentTime);
+        document.getElementById('np-remaining').textContent = '-' + this.audioPlayer.formatTime(remaining);
+    }
+
+    updateQueueDisplay() {
+        const queueList = document.getElementById('np-queue-list');
+        const queue = this.audioPlayer.queue;
+        const currentIndex = this.audioPlayer.currentIndex;
+
+        // Clear existing queue items
+        while (queueList.firstChild) {
+            queueList.removeChild(queueList.firstChild);
+        }
+
+        // Show upcoming tracks (current + next 20)
+        const startIdx = currentIndex;
+        const endIdx = Math.min(queue.length, currentIndex + 21);
+
+        for (let i = startIdx; i < endIdx; i++) {
+            const track = queue[i];
+            const item = document.createElement('div');
+            item.className = 'np-queue-item' + (i === currentIndex ? ' active' : '');
+
+            const num = document.createElement('span');
+            num.className = 'np-queue-item-num';
+            num.textContent = (i + 1).toString();
+            item.appendChild(num);
+
+            const title = document.createElement('span');
+            title.className = 'np-queue-item-title';
+            const fileName = track.name || track.path.split(/[/\\]/).pop();
+            const dotIdx = fileName.lastIndexOf('.');
+            title.textContent = dotIdx > 0 ? fileName.substring(0, dotIdx) : fileName;
+            item.appendChild(title);
+
+            item.addEventListener('click', () => {
+                this.audioPlayer.currentIndex = i;
+                this.audioPlayer.loadAndPlay(queue[i]);
+            });
+
+            queueList.appendChild(item);
+        }
+    }
+
+    openNowPlaying() {
+        document.getElementById('now-playing-panel').classList.add('open');
+        this.nowPlayingOpen = true;
+    }
+
+    closeNowPlaying() {
+        document.getElementById('now-playing-panel').classList.remove('open');
+        this.nowPlayingOpen = false;
+    }
+
     handleFileClick(e, file) {
-        // Open file immediately on single click
-        window.electronAPI.openFile(file.path);
+        // Check if this is a music file
+        if (this.fileExtensions.music.includes(file.extension)) {
+            // Build queue from all music files in current view
+            const queue = this.currentCategory === 'music'
+                ? this.categorizedFiles.music
+                : this.categorizedFiles[this.currentCategory].filter(f =>
+                    this.fileExtensions.music.includes(f.extension)
+                  );
+            this.audioPlayer.play(file, queue.length > 0 ? queue : [file]);
+        } else {
+            // Open non-music files externally
+            window.electronAPI.openFile(file.path);
+        }
+
         this.selectedFile = file;
-        
-        // Add to recent files when actually opened
         this.addToRecentFiles(file);
         this.updateRecentFiles();
     }
