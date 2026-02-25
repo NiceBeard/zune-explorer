@@ -152,6 +152,81 @@
         </div>
     </div>
 
+    <!-- Now Playing Panel -->
+    <div class="now-playing-panel" id="now-playing-panel">
+        <button class="np-back-btn" id="np-back-btn" title="Close Now Playing">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                <circle cx="24" cy="24" r="22" stroke="currentColor" stroke-width="2"/>
+                <path d="M28 16L20 24L28 32" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </button>
+
+        <div class="np-content">
+            <div class="np-track-info">
+                <div class="np-artist" id="np-artist">UNKNOWN ARTIST</div>
+                <div class="np-album" id="np-album">Unknown Album</div>
+            </div>
+
+            <div class="np-art-container">
+                <div class="np-art" id="np-art">
+                    <svg width="200" height="200" viewBox="0 0 24 24" fill="none" class="np-art-placeholder">
+                        <rect width="24" height="24" rx="4" fill="#1a1a1a"/>
+                        <path d="M12 6v8.5M12 6l4 2v6.5" stroke="#444" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        <circle cx="8" cy="14.5" r="2.5" stroke="#444" stroke-width="1.5"/>
+                        <circle cx="16" cy="12.5" r="2.5" stroke="#444" stroke-width="1.5"/>
+                    </svg>
+                    <img id="np-art-img" class="np-art-img" style="display:none" alt="Album art"/>
+                </div>
+            </div>
+
+            <div class="np-progress">
+                <span class="np-time" id="np-elapsed">0:00</span>
+                <div class="np-progress-track" id="np-progress-track">
+                    <div class="np-progress-fill" id="np-progress-fill"></div>
+                </div>
+                <span class="np-time" id="np-remaining">0:00</span>
+            </div>
+
+            <div class="np-title" id="np-title">Not Playing</div>
+
+            <div class="np-controls">
+                <button class="np-ctrl-btn" id="np-shuffle" title="Shuffle">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
+                        <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>
+                        <line x1="4" y1="4" x2="9" y2="9"/>
+                    </svg>
+                </button>
+                <button class="np-ctrl-btn" id="np-prev" title="Previous">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
+                    </svg>
+                </button>
+                <button class="np-ctrl-btn np-play-btn" id="np-play" title="Play/Pause">
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor">
+                        <path id="np-play-path" d="M8 5v14l11-7z"/>
+                    </svg>
+                </button>
+                <button class="np-ctrl-btn" id="np-next" title="Next">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+                    </svg>
+                </button>
+                <button class="np-ctrl-btn" id="np-repeat" title="Repeat">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+                        <polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="np-queue" id="np-queue">
+                <div class="np-queue-header">Up Next</div>
+                <div class="np-queue-list" id="np-queue-list"></div>
+            </div>
+        </div>
+    </div>
+
     <div class="context-menu" id="context-menu">
         <button class="context-menu-item" data-action="open">Open</button>
         <button class="context-menu-item" data-action="show-in-folder">Show in Finder</button>
