@@ -141,6 +141,13 @@ class ZuneExplorer {
                 return;
             }
 
+            // Space bar toggles play/pause when player is active
+            if (e.key === ' ' && this.audioPlayer && this.audioPlayer.isPlaying !== undefined && this.audioPlayer.queue.length > 0 && this.currentView !== 'menu') {
+                e.preventDefault();
+                this.audioPlayer.togglePlayPause();
+                return;
+            }
+
             switch(this.currentView) {
                 case 'menu':
                     this.handleMenuKeyboard(e);
