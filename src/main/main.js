@@ -1,8 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
-const { parseFile } = require('music-metadata');
-
 const platform = require('./platform-' + (process.platform === 'win32' ? 'win32' : 'darwin') + '.js');
 
 // Simple dev mode detection
@@ -215,6 +213,7 @@ ipcMain.handle('get-audio-metadata', async (event, filePath) => {
     return { success: false, error: 'Access denied' };
   }
   try {
+    const { parseFile } = await import('music-metadata');
     const metadata = await parseFile(filePath);
     const result = {
       success: true,
