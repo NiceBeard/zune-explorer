@@ -9,6 +9,15 @@
 </head>
 <body>
     <div class="zune-container">
+        <!-- Custom title bar (Windows only, hidden on macOS via CSS) -->
+        <div class="title-bar" id="title-bar">
+            <div class="title-bar-drag"></div>
+            <div class="title-bar-controls">
+                <button class="title-bar-btn" id="minimize-btn">&#x2014;</button>
+                <button class="title-bar-btn" id="maximize-btn">&#x25A1;</button>
+                <button class="title-bar-btn close-btn" id="close-btn">&#x2715;</button>
+            </div>
+        </div>
         <!-- Main panoramic 3D container -->
         <div class="panoramic-container" id="panoramic-container">
             

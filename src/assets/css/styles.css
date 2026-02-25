@@ -789,3 +789,59 @@ body {
     background: rgba(255, 255, 255, 0.05);
     margin: 16px 0;
 }
+
+/* Custom title bar (Windows only) */
+.title-bar {
+    display: none;
+    height: 32px;
+    background: var(--zune-dark);
+    -webkit-app-region: drag;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 9999;
+    justify-content: flex-end;
+    align-items: center;
+}
+
+body.platform-win32 .title-bar {
+    display: flex;
+}
+
+body.platform-win32 .zune-container {
+    height: calc(100vh - 32px);
+    margin-top: 32px;
+}
+
+.title-bar-drag {
+    flex: 1;
+    height: 100%;
+}
+
+.title-bar-controls {
+    -webkit-app-region: no-drag;
+    display: flex;
+    height: 100%;
+}
+
+.title-bar-btn {
+    width: 46px;
+    height: 100%;
+    border: none;
+    background: transparent;
+    color: var(--zune-text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    -webkit-app-region: no-drag;
+}
+
+.title-bar-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.title-bar-btn.close-btn:hover {
+    background: #e81123;
+    color: white;
+}
