@@ -2,6 +2,9 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
 const platform = require('./platform-' + (process.platform === 'win32' ? 'win32' : 'darwin') + '.js');
+const { ZuneManager } = require('./zune/zune-manager');
+
+const zuneManager = new ZuneManager();
 
 // Simple dev mode detection
 const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev');
@@ -72,6 +75,17 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
 
+  // Start Zune USB detection
+  zuneManager.start();
+
+  // Forward Zune events to renderer
+  zuneManager.on('status', (status) => {
+    if (mainWindow) mainWindow.webContents.send('zune-status', status);
+  });
+  zuneManager.on('transfer-progress', (progress) => {
+    if (mainWindow) mainWindow.webContents.send('zune-transfer-progress', progress);
+  });
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -80,6 +94,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  zuneManager.stop();
   if (process.platform !== 'darwin') {
     app.quit();
   }
@@ -240,6 +255,24 @@ ipcMain.handle('get-audio-metadata', async (event, filePath) => {
       albumArt: null,
     };
   }
+});
+
+ipcMain.handle('zune-device-info', async () => {
+  return zuneManager.getDeviceInfo();
+});
+
+ipcMain.handle('zune-send-files', async (event, filePaths) => {
+  try {
+    await zuneManager.sendFiles(filePaths);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('zune-cancel-transfer', async () => {
+  zuneManager.cancelTransfer();
+  return { success: true };
 });
 
 ipcMain.handle('window-minimize', async () => {

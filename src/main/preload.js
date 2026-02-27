@@ -13,5 +13,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAudioMetadata: (path) => ipcRenderer.invoke('get-audio-metadata', path),
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
   windowMaximize: () => ipcRenderer.invoke('window-maximize'),
-  windowClose: () => ipcRenderer.invoke('window-close')
+  windowClose: () => ipcRenderer.invoke('window-close'),
+
+  // Zune sync
+  zuneDeviceInfo: () => ipcRenderer.invoke('zune-device-info'),
+  zuneSendFiles: (paths) => ipcRenderer.invoke('zune-send-files', paths),
+  zuneCancelTransfer: () => ipcRenderer.invoke('zune-cancel-transfer'),
+  onZuneStatus: (callback) => ipcRenderer.on('zune-status', (event, status) => callback(status)),
+  onZuneTransferProgress: (callback) => ipcRenderer.on('zune-transfer-progress', (event, progress) => callback(progress))
 });
