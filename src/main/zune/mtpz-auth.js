@@ -4,7 +4,6 @@ const { DeviceProperty } = require('./mtp-constants.js');
 const {
   MTPZ_MODULUS,
   MTPZ_PRIVATE_KEY,
-  MTPZ_ENCRYPTION_KEY,
   MTPZ_CERTIFICATES,
 } = require('./mtpz-keys.js');
 
@@ -95,7 +94,7 @@ class MtpzAuth {
       chunks.push(hash.digest());
     }
 
-    return Buffer.concat(chunks).slice(0, length);
+    return Buffer.concat(chunks).subarray(0, length);
   }
 
   // ---------------------------------------------------------------------------
@@ -149,7 +148,7 @@ class MtpzAuth {
   _computeSignature(message, preSignLen) {
     // Step 1: SHA-1 hash of the message content (bytes [2..preSignLen))
     const innerHash = crypto.createHash('sha1')
-      .update(message.slice(2, preSignLen))
+      .update(message.subarray(2, preSignLen))
       .digest();
 
     // Step 2: Place innerHash into a 28-byte buffer at offset 8 (first 8 bytes zero)
@@ -195,22 +194,22 @@ class MtpzAuth {
     }
 
     // RSA-decrypt the 128-byte encrypted block starting at offset 4
-    const encrypted = response.slice(4, 4 + RSA_BLOCK_SIZE);
+    const encrypted = response.subarray(4, 4 + RSA_BLOCK_SIZE);
     const decrypted = this._rsaRawPrivate(encrypted);
 
     // OAEP unmask
-    const seedMask = this._mgf1Sha1(decrypted.slice(21, RSA_BLOCK_SIZE), 20);
+    const seedMask = this._mgf1Sha1(decrypted.subarray(21, RSA_BLOCK_SIZE), 20);
     for (let i = 0; i < 20; i++) {
       decrypted[1 + i] ^= seedMask[i];
     }
 
-    const dataMask = this._mgf1Sha1(decrypted.slice(1, 21), 107);
+    const dataMask = this._mgf1Sha1(decrypted.subarray(1, 21), 107);
     for (let i = 0; i < 107; i++) {
       decrypted[21 + i] ^= dataMask[i];
     }
 
     // Extract the AES session key from the unmasked data
-    const hashKey = Buffer.from(decrypted.slice(112, RSA_BLOCK_SIZE));
+    const hashKey = Buffer.from(decrypted.subarray(112, RSA_BLOCK_SIZE));
 
     // Verify the AES-encrypted block header
     if (response[134] !== 0x03) {
@@ -229,7 +228,7 @@ class MtpzAuth {
     const decipher = crypto.createDecipheriv('aes-128-cbc', hashKey, iv);
     decipher.setAutoPadding(false);
 
-    const ciphertext = response.slice(136, 136 + aesBlockLen);
+    const ciphertext = response.subarray(136, 136 + aesBlockLen);
     const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 
     // Parse the decrypted payload
@@ -242,7 +241,7 @@ class MtpzAuth {
     offset += 2;
 
     // Verify the echoed random matches what we sent
-    const echoedRandom = plaintext.slice(offset, offset + randLength);
+    const echoedRandom = plaintext.subarray(offset, offset + randLength);
     offset += randLength;
 
     if (!echoedRandom.equals(sentRandom)) {
@@ -263,7 +262,7 @@ class MtpzAuth {
     const macHashLength = plaintext.readUInt16BE(offset);
     offset += 2;
 
-    const macHash = Buffer.from(plaintext.slice(offset, offset + macHashLength));
+    const macHash = Buffer.from(plaintext.subarray(offset, offset + macHashLength));
 
     return { macHash };
   }
@@ -343,7 +342,7 @@ class MtpzAuth {
     const seed = Buffer.alloc(16);
     seed[15] = 0x01;
 
-    const cmacKey = macHash.slice(0, 16);
+    const cmacKey = macHash.subarray(0, 16);
     const cmac = this._aesCmac(cmacKey, seed);
     cmac.copy(confirmation, 4);
 
@@ -355,8 +354,8 @@ class MtpzAuth {
   // ---------------------------------------------------------------------------
 
   async _enableTrusted(macHash) {
-    const cmacKey = macHash.slice(0, 16);
-    const macCount = macHash.slice(16, 20);
+    const cmacKey = macHash.subarray(0, 16);
+    const macCount = macHash.subarray(16, 20);
 
     const cmac = this._aesCmac(cmacKey, macCount);
 
