@@ -230,9 +230,63 @@
         </div>
     </div>
 
+    <!-- Zune Sync Panel -->
+    <div class="zune-sync-panel" id="zune-sync-panel">
+        <div class="zune-sync-header">
+            <h1 class="zune-sync-title" id="zune-sync-title">zune hd</h1>
+            <p class="zune-sync-subtitle" id="zune-sync-subtitle">connecting...</p>
+        </div>
+
+        <div class="zune-sync-storage" id="zune-sync-storage" style="display:none">
+            <div class="zune-storage-bar">
+                <div class="zune-storage-fill" id="zune-storage-fill"></div>
+            </div>
+            <span class="zune-storage-text" id="zune-storage-text">0 GB free</span>
+        </div>
+
+        <div class="zune-sync-idle" id="zune-sync-idle" style="display:none">
+            <div class="zune-drop-zone" id="zune-drop-zone">
+                <p class="zune-drop-text">drag files here</p>
+                <p class="zune-drop-subtext">or use the buttons below</p>
+            </div>
+            <div class="zune-sync-buttons">
+                <button class="zune-sync-btn" id="zune-sync-music">sync music</button>
+                <button class="zune-sync-btn" id="zune-sync-videos">sync videos</button>
+                <button class="zune-sync-btn" id="zune-sync-pictures">sync pictures</button>
+            </div>
+        </div>
+
+        <div class="zune-sync-progress" id="zune-sync-progress" style="display:none">
+            <p class="zune-progress-count" id="zune-progress-count">sending 0 of 0</p>
+            <p class="zune-progress-file" id="zune-progress-file"></p>
+            <div class="zune-progress-bar">
+                <div class="zune-progress-fill" id="zune-progress-fill"></div>
+            </div>
+            <p class="zune-progress-bytes" id="zune-progress-bytes"></p>
+            <p class="zune-progress-label">overall</p>
+            <div class="zune-progress-bar">
+                <div class="zune-progress-overall" id="zune-progress-overall"></div>
+            </div>
+            <button class="zune-cancel-btn" id="zune-cancel-btn">cancel</button>
+        </div>
+
+        <div class="zune-sync-complete" id="zune-sync-complete" style="display:none">
+            <p class="zune-complete-text" id="zune-complete-text">0 files synced</p>
+        </div>
+    </div>
+
+    <button class="zune-toggle-btn" id="zune-toggle-btn" style="display:none" title="Zune Sync">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="5" y="2" width="14" height="20" rx="2"/>
+            <circle cx="12" cy="16" r="2"/>
+            <line x1="9" y1="6" x2="15" y2="6"/>
+        </svg>
+    </button>
+
     <div class="context-menu" id="context-menu">
         <button class="context-menu-item" data-action="open">Open</button>
         <button class="context-menu-item" data-action="show-in-folder">Show in Finder</button>
+        <button class="context-menu-item" data-action="send-to-zune" id="ctx-send-to-zune" style="display:none">Send to Zune</button>
         <div class="context-menu-separator"></div>
         <button class="context-menu-item" data-action="delete">Delete</button>
     </div>

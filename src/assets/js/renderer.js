@@ -1,3 +1,192 @@
+class ZuneSyncPanel {
+    constructor(explorer) {
+        this.explorer = explorer;
+        this.open = false;
+        this.state = 'disconnected';
+
+        this.panel = document.getElementById('zune-sync-panel');
+        this.toggleBtn = document.getElementById('zune-toggle-btn');
+        this.dropZone = document.getElementById('zune-drop-zone');
+
+        this._bindEvents();
+        this._listenForZune();
+    }
+
+    _bindEvents() {
+        this.toggleBtn.addEventListener('click', () => this.toggle());
+
+        this.dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            this.dropZone.classList.add('dragover');
+        });
+        this.dropZone.addEventListener('dragleave', () => {
+            this.dropZone.classList.remove('dragover');
+        });
+        this.dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            this.dropZone.classList.remove('dragover');
+            const paths = [];
+            if (e.dataTransfer.files.length > 0) {
+                for (const f of e.dataTransfer.files) paths.push(f.path);
+            }
+            if (paths.length > 0) this._sendFiles(paths);
+        });
+
+        document.getElementById('zune-sync-music').addEventListener('click', () => {
+            const paths = this.explorer.categorizedFiles.music.map(f => f.path);
+            if (paths.length > 0) this._sendFiles(paths);
+        });
+        document.getElementById('zune-sync-videos').addEventListener('click', () => {
+            const paths = this.explorer.categorizedFiles.videos.map(f => f.path);
+            if (paths.length > 0) this._sendFiles(paths);
+        });
+        document.getElementById('zune-sync-pictures').addEventListener('click', () => {
+            const paths = this.explorer.categorizedFiles.pictures.map(f => f.path);
+            if (paths.length > 0) this._sendFiles(paths);
+        });
+
+        document.getElementById('zune-cancel-btn').addEventListener('click', () => {
+            window.electronAPI.zuneCancelTransfer();
+        });
+    }
+
+    _listenForZune() {
+        window.electronAPI.onZuneStatus((status) => {
+            this.state = status.state;
+            this._updateUI(status);
+        });
+        window.electronAPI.onZuneTransferProgress((progress) => {
+            this._updateProgress(progress);
+        });
+    }
+
+    toggle() {
+        this.open = !this.open;
+        this.panel.classList.toggle('open', this.open);
+    }
+
+    show() {
+        this.open = true;
+        this.panel.classList.add('open');
+    }
+
+    _updateUI(status) {
+        const title = document.getElementById('zune-sync-title');
+        const subtitle = document.getElementById('zune-sync-subtitle');
+        const storageEl = document.getElementById('zune-sync-storage');
+        const idleEl = document.getElementById('zune-sync-idle');
+        const progressEl = document.getElementById('zune-sync-progress');
+        const completeEl = document.getElementById('zune-sync-complete');
+
+        storageEl.style.display = 'none';
+        idleEl.style.display = 'none';
+        progressEl.style.display = 'none';
+        completeEl.style.display = 'none';
+
+        switch (status.state) {
+            case 'connecting':
+                this.toggleBtn.style.display = 'flex';
+                this.toggleBtn.classList.add('pulse');
+                title.textContent = (status.model || 'zune').toLowerCase();
+                subtitle.textContent = 'connecting...';
+                this.show();
+                break;
+
+            case 'connected':
+                this.toggleBtn.classList.remove('pulse');
+                title.textContent = (status.model || 'zune').toLowerCase();
+                subtitle.textContent = 'connected';
+                if (status.storage) {
+                    this._updateStorage(status.storage);
+                    storageEl.style.display = 'block';
+                }
+                idleEl.style.display = 'block';
+                break;
+
+            case 'disconnected':
+                this.toggleBtn.style.display = 'none';
+                this.toggleBtn.classList.remove('pulse');
+                this.open = false;
+                this.panel.classList.remove('open');
+                break;
+
+            case 'error':
+                subtitle.textContent = 'error: ' + (status.error || 'unknown');
+                break;
+        }
+    }
+
+    _updateStorage(storage) {
+        const fill = document.getElementById('zune-storage-fill');
+        const text = document.getElementById('zune-storage-text');
+        const usedPercent = ((storage.maxCapacity - storage.freeSpace) / storage.maxCapacity) * 100;
+        fill.style.width = usedPercent.toFixed(1) + '%';
+        const freeGB = (storage.freeSpace / (1024 * 1024 * 1024)).toFixed(1);
+        text.textContent = freeGB + ' GB free';
+    }
+
+    _updateProgress(progress) {
+        const countEl = document.getElementById('zune-progress-count');
+        const fileEl = document.getElementById('zune-progress-file');
+        const fillEl = document.getElementById('zune-progress-fill');
+        const overallEl = document.getElementById('zune-progress-overall');
+        const bytesEl = document.getElementById('zune-progress-bytes');
+        const idleEl = document.getElementById('zune-sync-idle');
+        const progressEl = document.getElementById('zune-sync-progress');
+        const completeEl = document.getElementById('zune-sync-complete');
+
+        switch (progress.state) {
+            case 'sending':
+                idleEl.style.display = 'none';
+                progressEl.style.display = 'block';
+                completeEl.style.display = 'none';
+
+                countEl.textContent = `sending ${progress.fileIndex + 1} of ${progress.totalFiles}`;
+                fileEl.textContent = progress.fileName;
+
+                const filePercent = progress.totalBytes > 0
+                    ? (progress.bytesTransferred / progress.totalBytes) * 100 : 0;
+                fillEl.style.width = filePercent.toFixed(1) + '%';
+
+                const overallPercent = ((progress.fileIndex + filePercent / 100) / progress.totalFiles) * 100;
+                overallEl.style.width = overallPercent.toFixed(1) + '%';
+
+                const sentMB = (progress.bytesTransferred / (1024 * 1024)).toFixed(1);
+                const totalMB = (progress.totalBytes / (1024 * 1024)).toFixed(1);
+                bytesEl.textContent = `${sentMB} / ${totalMB} MB`;
+                break;
+
+            case 'complete':
+                progressEl.style.display = 'none';
+                completeEl.style.display = 'block';
+                document.getElementById('zune-complete-text').textContent =
+                    `${progress.completedFiles} files synced`;
+                if (progress.storage) this._updateStorage(progress.storage);
+                setTimeout(() => {
+                    completeEl.style.display = 'none';
+                    idleEl.style.display = 'block';
+                }, 3000);
+                break;
+
+            case 'cancelled':
+                progressEl.style.display = 'none';
+                idleEl.style.display = 'block';
+                break;
+
+            case 'error':
+                progressEl.style.display = 'none';
+                idleEl.style.display = 'block';
+                document.getElementById('zune-sync-subtitle').textContent =
+                    'transfer error: ' + (progress.error || 'unknown');
+                break;
+        }
+    }
+
+    async _sendFiles(filePaths) {
+        await window.electronAPI.zuneSendFiles(filePaths);
+    }
+}
+
 class ZuneExplorer {
     constructor() {
         this.currentView = 'menu'; // menu, content, recent
@@ -28,6 +217,7 @@ class ZuneExplorer {
         this.smartRoots = [];            // populated in init()
         this.audioPlayer = null;
         this.nowPlayingOpen = false;
+        this.zunePanel = null;
         this.init();
     }
 
@@ -59,6 +249,7 @@ class ZuneExplorer {
             ];
         }
         await this.scanFileSystem();
+        this.zunePanel = new ZuneSyncPanel(this);
         this.updateFileCounts();
         await this.loadRecentFiles();
         this.updateRecentFiles();
@@ -1281,6 +1472,11 @@ class ZuneExplorer {
         if (rect.bottom > window.innerHeight) {
             contextMenu.style.top = `${y - rect.height}px`;
         }
+
+        const sendToZune = document.getElementById('ctx-send-to-zune');
+        if (sendToZune) {
+            sendToZune.style.display = (this.zunePanel && this.zunePanel.state === 'connected') ? 'block' : 'none';
+        }
     }
 
     hideContextMenu() {
@@ -1315,6 +1511,12 @@ class ZuneExplorer {
                         this.renderCategoryContent();
                     }
                     this.updateRecentFiles();
+                }
+                break;
+
+            case 'send-to-zune':
+                if (this.zunePanel) {
+                    await window.electronAPI.zuneSendFiles([this.selectedFile.path]);
                 }
                 break;
         }
