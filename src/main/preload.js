@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   windowClose: () => ipcRenderer.invoke('window-close'),
 
   // Zune sync
+  zuneGetStatus: () => ipcRenderer.invoke('zune-get-status'),
   zuneDeviceInfo: () => ipcRenderer.invoke('zune-device-info'),
   zuneSendFiles: (paths) => ipcRenderer.invoke('zune-send-files', paths),
   zuneCancelTransfer: () => ipcRenderer.invoke('zune-cancel-transfer'),

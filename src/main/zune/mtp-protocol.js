@@ -77,8 +77,17 @@ class MtpProtocol {
   }
 
   async sendData(opcode, data) {
-    const container = this.buildDataContainer(opcode, data);
-    await this.transport.bulkWrite(container);
+    // Zune requires DATA containers as two separate USB transfers:
+    // 1. The 12-byte container header
+    // 2. The payload bytes
+    const header = Buffer.alloc(CONTAINER_HEADER_SIZE);
+    header.writeUInt32LE(CONTAINER_HEADER_SIZE + data.length, 0);
+    header.writeUInt16LE(ContainerType.DATA, 4);
+    header.writeUInt16LE(opcode, 6);
+    header.writeUInt32LE(this.transactionId, 8);
+
+    await this.transport.bulkWrite(header);
+    await this.transport.bulkWrite(data);
   }
 
   async receiveData() {
@@ -116,6 +125,7 @@ class MtpProtocol {
 
     if (container.code !== ResponseCode.OK) {
       const codeName = ResponseCodeName[container.code] || `0x${container.code.toString(16).padStart(4, '0')}`;
+      console.log(`MTP response: code=${codeName} txId=${container.transactionId} params=[${container.params.map(p => '0x' + p.toString(16)).join(', ')}]`);
       throw new Error(`MTP response error: ${codeName}`);
     }
 
@@ -128,8 +138,51 @@ class MtpProtocol {
 
   async openSession(sessionId = 1) {
     this.sessionId = sessionId;
-    await this.sendCommand(OperationCode.OpenSession, [sessionId]);
-    await this.receiveResponse();
+
+    // PTP spec: TransactionID must be 0 for OpenSession (no active session)
+    // Send the container directly to bypass sendCommand's auto-increment
+    const container = this.buildContainer(
+      ContainerType.COMMAND,
+      OperationCode.OpenSession,
+      [sessionId]
+    );
+    // transactionId is already 0 from constructor or reset
+    await this.transport.bulkWrite(container);
+
+    try {
+      await this.receiveResponse();
+    } catch (err) {
+      // If session is already open or parameter rejected (stale session),
+      // try closing the stale session and re-opening
+      if (
+        err.message.includes('SessionAlreadyOpen') ||
+        err.message.includes('InvalidParameter')
+      ) {
+        console.log('MTP: stale session detected, closing and retrying...');
+        this.transactionId = 0;
+        await this.sendCommand(OperationCode.CloseSession);
+        try {
+          await this.receiveResponse();
+        } catch {
+          // Ignore close errors — session may not actually be open
+        }
+
+        // Retry open with TransactionID = 0
+        this.transactionId = 0;
+        const retry = this.buildContainer(
+          ContainerType.COMMAND,
+          OperationCode.OpenSession,
+          [sessionId]
+        );
+        await this.transport.bulkWrite(retry);
+        await this.receiveResponse();
+      } else {
+        throw err;
+      }
+    }
+
+    // After successful open, transaction IDs start at 1
+    this.transactionId = 0;
   }
 
   async closeSession() {
@@ -230,12 +283,36 @@ class MtpProtocol {
     await this.receiveResponse();
   }
 
+  async setObjectPropString(objectHandle, propCode, value) {
+    await this.sendCommand(OperationCode.SetObjectPropValue, [objectHandle, propCode]);
+    const encoded = this._encodeMtpString(value);
+    await this.sendData(OperationCode.SetObjectPropValue, encoded);
+    await this.receiveResponse();
+  }
+
+  async setObjectPropUint32(objectHandle, propCode, value) {
+    await this.sendCommand(OperationCode.SetObjectPropValue, [objectHandle, propCode]);
+    const buf = Buffer.alloc(4);
+    buf.writeUInt32LE(value, 0);
+    await this.sendData(OperationCode.SetObjectPropValue, buf);
+    await this.receiveResponse();
+  }
+
+  async setObjectPropUint16(objectHandle, propCode, value) {
+    await this.sendCommand(OperationCode.SetObjectPropValue, [objectHandle, propCode]);
+    const buf = Buffer.alloc(2);
+    buf.writeUInt16LE(value, 0);
+    await this.sendData(OperationCode.SetObjectPropValue, buf);
+    await this.receiveResponse();
+  }
+
   // ---------------------------------------------------------------------------
   // MTPZ vendor operations
   // ---------------------------------------------------------------------------
 
   async sendMtpzRequest(data) {
     this.transactionId++;
+    console.log(`MTP: sendMtpzRequest txId=${this.transactionId} dataLen=${data.length}`);
     const cmd = this.buildContainer(ContainerType.COMMAND, OperationCode.SendWMDRMPDAppRequest);
     await this.transport.bulkWrite(cmd);
 
@@ -401,8 +478,9 @@ class MtpProtocol {
     offset += 4;
 
     // Skip thumbFormat (2), thumbCompressedSize (4), thumbPixWidth (4),
-    // thumbPixHeight (4), imagePixWidth (4), imagePixHeight (4) = 22 bytes
-    offset += 22;
+    // thumbPixHeight (4), imagePixWidth (4), imagePixHeight (4),
+    // imageBitDepth (4) = 26 bytes
+    offset += 26;
 
     const parentObject = buf.readUInt32LE(offset);
     offset += 4;

@@ -58,6 +58,14 @@ class ZuneSyncPanel {
         window.electronAPI.onZuneTransferProgress((progress) => {
             this._updateProgress(progress);
         });
+
+        // Request current status in case the device connected before renderer loaded
+        window.electronAPI.zuneGetStatus().then((status) => {
+            if (status) {
+                this.state = status.state;
+                this._updateUI(status);
+            }
+        });
     }
 
     toggle() {
@@ -93,6 +101,7 @@ class ZuneSyncPanel {
                 break;
 
             case 'connected':
+                this.toggleBtn.style.display = 'flex';
                 this.toggleBtn.classList.remove('pulse');
                 title.textContent = (status.model || 'zune').toLowerCase();
                 subtitle.textContent = 'connected';
@@ -101,6 +110,7 @@ class ZuneSyncPanel {
                     storageEl.style.display = 'block';
                 }
                 idleEl.style.display = 'block';
+                this.show();
                 break;
 
             case 'disconnected':
@@ -136,6 +146,17 @@ class ZuneSyncPanel {
         const completeEl = document.getElementById('zune-sync-complete');
 
         switch (progress.state) {
+            case 'converting':
+                idleEl.style.display = 'none';
+                progressEl.style.display = 'block';
+                completeEl.style.display = 'none';
+
+                countEl.textContent = `converting ${progress.fileIndex + 1} of ${progress.totalFiles}`;
+                fileEl.textContent = progress.fileName;
+                fillEl.style.width = '0%';
+                bytesEl.textContent = 'converting to mp3...';
+                break;
+
             case 'sending':
                 idleEl.style.display = 'none';
                 progressEl.style.display = 'block';
@@ -225,6 +246,8 @@ class ZuneExplorer {
         this.platform = await window.electronAPI.getPlatform();
         if (this.platform === 'win32') {
             document.body.classList.add('platform-win32');
+        } else if (this.platform === 'darwin') {
+            document.body.classList.add('platform-darwin');
         }
         this.homePath = await window.electronAPI.getHomeDirectory();
         if (this.platform === 'win32') {
@@ -301,12 +324,34 @@ class ZuneExplorer {
             }
         });
 
-        // Recent sidebar click to rotate to front
-        document.getElementById('recent-sidebar').addEventListener('click', (e) => {
-            if (this.currentView === 'menu' && !e.target.closest('.recent-preview-item')) {
+        // Horizontal swipe/wheel to switch carousel panels
+        document.getElementById('panoramic-container').addEventListener('wheel', (e) => {
+            if (this.currentView === 'content') return;
+            if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 30) {
+                e.preventDefault();
+                if (e.deltaX > 0 && this.currentView === 'recent') {
+                    this.showMenu();
+                } else if (e.deltaX < 0 && this.currentView === 'menu') {
+                    this.showRecent();
+                }
+            }
+        }, { passive: false });
+
+        // Carousel panel clicks - click behind panel to bring it to front
+        // Use capture phase so we intercept before child handlers fire
+        document.querySelector('.recent-panel').addEventListener('click', (e) => {
+            if (this.currentView === 'menu') {
+                e.stopPropagation();
                 this.showRecent();
             }
-        });
+        }, true);
+
+        document.querySelector('.menu-panel').addEventListener('click', (e) => {
+            if (this.currentView === 'recent') {
+                e.stopPropagation();
+                this.showMenu();
+            }
+        }, true);
 
         // Title bar controls (Windows)
         const minimizeBtn = document.getElementById('minimize-btn');
@@ -948,9 +993,7 @@ class ZuneExplorer {
     }
 
     updateRecentFiles() {
-        // Update both the recent panel and the preview in menu
         this.updateRecentPanel();
-        this.updateRecentPreview();
     }
 
     updateRecentPanel() {
@@ -972,29 +1015,6 @@ class ZuneExplorer {
         sortedRecent.forEach(file => {
             const recentElement = this.createRecentFileElement(file);
             recentContainer.appendChild(recentElement);
-        });
-    }
-
-    updateRecentPreview() {
-        const recentPreview = document.getElementById('recent-preview');
-        
-        if (this.recentFiles.length === 0) {
-            recentPreview.innerHTML = '<div class="recent-empty">no recent files</div>';
-            return;
-        }
-        
-        recentPreview.innerHTML = '';
-        
-        // Sort by access time (most recently accessed first) and take max 20
-        const sortedRecent = [...this.recentFiles].sort((a, b) => {
-            const aTime = a.lastAccessed || a.modified;
-            const bTime = b.lastAccessed || b.modified;
-            return new Date(bTime) - new Date(aTime);
-        }).slice(0, 20);
-        
-        sortedRecent.forEach(file => {
-            const previewElement = this.createRecentPreviewElement(file);
-            recentPreview.appendChild(previewElement);
         });
     }
 
@@ -1028,72 +1048,37 @@ class ZuneExplorer {
         }
     }
 
-    createRecentPreviewElement(file) {
-        const div = document.createElement('div');
-        div.className = 'recent-preview-item';
-        div.dataset.path = file.path;
-        
-        const category = this.getFileCategory(file);
-        
-        // Check if it's an image file for preview
-        if (category === 'pictures') {
-            const img = document.createElement('img');
-            img.src = `file://${file.path}`;
-            img.onerror = () => {
-                // Fallback to icon if image fails to load
-                img.style.display = 'none';
-                const iconDiv = document.createElement('div');
-                iconDiv.className = 'recent-preview-icon';
-                iconDiv.innerHTML = this.getFileIcon(file);
-                div.appendChild(iconDiv);
-            };
-            div.appendChild(img);
-        } else if (category === 'applications' && file.isApplication) {
-            // Try to load app icon for applications in recent
-            const iconDiv = document.createElement('div');
-            iconDiv.className = 'recent-preview-icon';
-            this.loadAppIcon(file, iconDiv);
-            div.appendChild(iconDiv);
-        } else {
-            // Use icon for non-image files
-            const iconDiv = document.createElement('div');
-            iconDiv.className = 'recent-preview-icon';
-            iconDiv.innerHTML = this.getFileIcon(file);
-            div.appendChild(iconDiv);
-        }
-        
-        // Add file name overlay
-        const nameDiv = document.createElement('div');
-        nameDiv.className = 'recent-item-name';
-        nameDiv.textContent = file.name;
-        div.appendChild(nameDiv);
-        
-        // Event listeners
-        div.addEventListener('click', () => this.handleFileClick(null, file));
-        div.addEventListener('contextmenu', (e) => this.showContextMenu(e, file));
-        
-        return div;
-    }
-
     createRecentFileElement(file) {
         const div = document.createElement('div');
         div.className = 'recent-file';
         div.dataset.path = file.path;
-        
+
+        const category = this.getFileCategory(file);
+
+        // Add image thumbnail for pictures
+        if (category === 'pictures') {
+            const img = document.createElement('img');
+            img.className = 'recent-file-thumb';
+            img.src = `file://${file.path}`;
+            img.alt = file.name;
+            img.onerror = () => { img.style.display = 'none'; };
+            div.appendChild(img);
+        }
+
         const fileName = document.createElement('div');
         fileName.className = 'file-name';
         fileName.textContent = file.name;
-        
+
         const fileType = document.createElement('div');
         fileType.className = 'file-details';
-        fileType.textContent = this.getFileCategory(file);
-        
+        fileType.textContent = category;
+
         div.appendChild(fileName);
         div.appendChild(fileType);
-        
+
         div.addEventListener('click', () => this.handleFileClick(null, file));
         div.addEventListener('contextmenu', (e) => this.showContextMenu(e, file));
-        
+
         return div;
     }
 

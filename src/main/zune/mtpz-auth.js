@@ -1,6 +1,5 @@
 const crypto = require('crypto');
 
-const { DeviceProperty } = require('./mtp-constants.js');
 const {
   MTPZ_MODULUS,
   MTPZ_PRIVATE_KEY,
@@ -19,29 +18,36 @@ class MtpzAuth {
   // ---------------------------------------------------------------------------
 
   async authenticate() {
-    // Step 1: Identify this session to the device
-    await this.mtp.setDeviceProperty(
-      DeviceProperty.SessionInitiatorInfo,
-      'ZuneExplorer/1.0 - MTPZ'
-    );
+    // Must match libmtp's exact sequence — the Zune requires SessionInitiatorInfo
+    // and a handshake reset before it will accept the CMAC confirmation.
 
-    // Step 2: Reset any prior handshake state
+    // Step 1: Set SessionInitiatorInfo (required by Zune firmware)
+    console.log('MTPZ step 1: setting SessionInitiatorInfo');
+    await this.mtp.setDeviceProperty(0xD406, 'libmtp/Sajid Anwar - MTPZClassDriver');
+
+    // Step 2: Reset any prior MTPZ handshake state
+    console.log('MTPZ step 2: resetting handshake');
     await this.mtp.resetMtpzHandshake();
 
     // Step 3: Send our application certificate with RSA signature
     const { message, random } = this._buildAppCertificateMessage();
+    console.log('MTPZ step 3: sending certificate', message.length, 'bytes');
     await this.mtp.sendMtpzRequest(message);
 
     // Step 4: Receive and decrypt the device's challenge response
     const response = await this.mtp.getMtpzResponse();
+    console.log('MTPZ step 4: got device response', response.length, 'bytes');
     const { macHash } = this._parseDeviceResponse(response, random);
 
     // Step 5: Send AES-CMAC confirmation proving we decrypted successfully
     const confirmation = this._buildConfirmation(macHash);
+    console.log('MTPZ step 5: sending confirmation');
     await this.mtp.sendMtpzRequest(confirmation);
+    console.log('MTPZ step 5: confirmation accepted');
 
     // Step 6: Enable trusted file operations with derived hash values
     await this._enableTrusted(macHash);
+    console.log('MTPZ step 6: trusted operations enabled');
 
     return true;
   }
@@ -208,19 +214,15 @@ class MtpzAuth {
       decrypted[21 + i] ^= dataMask[i];
     }
 
-    // Extract the AES session key from the unmasked data
+    // Extract the AES session key (last 16 bytes of the OAEP-unmasked block)
     const hashKey = Buffer.from(decrypted.subarray(112, RSA_BLOCK_SIZE));
 
-    // Verify the AES-encrypted block header
-    if (response[134] !== 0x03) {
+    // Bytes 134-135 form a big-endian uint16 indicating the AES ciphertext length
+    const aesBlockLen = response.readUInt16BE(134);
+    if (aesBlockLen === 0 || (aesBlockLen % 16) !== 0) {
       throw new Error(
-        `MTPZ: expected 0x03 at response[134], got 0x${response[134].toString(16)}`
+        `MTPZ: invalid AES block length: ${aesBlockLen} (bytes 134-135: ${response.subarray(134, 136).toString('hex')})`
       );
-    }
-
-    const aesBlockLen = response[135] * 16;
-    if (aesBlockLen === 0) {
-      throw new Error('MTPZ: AES encrypted block length is zero');
     }
 
     // AES-128-CBC decrypt the device's encrypted payload
@@ -252,12 +254,12 @@ class MtpzAuth {
     const devRandLength = plaintext.readUInt16BE(offset);
     offset += 2 + devRandLength;
 
-    // Skip signature block: 1 byte + uint16BE length + data
+    // Skip signature block: 1 byte marker + uint16BE length + data
     offset += 1;
     const sigLength = plaintext.readUInt16BE(offset);
     offset += 2 + sigLength;
 
-    // Read the MAC hash: 1 byte + uint16BE length + data
+    // Read the MAC hash: 1 byte marker + uint16BE length + data
     offset += 1;
     const macHashLength = plaintext.readUInt16BE(offset);
     offset += 2;

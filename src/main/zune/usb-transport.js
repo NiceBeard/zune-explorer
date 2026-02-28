@@ -1,4 +1,4 @@
-const { usb } = require('usb');
+const { WebUSB, usb } = require('usb');
 
 const ZUNE_VENDOR_ID = 0x045E;
 
@@ -7,123 +7,96 @@ const ZUNE_DEVICES = {
   0x0710: 'Zune 32GB'
 };
 
+// Endpoint numbers for MTP bulk transfers (from Zune device descriptor)
+const BULK_OUT_ENDPOINT = 1;
+const BULK_IN_ENDPOINT = 1;
+
 class UsbTransport {
   constructor() {
     this.device = null;
-    this.iface = null;
-    this.endpointIn = null;
-    this.endpointOut = null;
+    this.webusb = new WebUSB({ allowAllDevices: true });
     this.attachCallbacks = [];
     this.detachCallbacks = [];
   }
 
-  findZune() {
-    const devices = usb.getDeviceList();
-
-    for (const device of devices) {
-      const { idVendor, idProduct } = device.deviceDescriptor;
-
-      if (idVendor === ZUNE_VENDOR_ID && ZUNE_DEVICES[idProduct]) {
-        return {
-          device,
-          model: ZUNE_DEVICES[idProduct],
-          productId: idProduct
-        };
+  async findZune() {
+    try {
+      const device = await this.webusb.requestDevice({
+        filters: Object.keys(ZUNE_DEVICES).map(pid => ({
+          vendorId: ZUNE_VENDOR_ID,
+          productId: Number(pid)
+        }))
+      });
+      if (device) {
+        const model = ZUNE_DEVICES[device.productId] || 'Zune';
+        return { device, model, productId: device.productId };
       }
+    } catch {
+      // No matching device found
     }
-
     return null;
   }
 
-  open(vendorId, productId) {
-    const devices = usb.getDeviceList();
-    this.device = devices.find((d) => {
-      const desc = d.deviceDescriptor;
-      return desc.idVendor === vendorId && desc.idProduct === productId;
+  async open(vendorId, productId) {
+    const device = await this.webusb.requestDevice({
+      filters: [{ vendorId, productId }]
     });
 
-    if (!this.device) {
+    if (!device) {
       throw new Error(`Zune device not found (VID=0x${vendorId.toString(16)}, PID=0x${productId.toString(16)})`);
     }
 
-    this.device.open();
+    this.device = device;
+    await this.device.open();
 
-    this.iface = this.device.interface(0);
-
-    if (this.iface.isKernelDriverActive()) {
-      this.iface.detachKernelDriver();
+    // Select configuration if not already active
+    if (this.device.configuration === null) {
+      await this.device.selectConfiguration(1);
     }
 
-    this.iface.claim();
-
-    for (const endpoint of this.iface.endpoints) {
-      if (endpoint.transferType === usb.LIBUSB_TRANSFER_TYPE_BULK) {
-        if (endpoint.direction === 'in') {
-          this.endpointIn = endpoint;
-        } else if (endpoint.direction === 'out') {
-          this.endpointOut = endpoint;
-        }
-      }
-    }
-
-    if (!this.endpointIn || !this.endpointOut) {
-      throw new Error('Could not find bulk IN and OUT endpoints');
-    }
+    await this.device.claimInterface(0);
   }
 
-  close() {
-    try {
-      if (this.iface) {
-        this.iface.release();
+  async close() {
+    if (this.device) {
+      try {
+        await this.device.releaseInterface(0);
+      } catch {
+        // Ignore release errors
       }
-    } catch {
-      // Ignore release errors
-    }
-
-    try {
-      if (this.device) {
-        this.device.close();
+      try {
+        await this.device.close();
+      } catch {
+        // Ignore close errors
       }
-    } catch {
-      // Ignore close errors
     }
-
     this.device = null;
-    this.iface = null;
-    this.endpointIn = null;
-    this.endpointOut = null;
   }
 
-  bulkWrite(data) {
-    return new Promise((resolve, reject) => {
-      this.endpointOut.transfer(data, (error) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve();
-        }
-      });
-    });
+  async bulkWrite(data) {
+    // WebUSB transferOut expects a BufferSource
+    const result = await this.device.transferOut(BULK_OUT_ENDPOINT, data);
+    if (result.status !== 'ok') {
+      throw new Error(`USB bulk write failed: ${result.status}`);
+    }
   }
 
-  bulkRead(length) {
-    return new Promise((resolve, reject) => {
-      this.endpointIn.transfer(length, (error, data) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve(data);
-        }
-      });
-    });
+  async bulkRead(length) {
+    const result = await this.device.transferIn(BULK_IN_ENDPOINT, length);
+    if (result.status !== 'ok') {
+      throw new Error(`USB bulk read failed: ${result.status}`);
+    }
+    // Convert DataView to Buffer
+    return Buffer.from(result.data.buffer, result.data.byteOffset, result.data.byteLength);
   }
 
   startHotplugDetection() {
+    // Use the classic libusb API for hotplug events (WebUSB doesn't support them)
     usb.on('attach', (device) => {
       const { idVendor, idProduct } = device.deviceDescriptor;
 
       if (idVendor === ZUNE_VENDOR_ID && ZUNE_DEVICES[idProduct]) {
-        const info = { device, model: ZUNE_DEVICES[idProduct], productId: idProduct };
+        const info = { model: ZUNE_DEVICES[idProduct], productId: idProduct };
 
         for (const callback of this.attachCallbacks) {
           callback(info);
@@ -135,10 +108,8 @@ class UsbTransport {
       const { idVendor, idProduct } = device.deviceDescriptor;
 
       if (idVendor === ZUNE_VENDOR_ID && ZUNE_DEVICES[idProduct]) {
-        const info = { device, model: ZUNE_DEVICES[idProduct], productId: idProduct };
-
         for (const callback of this.detachCallbacks) {
-          callback(info);
+          callback();
         }
       }
     });

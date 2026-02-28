@@ -14,9 +14,10 @@ const OperationCode = {
   GetNumObjects:    0x1006,
   GetObjectHandles: 0x1007,
   GetObjectInfo:    0x1008,
-  SendObjectInfo:   0x100C,
-  SendObject:       0x100D,
-  SetDevicePropValue: 0x1016,
+  SendObjectInfo:       0x100C,
+  SendObject:           0x100D,
+  SetDevicePropValue:   0x1016,
+  SetObjectPropValue:   0x9804,
   // WMDRMPD vendor extensions (used by MTPZ)
   SendWMDRMPDAppRequest:        0x9212,
   GetWMDRMPDAppResponse:        0x9213,
@@ -35,6 +36,8 @@ const ResponseCode = {
   InvalidObjectHandle:   0x2009,
   StoreFull:             0x200C,
   ObjectWriteProtected:  0x200D,
+  InvalidParameter:      0x201D,
+  SessionAlreadyOpen:    0x201E,
 };
 
 const ObjectFormat = {
@@ -64,6 +67,17 @@ const DeviceProperty = {
   SessionInitiatorInfo: 0xD406,
 };
 
+const ObjectProperty = {
+  Name:         0xDC44, // title / display name
+  Artist:       0xDC46,
+  AlbumName:    0xDC9A,
+  AlbumArtist:  0xDC9B,
+  Track:        0xDC8B,
+  Genre:        0xDC8C,
+  Duration:     0xDC89, // milliseconds, uint32
+  OriginalDate: 0xDC99,
+};
+
 const CONTAINER_HEADER_SIZE = 12;
 
 module.exports = {
@@ -73,5 +87,6 @@ module.exports = {
   ObjectFormat,
   ExtensionToFormat,
   DeviceProperty,
+  ObjectProperty,
   CONTAINER_HEADER_SIZE,
 };

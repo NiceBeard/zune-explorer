@@ -34,15 +34,16 @@ function createWindow() {
       allowRunningInsecureContent: false,
       preload: path.join(__dirname, 'preload.js')
     },
-    frame: false,
     backgroundColor: '#000000',
     show: false
   };
 
   if (process.platform === 'darwin') {
-    windowOptions.titleBarStyle = 'hidden';
+    windowOptions.titleBarStyle = 'hiddenInset';
     windowOptions.vibrancy = 'dark';
     windowOptions.visualEffectState = 'active';
+  } else {
+    windowOptions.frame = false;
   }
 
   mainWindow = new BrowserWindow(windowOptions);
@@ -68,7 +69,7 @@ function createWindow() {
   });
 
   if (isDev) {
-    mainWindow.webContents.openDevTools();
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 }
 
@@ -255,6 +256,10 @@ ipcMain.handle('get-audio-metadata', async (event, filePath) => {
       albumArt: null,
     };
   }
+});
+
+ipcMain.handle('zune-get-status', async () => {
+  return zuneManager.getCurrentStatus();
 });
 
 ipcMain.handle('zune-device-info', async () => {
