@@ -1443,3 +1443,178 @@ body.platform-win32 .now-playing-panel {
     color: var(--zune-orange);
     font-weight: 300;
 }
+
+/* Browse device button */
+.zune-browse-btn {
+    border-color: var(--zune-orange) !important;
+    color: var(--zune-orange) !important;
+}
+
+.zune-browse-btn:hover {
+    background: rgba(255, 105, 0, 0.1) !important;
+}
+
+/* Eject button — dimmer secondary action */
+.zune-eject-btn {
+    border-color: #333 !important;
+    color: var(--zune-text-dim) !important;
+    margin-top: 8px;
+}
+
+.zune-eject-btn:hover {
+    border-color: #666 !important;
+    color: var(--zune-text-secondary) !important;
+}
+
+/* Browse view */
+.zune-browse-view {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.zune-browse-back {
+    background: none;
+    border: none;
+    color: var(--zune-text-dim);
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 0;
+    transition: color 0.2s;
+    text-transform: lowercase;
+}
+
+.zune-browse-back:hover {
+    color: var(--zune-orange);
+}
+
+.zune-browse-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid #1a1a1a;
+}
+
+.zune-browse-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--zune-text-dim);
+    font-size: 13px;
+    font-family: inherit;
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+    text-transform: lowercase;
+}
+
+.zune-browse-tab:hover {
+    color: var(--zune-text-secondary);
+}
+
+.zune-browse-tab.active {
+    color: var(--zune-orange);
+    border-bottom-color: var(--zune-orange);
+}
+
+.zune-browse-list {
+    flex: 1;
+    overflow-y: auto;
+    max-height: calc(100vh - 320px);
+    scrollbar-width: thin;
+    scrollbar-color: #333 transparent;
+}
+
+.zune-browse-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.zune-browse-list::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 2px;
+}
+
+.zune-browse-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.zune-browse-item:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.zune-browse-check {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--zune-orange);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.zune-browse-filename {
+    flex: 1;
+    font-size: 13px;
+    color: var(--zune-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.zune-browse-size {
+    font-size: 11px;
+    color: var(--zune-text-dim);
+    flex-shrink: 0;
+}
+
+.zune-browse-empty {
+    font-size: 13px;
+    color: var(--zune-text-dim);
+    text-align: center;
+    padding: 24px 0;
+    font-weight: 300;
+}
+
+.zune-browse-loading {
+    font-size: 13px;
+    color: var(--zune-text-dim);
+    text-align: center;
+    padding: 24px 0;
+    font-weight: 300;
+}
+
+.zune-browse-actions {
+    padding-top: 8px;
+}
+
+.zune-delete-btn {
+    width: 100%;
+    background: none;
+    border: 1px solid #333;
+    color: var(--zune-text-secondary);
+    padding: 10px 16px;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    text-transform: lowercase;
+    transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.zune-delete-btn:hover {
+    border-color: #ff3333;
+    color: #ff3333;
+}
+
+.zune-delete-btn.confirm {
+    border-color: #ff3333;
+    color: #ff3333;
+    background: rgba(255, 51, 51, 0.1);
+}

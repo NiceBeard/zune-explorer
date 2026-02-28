@@ -20,6 +20,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   zuneDeviceInfo: () => ipcRenderer.invoke('zune-device-info'),
   zuneSendFiles: (paths) => ipcRenderer.invoke('zune-send-files', paths),
   zuneCancelTransfer: () => ipcRenderer.invoke('zune-cancel-transfer'),
+  zuneBrowseContents: () => ipcRenderer.invoke('zune-browse-contents'),
+  zuneDeleteObjects: (handles) => ipcRenderer.invoke('zune-delete-objects', handles),
+  zuneEject: () => ipcRenderer.invoke('zune-eject'),
   onZuneStatus: (callback) => ipcRenderer.on('zune-status', (event, status) => callback(status)),
   onZuneTransferProgress: (callback) => ipcRenderer.on('zune-transfer-progress', (event, progress) => callback(progress))
 });

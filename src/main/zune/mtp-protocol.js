@@ -298,6 +298,11 @@ class MtpProtocol {
     await this.receiveResponse();
   }
 
+  async deleteObject(objectHandle) {
+    await this.sendCommand(OperationCode.DeleteObject, [objectHandle]);
+    await this.receiveResponse();
+  }
+
   async setObjectPropUint16(objectHandle, propCode, value) {
     await this.sendCommand(OperationCode.SetObjectPropValue, [objectHandle, propCode]);
     const buf = Buffer.alloc(2);

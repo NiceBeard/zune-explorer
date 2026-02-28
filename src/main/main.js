@@ -280,6 +280,33 @@ ipcMain.handle('zune-cancel-transfer', async () => {
   return { success: true };
 });
 
+ipcMain.handle('zune-browse-contents', async () => {
+  try {
+    const contents = await zuneManager.browseContents();
+    return { success: true, contents };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('zune-delete-objects', async (event, handles) => {
+  try {
+    const result = await zuneManager.deleteObjects(handles);
+    return { success: true, ...result };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('zune-eject', async () => {
+  try {
+    await zuneManager.eject();
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('window-minimize', async () => {
   if (mainWindow) {
     mainWindow.minimize();

@@ -3,6 +3,11 @@ class ZuneSyncPanel {
         this.explorer = explorer;
         this.open = false;
         this.state = 'disconnected';
+        this.browseActive = false;
+        this.browseTab = 'music';
+        this.browseData = null;
+        this.selectedHandles = new Set();
+        this.deleteConfirmTimer = null;
 
         this.panel = document.getElementById('zune-sync-panel');
         this.toggleBtn = document.getElementById('zune-toggle-btn');
@@ -48,6 +53,36 @@ class ZuneSyncPanel {
         document.getElementById('zune-cancel-btn').addEventListener('click', () => {
             window.electronAPI.zuneCancelTransfer();
         });
+
+        // Browse device
+        document.getElementById('zune-browse-btn').addEventListener('click', () => {
+            this._openBrowse();
+        });
+
+        // Eject
+        document.getElementById('zune-eject-btn').addEventListener('click', () => {
+            window.electronAPI.zuneEject();
+        });
+
+        // Browse back button
+        document.getElementById('zune-browse-back').addEventListener('click', () => {
+            this._closeBrowse();
+        });
+
+        // Browse tabs
+        document.querySelectorAll('.zune-browse-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                this.browseTab = tab.dataset.tab;
+                document.querySelectorAll('.zune-browse-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                this._renderBrowseList();
+            });
+        });
+
+        // Delete button
+        document.getElementById('zune-delete-btn').addEventListener('click', () => {
+            this._handleDelete();
+        });
     }
 
     _listenForZune() {
@@ -91,12 +126,16 @@ class ZuneSyncPanel {
         progressEl.style.display = 'none';
         completeEl.style.display = 'none';
 
+        // Close browse view on any state change that isn't 'connected'
+        const browseEl = document.getElementById('zune-browse-view');
+
         switch (status.state) {
             case 'connecting':
                 this.toggleBtn.style.display = 'flex';
                 this.toggleBtn.classList.add('pulse');
                 title.textContent = (status.model || 'zune').toLowerCase();
                 subtitle.textContent = 'connecting...';
+                if (this.browseActive) this._closeBrowse();
                 this.show();
                 break;
 
@@ -109,11 +148,16 @@ class ZuneSyncPanel {
                     this._updateStorage(status.storage);
                     storageEl.style.display = 'block';
                 }
-                idleEl.style.display = 'block';
+                if (!this.browseActive) {
+                    idleEl.style.display = 'block';
+                } else {
+                    browseEl.style.display = 'flex';
+                }
                 this.show();
                 break;
 
             case 'disconnected':
+                if (this.browseActive) this._closeBrowse();
                 this.toggleBtn.style.display = 'none';
                 this.toggleBtn.classList.remove('pulse');
                 this.open = false;
@@ -121,6 +165,7 @@ class ZuneSyncPanel {
                 break;
 
             case 'error':
+                if (this.browseActive) this._closeBrowse();
                 subtitle.textContent = 'error: ' + (status.error || 'unknown');
                 break;
         }
@@ -144,6 +189,11 @@ class ZuneSyncPanel {
         const idleEl = document.getElementById('zune-sync-idle');
         const progressEl = document.getElementById('zune-sync-progress');
         const completeEl = document.getElementById('zune-sync-complete');
+
+        // Close browse view during transfers
+        if (this.browseActive && (progress.state === 'converting' || progress.state === 'sending')) {
+            this._closeBrowse();
+        }
 
         switch (progress.state) {
             case 'converting':
@@ -205,6 +255,197 @@ class ZuneSyncPanel {
 
     async _sendFiles(filePaths) {
         await window.electronAPI.zuneSendFiles(filePaths);
+    }
+
+    async _openBrowse() {
+        this.browseActive = true;
+        this.selectedHandles.clear();
+        this.browseTab = 'music';
+        this.browseData = null;
+
+        // Reset tab state
+        document.querySelectorAll('.zune-browse-tab').forEach(t => t.classList.remove('active'));
+        document.querySelector('.zune-browse-tab[data-tab="music"]').classList.add('active');
+
+        document.getElementById('zune-sync-idle').style.display = 'none';
+        document.getElementById('zune-browse-view').style.display = 'flex';
+        document.getElementById('zune-browse-actions').style.display = 'none';
+
+        // Show loading
+        const listEl = document.getElementById('zune-browse-list');
+        listEl.textContent = '';
+        const loadingDiv = document.createElement('div');
+        loadingDiv.className = 'zune-browse-loading';
+        loadingDiv.textContent = 'loading...';
+        listEl.appendChild(loadingDiv);
+
+        const result = await window.electronAPI.zuneBrowseContents();
+        if (result.success) {
+            this.browseData = result.contents;
+            this._renderBrowseList();
+        } else {
+            listEl.textContent = '';
+            const errDiv = document.createElement('div');
+            errDiv.className = 'zune-browse-empty';
+            errDiv.textContent = 'error: ' + (result.error || 'unknown');
+            listEl.appendChild(errDiv);
+        }
+    }
+
+    _closeBrowse() {
+        this.browseActive = false;
+        this.browseData = null;
+        this.selectedHandles.clear();
+        if (this.deleteConfirmTimer) {
+            clearTimeout(this.deleteConfirmTimer);
+            this.deleteConfirmTimer = null;
+        }
+
+        document.getElementById('zune-browse-view').style.display = 'none';
+        if (this.state === 'connected') {
+            document.getElementById('zune-sync-idle').style.display = 'block';
+        }
+    }
+
+    _renderBrowseList() {
+        const listEl = document.getElementById('zune-browse-list');
+        const actionsEl = document.getElementById('zune-browse-actions');
+
+        listEl.textContent = '';
+
+        if (!this.browseData) {
+            const emptyDiv = document.createElement('div');
+            emptyDiv.className = 'zune-browse-empty';
+            emptyDiv.textContent = 'no data';
+            listEl.appendChild(emptyDiv);
+            actionsEl.style.display = 'none';
+            return;
+        }
+
+        const items = this.browseData[this.browseTab] || [];
+
+        if (items.length === 0) {
+            const emptyDiv = document.createElement('div');
+            emptyDiv.className = 'zune-browse-empty';
+            emptyDiv.textContent = 'no ' + this.browseTab + ' on device';
+            listEl.appendChild(emptyDiv);
+            actionsEl.style.display = 'none';
+            return;
+        }
+
+        for (const item of items) {
+            const label = document.createElement('label');
+            label.className = 'zune-browse-item';
+            label.dataset.handle = String(item.handle);
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'zune-browse-check';
+            checkbox.dataset.handle = String(item.handle);
+            checkbox.checked = this.selectedHandles.has(item.handle);
+
+            const filenameSpan = document.createElement('span');
+            filenameSpan.className = 'zune-browse-filename';
+            filenameSpan.title = item.filename;
+            filenameSpan.textContent = item.filename;
+
+            const sizeSpan = document.createElement('span');
+            sizeSpan.className = 'zune-browse-size';
+            sizeSpan.textContent = this._formatSize(item.size);
+
+            label.appendChild(checkbox);
+            label.appendChild(filenameSpan);
+            label.appendChild(sizeSpan);
+            listEl.appendChild(label);
+
+            checkbox.addEventListener('change', () => {
+                const handle = item.handle;
+                if (checkbox.checked) {
+                    this.selectedHandles.add(handle);
+                } else {
+                    this.selectedHandles.delete(handle);
+                }
+                this._updateDeleteButton();
+            });
+        }
+
+        this._updateDeleteButton();
+    }
+
+    _updateDeleteButton() {
+        const actionsEl = document.getElementById('zune-browse-actions');
+        const deleteBtn = document.getElementById('zune-delete-btn');
+        const count = this.selectedHandles.size;
+
+        if (count > 0) {
+            actionsEl.style.display = 'block';
+            deleteBtn.textContent = 'delete ' + count + ' file' + (count !== 1 ? 's' : '');
+            deleteBtn.classList.remove('confirm');
+        } else {
+            actionsEl.style.display = 'none';
+        }
+    }
+
+    async _handleDelete() {
+        const deleteBtn = document.getElementById('zune-delete-btn');
+        const count = this.selectedHandles.size;
+
+        if (count === 0) return;
+
+        // Confirm-on-second-click pattern
+        if (!deleteBtn.classList.contains('confirm')) {
+            deleteBtn.classList.add('confirm');
+            deleteBtn.textContent = 'confirm: delete ' + count + ' file' + (count !== 1 ? 's' : '') + '?';
+
+            if (this.deleteConfirmTimer) clearTimeout(this.deleteConfirmTimer);
+            this.deleteConfirmTimer = setTimeout(() => {
+                deleteBtn.classList.remove('confirm');
+                deleteBtn.textContent = 'delete ' + count + ' file' + (count !== 1 ? 's' : '');
+                this.deleteConfirmTimer = null;
+            }, 3000);
+            return;
+        }
+
+        // Confirmed — execute delete
+        if (this.deleteConfirmTimer) {
+            clearTimeout(this.deleteConfirmTimer);
+            this.deleteConfirmTimer = null;
+        }
+
+        const handles = Array.from(this.selectedHandles);
+        deleteBtn.textContent = 'deleting...';
+        deleteBtn.classList.remove('confirm');
+
+        const result = await window.electronAPI.zuneDeleteObjects(handles);
+
+        if (result.success && result.storage) {
+            this._updateStorage(result.storage);
+        }
+
+        // Remove deleted items from local data
+        if (result.success && this.browseData) {
+            const deletedSet = new Set(handles);
+            // If some failed, keep those in the set
+            if (result.errors) {
+                for (const err of result.errors) {
+                    deletedSet.delete(err.handle);
+                }
+            }
+            for (const cat of ['music', 'videos', 'pictures']) {
+                this.browseData[cat] = this.browseData[cat].filter(
+                    item => !deletedSet.has(item.handle)
+                );
+            }
+        }
+
+        this.selectedHandles.clear();
+        this._renderBrowseList();
+    }
+
+    _formatSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     }
 }
 

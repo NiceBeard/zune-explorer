@@ -312,6 +312,101 @@ class ZuneManager extends EventEmitter {
   cancelTransfer() {
     this.cancelRequested = true;
   }
+
+  async browseContents() {
+    if (!this.connected) {
+      throw new Error('No Zune device connected');
+    }
+
+    const handles = await this.mtp.getObjectHandles(this.storageId, 0, 0xFFFFFFFF);
+    const result = { music: [], videos: [], pictures: [] };
+
+    for (const handle of handles) {
+      try {
+        const info = await this.mtp.getObjectInfo(handle);
+
+        // Skip folders
+        if (info.objectFormat === ObjectFormat.Association) continue;
+
+        const item = {
+          handle,
+          filename: info.filename,
+          size: info.compressedSize,
+          format: info.objectFormat,
+        };
+
+        if (
+          info.objectFormat === ObjectFormat.MP3 ||
+          info.objectFormat === ObjectFormat.WMA ||
+          info.objectFormat === ObjectFormat.AAC
+        ) {
+          result.music.push(item);
+        } else if (
+          info.objectFormat === ObjectFormat.WMV ||
+          info.objectFormat === ObjectFormat.MP4
+        ) {
+          result.videos.push(item);
+        } else if (info.objectFormat === ObjectFormat.JPEG) {
+          result.pictures.push(item);
+        } else {
+          // Unknown format — try to categorize by extension
+          const ext = (info.filename || '').toLowerCase();
+          if (ext.endsWith('.mp3') || ext.endsWith('.wma') || ext.endsWith('.aac') || ext.endsWith('.m4a')) {
+            result.music.push(item);
+          } else if (ext.endsWith('.wmv') || ext.endsWith('.mp4') || ext.endsWith('.m4v')) {
+            result.videos.push(item);
+          } else if (ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.png')) {
+            result.pictures.push(item);
+          } else {
+            // Default to music for unknown media files on a Zune
+            result.music.push(item);
+          }
+        }
+      } catch (err) {
+        console.log(`ZuneManager: skipping handle ${handle}: ${err.message}`);
+      }
+    }
+
+    return result;
+  }
+
+  async deleteObjects(handles) {
+    if (!this.connected) {
+      throw new Error('No Zune device connected');
+    }
+
+    let deleted = 0;
+    let failed = 0;
+    const errors = [];
+
+    for (const handle of handles) {
+      try {
+        await this.mtp.deleteObject(handle);
+        deleted++;
+      } catch (err) {
+        failed++;
+        errors.push({ handle, error: err.message });
+        console.log(`ZuneManager: failed to delete handle ${handle}: ${err.message}`);
+      }
+    }
+
+    // Refresh storage info
+    if (this.connected) {
+      try {
+        this.storageInfo = await this.mtp.getStorageInfo(this.storageId);
+      } catch (err) {
+        console.log(`ZuneManager: failed to refresh storage after delete: ${err.message}`);
+      }
+    }
+
+    return { deleted, failed, errors, storage: this.storageInfo };
+  }
+
+  async eject() {
+    await this.disconnect();
+    this.currentStatus = { state: 'disconnected' };
+    this.emit('status', this.currentStatus);
+  }
 }
 
 module.exports = { ZuneManager };

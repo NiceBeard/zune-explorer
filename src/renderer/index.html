@@ -246,6 +246,26 @@
                 <button class="zune-sync-btn" id="zune-sync-music">sync music</button>
                 <button class="zune-sync-btn" id="zune-sync-videos">sync videos</button>
                 <button class="zune-sync-btn" id="zune-sync-pictures">sync pictures</button>
+                <button class="zune-sync-btn zune-browse-btn" id="zune-browse-btn">browse device</button>
+                <button class="zune-sync-btn zune-eject-btn" id="zune-eject-btn">eject</button>
+            </div>
+        </div>
+
+        <div class="zune-browse-view" id="zune-browse-view" style="display:none">
+            <button class="zune-browse-back" id="zune-browse-back">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                back
+            </button>
+            <div class="zune-browse-tabs">
+                <button class="zune-browse-tab active" data-tab="music">music</button>
+                <button class="zune-browse-tab" data-tab="videos">videos</button>
+                <button class="zune-browse-tab" data-tab="pictures">pictures</button>
+            </div>
+            <div class="zune-browse-list" id="zune-browse-list"></div>
+            <div class="zune-browse-actions" id="zune-browse-actions" style="display:none">
+                <button class="zune-delete-btn" id="zune-delete-btn">delete 0 files</button>
             </div>
         </div>
 

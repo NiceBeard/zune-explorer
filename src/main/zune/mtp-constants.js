@@ -14,6 +14,7 @@ const OperationCode = {
   GetNumObjects:    0x1006,
   GetObjectHandles: 0x1007,
   GetObjectInfo:    0x1008,
+  DeleteObject:     0x100B,
   SendObjectInfo:       0x100C,
   SendObject:           0x100D,
   SetDevicePropValue:   0x1016,
