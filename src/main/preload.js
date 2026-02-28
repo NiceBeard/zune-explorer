@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   zuneBrowseContents: () => ipcRenderer.invoke('zune-browse-contents'),
   zuneDeleteObjects: (handles) => ipcRenderer.invoke('zune-delete-objects', handles),
   zuneEject: () => ipcRenderer.invoke('zune-eject'),
+  zuneProbeProperties: (handle) => ipcRenderer.invoke('zune-probe-properties', handle),
+  zuneProbeWmdrmpd: () => ipcRenderer.invoke('zune-probe-wmdrmpd'),
   onZuneStatus: (callback) => ipcRenderer.on('zune-status', (event, status) => callback(status)),
   onZuneTransferProgress: (callback) => ipcRenderer.on('zune-transfer-progress', (event, progress) => callback(progress))
 });

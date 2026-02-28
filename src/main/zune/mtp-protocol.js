@@ -298,8 +298,64 @@ class MtpProtocol {
     await this.receiveResponse();
   }
 
+  async getObjectPropValue(objectHandle, propCode) {
+    await this.sendCommand(OperationCode.GetObjectPropValue, [objectHandle, propCode]);
+    const data = await this.receiveData();
+    await this.receiveResponse();
+    return data.payload;
+  }
+
+  async getObjectPropString(objectHandle, propCode) {
+    const payload = await this.getObjectPropValue(objectHandle, propCode);
+    const { str } = this._parseMtpString(payload, 0);
+    return str;
+  }
+
+  async getThumb(objectHandle) {
+    await this.sendCommand(OperationCode.GetThumb, [objectHandle]);
+    const data = await this.receiveData();
+    await this.receiveResponse();
+    return data.payload;
+  }
+
+  async getObject(objectHandle) {
+    await this.sendCommand(OperationCode.GetObject, [objectHandle]);
+    const data = await this.receiveData();
+    await this.receiveResponse();
+    return data.payload;
+  }
+
   async deleteObject(objectHandle) {
     await this.sendCommand(OperationCode.DeleteObject, [objectHandle]);
+    await this.receiveResponse();
+  }
+
+  async getObjectReferences(objectHandle) {
+    await this.sendCommand(OperationCode.GetObjectReferences, [objectHandle]);
+    const data = await this.receiveData();
+    await this.receiveResponse();
+    return this._parseUint32Array(data.payload);
+  }
+
+  async setObjectReferences(objectHandle, references) {
+    await this.sendCommand(OperationCode.SetObjectReferences, [objectHandle]);
+    // Encode as MTP uint32 array: 4-byte count + N 4-byte handles
+    const buf = Buffer.alloc(4 + references.length * 4);
+    buf.writeUInt32LE(references.length, 0);
+    for (let i = 0; i < references.length; i++) {
+      buf.writeUInt32LE(references[i] >>> 0, 4 + i * 4);
+    }
+    await this.sendData(OperationCode.SetObjectReferences, buf);
+    await this.receiveResponse();
+  }
+
+  async setObjectPropArray(objectHandle, propCode, data) {
+    await this.sendCommand(OperationCode.SetObjectPropValue, [objectHandle, propCode]);
+    // MTP byte array: 4-byte count followed by raw bytes
+    const buf = Buffer.alloc(4 + data.length);
+    buf.writeUInt32LE(data.length, 0);
+    data.copy(buf, 4);
+    await this.sendData(OperationCode.SetObjectPropValue, buf);
     await this.receiveResponse();
   }
 

@@ -90,6 +90,16 @@ class UsbTransport {
     return Buffer.from(result.data.buffer, result.data.byteOffset, result.data.byteLength);
   }
 
+  async clearHalt(direction) {
+    try {
+      const endpoint = direction === 'in'
+        ? 'in' : 'out';
+      await this.device.clearHalt(endpoint, direction === 'in' ? BULK_IN_ENDPOINT : BULK_OUT_ENDPOINT);
+    } catch (err) {
+      console.log('UsbTransport: clearHalt failed:', err.message);
+    }
+  }
+
   startHotplugDetection() {
     // Use the classic libusb API for hotplug events (WebUSB doesn't support them)
     usb.on('attach', (device) => {

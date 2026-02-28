@@ -83,6 +83,11 @@ class ZuneSyncPanel {
         document.getElementById('zune-delete-btn').addEventListener('click', () => {
             this._handleDelete();
         });
+
+        // WMDRMPD probe (diagnostic)
+        document.getElementById('zune-probe-wmdrmpd-btn').addEventListener('click', () => {
+            window.electronAPI.zuneProbeWmdrmpd();
+        });
     }
 
     _listenForZune() {
@@ -283,6 +288,12 @@ class ZuneSyncPanel {
         if (result.success) {
             this.browseData = result.contents;
             this._renderBrowseList();
+
+            // Run property probe on first music file (diagnostic — check terminal)
+            if (this.browseData.music && this.browseData.music.length > 0) {
+                const firstHandle = this.browseData.music[0].handle;
+                window.electronAPI.zuneProbeProperties(firstHandle);
+            }
         } else {
             listEl.textContent = '';
             const errDiv = document.createElement('div');
@@ -344,17 +355,42 @@ class ZuneSyncPanel {
             checkbox.dataset.handle = String(item.handle);
             checkbox.checked = this.selectedHandles.has(item.handle);
 
-            const filenameSpan = document.createElement('span');
-            filenameSpan.className = 'zune-browse-filename';
-            filenameSpan.title = item.filename;
-            filenameSpan.textContent = item.filename;
+            // Album art thumbnail (if available)
+            if (item.albumArt) {
+                const artImg = document.createElement('img');
+                artImg.className = 'zune-browse-art';
+                artImg.src = item.albumArt;
+                artImg.alt = '';
+                label.appendChild(artImg);
+            }
+
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'zune-browse-info';
+
+            // Show title/artist/album if available, otherwise filename
+            const displayTitle = item.title || item.filename;
+            const titleSpan = document.createElement('span');
+            titleSpan.className = 'zune-browse-filename';
+            titleSpan.title = item.filename;
+            titleSpan.textContent = displayTitle;
+            infoDiv.appendChild(titleSpan);
+
+            if (item.artist || item.album) {
+                const metaSpan = document.createElement('span');
+                metaSpan.className = 'zune-browse-meta';
+                const parts = [];
+                if (item.artist) parts.push(item.artist);
+                if (item.album) parts.push(item.album);
+                metaSpan.textContent = parts.join(' \u2014 ');
+                infoDiv.appendChild(metaSpan);
+            }
 
             const sizeSpan = document.createElement('span');
             sizeSpan.className = 'zune-browse-size';
             sizeSpan.textContent = this._formatSize(item.size);
 
             label.appendChild(checkbox);
-            label.appendChild(filenameSpan);
+            label.appendChild(infoDiv);
             label.appendChild(sizeSpan);
             listEl.appendChild(label);
 

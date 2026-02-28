@@ -14,11 +14,16 @@ const OperationCode = {
   GetNumObjects:    0x1006,
   GetObjectHandles: 0x1007,
   GetObjectInfo:    0x1008,
+  GetObject:        0x1009,
+  GetThumb:         0x100A,
   DeleteObject:     0x100B,
   SendObjectInfo:       0x100C,
   SendObject:           0x100D,
   SetDevicePropValue:   0x1016,
+  GetObjectPropValue:   0x9803,
   SetObjectPropValue:   0x9804,
+  GetObjectReferences:  0x9810,
+  SetObjectReferences:  0x9811,
   // WMDRMPD vendor extensions (used by MTPZ)
   SendWMDRMPDAppRequest:        0x9212,
   GetWMDRMPDAppResponse:        0x9213,
@@ -42,14 +47,16 @@ const ResponseCode = {
 };
 
 const ObjectFormat = {
-  Undefined:   0x3000,
-  Association: 0x3001, // folder
-  MP3:         0x3009,
-  JPEG:        0x3801,
-  WMA:         0xB901,
-  AAC:         0xB903,
-  WMV:         0xB981,
-  MP4:         0xB982,
+  Undefined:          0x3000,
+  Association:        0x3001, // folder
+  MP3:                0x3009,
+  JPEG:               0x3801,
+  WMA:                0xB901,
+  AAC:                0xB903,
+  WMV:                0xB981,
+  MP4:                0xB982,
+  AbstractAudioAlbum: 0xBA03,
+  Artist:             0xB218,
 };
 
 const ExtensionToFormat = {
@@ -75,8 +82,14 @@ const ObjectProperty = {
   AlbumArtist:  0xDC9B,
   Track:        0xDC8B,
   Genre:        0xDC8C,
-  Duration:     0xDC89, // milliseconds, uint32
+  Duration:                0xDC89, // milliseconds, uint32
+  RepresentativeSampleFormat: 0xDC81, // uint16 — format code of the sample image
+  RepresentativeSampleSize:   0xDC82, // uint32 — byte size of the sample
+  RepresentativeSampleHeight: 0xDC83, // uint32
+  RepresentativeSampleWidth:  0xDC84, // uint32
+  RepresentativeSampleData:   0xDC86, // byte array — the actual image data
   OriginalDate: 0xDC99,
+  ArtistId:     0xDAB9, // uint32 — handle of an Artist object (format 0xB218)
 };
 
 const CONTAINER_HEADER_SIZE = 12;

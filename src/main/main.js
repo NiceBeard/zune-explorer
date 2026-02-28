@@ -298,6 +298,28 @@ ipcMain.handle('zune-delete-objects', async (event, handles) => {
   }
 });
 
+ipcMain.handle('zune-probe-properties', async (event, handle) => {
+  try {
+    console.log(`\n=== PROBING OBJECT PROPERTIES (handle=${handle}) ===`);
+    const results = await zuneManager.probeObjectProperties(handle);
+    console.log('=== PROBE COMPLETE ===\n');
+    return { success: true, results };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('zune-probe-wmdrmpd', async () => {
+  try {
+    console.log('\n=== PROBING WMDRMPD COMMANDS ===');
+    const results = await zuneManager.probeWmdrmpd();
+    console.log('=== WMDRMPD PROBE COMPLETE ===\n');
+    return { success: true, results };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('zune-eject', async () => {
   try {
     await zuneManager.eject();
