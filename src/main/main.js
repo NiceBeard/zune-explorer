@@ -260,11 +260,12 @@ ipcMain.handle('get-audio-metadata', async (event, filePath) => {
 
 ipcMain.handle('batch-scan-audio-metadata', async (event, filePaths, options = {}) => {
   const { batchSize = 15, includeArt = true } = options;
-  const total = filePaths.length;
+  const validPaths = filePaths.filter(fp => isAllowedPath(fp));
+  const total = validPaths.length;
   let scanned = 0;
 
   for (let i = 0; i < total; i += batchSize) {
-    const batch = filePaths.slice(i, i + batchSize);
+    const batch = validPaths.slice(i, i + batchSize);
     const results = await Promise.all(batch.map(async (filePath) => {
       try {
         const { parseFile } = await import('music-metadata');
