@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPlatform: () => ipcRenderer.invoke('get-platform'),
   scanApplications: () => ipcRenderer.invoke('scan-applications'),
   getAudioMetadata: (path) => ipcRenderer.invoke('get-audio-metadata', path),
+  batchScanAudioMetadata: (paths, options) => ipcRenderer.invoke('batch-scan-audio-metadata', paths, options),
+  onMusicScanProgress: (callback) => ipcRenderer.on('music-scan-progress', (event, data) => callback(data)),
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
   windowMaximize: () => ipcRenderer.invoke('window-maximize'),
   windowClose: () => ipcRenderer.invoke('window-close'),

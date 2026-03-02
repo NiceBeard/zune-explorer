@@ -240,7 +240,7 @@ ipcMain.handle('get-audio-metadata', async (event, filePath) => {
     };
     if (metadata.common.picture && metadata.common.picture.length > 0) {
       const pic = metadata.common.picture[0];
-      const base64 = pic.data.toString('base64');
+      const base64 = Buffer.from(pic.data).toString('base64');
       result.albumArt = `data:${pic.format};base64,${base64}`;
     } else {
       result.albumArt = null;
@@ -256,6 +256,65 @@ ipcMain.handle('get-audio-metadata', async (event, filePath) => {
       albumArt: null,
     };
   }
+});
+
+ipcMain.handle('batch-scan-audio-metadata', async (event, filePaths, options = {}) => {
+  const { batchSize = 15, includeArt = true } = options;
+  const total = filePaths.length;
+  let scanned = 0;
+
+  for (let i = 0; i < total; i += batchSize) {
+    const batch = filePaths.slice(i, i + batchSize);
+    const results = await Promise.all(batch.map(async (filePath) => {
+      try {
+        const { parseFile } = await import('music-metadata');
+        const metadata = await Promise.race([
+          parseFile(filePath),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+        ]);
+        const result = {
+          path: filePath,
+          title: metadata.common.title || path.basename(filePath, path.extname(filePath)),
+          artist: metadata.common.artist || 'Unknown Artist',
+          album: metadata.common.album || 'Unknown Album',
+          albumArtist: metadata.common.albumartist || metadata.common.artist || 'Unknown Artist',
+          genre: (metadata.common.genre && metadata.common.genre[0]) || 'Unknown',
+          trackNumber: (metadata.common.track && metadata.common.track.no) || 0,
+          year: metadata.common.year || 0,
+          duration: metadata.format.duration || 0,
+          albumArt: null
+        };
+        if (includeArt && metadata.common.picture && metadata.common.picture.length > 0) {
+          const pic = metadata.common.picture[0];
+          result.albumArt = `data:${pic.format};base64,${Buffer.from(pic.data).toString('base64')}`;
+        }
+        return result;
+      } catch (error) {
+        return {
+          path: filePath,
+          title: path.basename(filePath, path.extname(filePath)),
+          artist: 'Unknown Artist',
+          album: 'Unknown Album',
+          albumArtist: 'Unknown Artist',
+          genre: 'Unknown',
+          trackNumber: 0,
+          year: 0,
+          duration: 0,
+          albumArt: null
+        };
+      }
+    }));
+
+    scanned += results.length;
+    if (mainWindow) {
+      mainWindow.webContents.send('music-scan-progress', { scanned, total, batch: results });
+    }
+
+    // Yield to event loop between batches
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  return { success: true, total: scanned };
 });
 
 ipcMain.handle('zune-get-status', async () => {
