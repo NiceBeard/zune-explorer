@@ -2,6 +2,32 @@
 
 Future ideas and feature wishlist. Not prioritized — just captured for when inspiration strikes.
 
+## Zune Sync
+
+### ~~Browse Zune Contents~~ (Done)
+List files on the connected Zune by category (music, videos, pictures) with metadata. Includes tab navigation and scrollable file list with checkboxes.
+
+### ~~Delete Files from Zune~~ (Done)
+Select files and delete via MTP DeleteObject with confirm-on-second-click safety. Handles stale handles (InvalidObjectHandle) gracefully.
+
+### ~~Eject Button~~ (Done)
+Cleanly disconnect via CloseSession + USB close. The Zune exits its syncing screen without quitting the app.
+
+### ~~Album Metadata~~ (Done)
+Solved by creating Artist objects (format 0xB218) and Abstract Audio Album objects (format 0xBA03) with ArtistId (0xDAB9) linking and SetObjectReferences (0x9811). The Zune ignores per-track Artist/AlbumName string properties — it requires these abstract MTP objects to display metadata.
+
+### ~~Album Art~~ (Done)
+Extracts embedded cover art from audio files and sets it on the album object via RepresentativeSampleData (0xDC86).
+
+### Fix Drag-and-Drop to Sync Panel
+Dragging files from the file explorer onto the "drop files here" zone doesn't work. May be an Electron drag event or CSS issue.
+
+### Zune 32GB Testing
+Verify the full sync flow on the brown Zune 32GB (PID 0x0710). May have different MTP behavior or endpoint configuration.
+
+### Two-Way Sync
+Pull files from the Zune to the computer via MTP GetObject. Could enable backup/restore workflows.
+
 ## Music Experience Enhancements
 
 ### Sub-Category Navigation (Zune HD Style)
