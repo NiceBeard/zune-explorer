@@ -833,6 +833,18 @@ body.platform-darwin .zune-container {
     padding-top: 28px;
 }
 
+body.platform-darwin .zune-container::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 28px;
+    -webkit-app-region: drag;
+    z-index: 9998;
+    pointer-events: auto;
+}
+
 body.platform-win32 .zune-container {
     height: calc(100vh - 32px);
     margin-top: 32px;

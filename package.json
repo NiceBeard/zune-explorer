@@ -53,6 +53,11 @@
       ]
     },
     "dmg": {
+      "background": "build-resources/dmg-background.png",
+      "window": {
+        "width": 660,
+        "height": 400
+      },
       "contents": [
         {
           "x": 130,

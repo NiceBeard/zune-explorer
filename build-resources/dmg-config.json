@@ -1,0 +1,16 @@
+{
+  "title": "Zune Explorer",
+  "background": "dmg-background@2x.png",
+  "background-color": "#000000",
+  "icon-size": 80,
+  "window": {
+    "size": {
+      "width": 660,
+      "height": 400
+    }
+  },
+  "contents": [
+    { "x": 170, "y": 220, "type": "file", "path": "" },
+    { "x": 430, "y": 220, "type": "link", "name": "Applications", "path": "/Applications" }
+  ]
+}

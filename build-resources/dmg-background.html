@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 660px;
+    height: 400px;
+    background: #000;
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* Subtle gradient glow along the bottom */
+  .gradient-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 120px;
+    background: linear-gradient(
+      to top,
+      rgba(233, 30, 140, 0.15) 0%,
+      rgba(255, 105, 0, 0.08) 50%,
+      transparent 100%
+    );
+  }
+
+  /* App name — Zune HD style */
+  .app-name {
+    position: absolute;
+    top: 32px;
+    left: 40px;
+    font-size: 42px;
+    font-weight: 100;
+    letter-spacing: 2px;
+    color: rgba(255, 255, 255, 0.45);
+    text-transform: lowercase;
+  }
+
+  /* Drag arrow between icon positions */
+  .drag-arrow {
+    position: absolute;
+    top: 215px;
+    left: 220px;
+    width: 160px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .arrow-line {
+    width: 100px;
+    height: 1px;
+    background: rgba(255, 105, 0, 0.5);
+  }
+
+  .arrow-head {
+    width: 0;
+    height: 0;
+    border-top: 6px solid transparent;
+    border-bottom: 6px solid transparent;
+    border-left: 10px solid rgba(255, 105, 0, 0.5);
+  }
+
+  /* Orange folder icon at Applications position (centered at x:430, y:220) */
+  .folder-icon {
+    position: absolute;
+    top: 200px;
+    left: 400px;
+    width: 64px;
+    height: 52px;
+  }
+
+  /* Fine accent line */
+  .accent-line {
+    position: absolute;
+    bottom: 60px;
+    left: 40px;
+    right: 40px;
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent 0%,
+      rgba(255, 105, 0, 0.3) 30%,
+      rgba(233, 30, 140, 0.3) 70%,
+      transparent 100%
+    );
+  }
+</style>
+</head>
+<body>
+  <div class="gradient-bar"></div>
+  <div class="app-name">zune explorer</div>
+  <div class="drag-arrow">
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+  <svg class="folder-icon" viewBox="0 0 64 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <!-- Folder back -->
+    <path d="M2 10C2 7.79 3.79 6 6 6H22L28 12H58C60.21 12 62 13.79 62 16V46C62 48.21 60.21 50 58 50H6C3.79 50 2 48.21 2 46V10Z" fill="#ff6900" opacity="0.7"/>
+    <!-- Folder tab -->
+    <path d="M2 10C2 7.79 3.79 6 6 6H22L28 12H6C3.79 12 2 10.21 2 8V10Z" fill="#ff8533" opacity="0.7"/>
+    <!-- Subtle highlight -->
+    <path d="M4 16H60V18H4V16Z" fill="rgba(255,255,255,0.15)"/>
+  </svg>
+  <div class="accent-line"></div>
+</body>
+</html>
