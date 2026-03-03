@@ -31,6 +31,7 @@ class ZuneManager extends EventEmitter {
     this.transferring = false;
     this.cancelRequested = false;
     this.currentStatus = null;
+    this.productId = null;
   }
 
   async start() {
@@ -51,8 +52,9 @@ class ZuneManager extends EventEmitter {
   }
 
   async _handleAttach(info) {
+    this.productId = info.productId;
     const model = ZUNE_DEVICES[info.productId] || 'Unknown Zune';
-    this.currentStatus = { state: 'connecting', model };
+    this.currentStatus = { state: 'connecting', model, productId: info.productId };
     this.emit('status', this.currentStatus);
 
     try {
@@ -70,6 +72,7 @@ class ZuneManager extends EventEmitter {
       this.deviceInfo = await this.mtp.getDeviceInfo();
 
       const storageIDs = await this.mtp.getStorageIDs();
+      console.log(`ZuneManager: storage IDs: [${storageIDs.map(id => '0x' + id.toString(16)).join(', ')}]`);
       this.storageId = storageIDs[0];
 
       this.storageInfo = await this.mtp.getStorageInfo(this.storageId);
@@ -78,6 +81,7 @@ class ZuneManager extends EventEmitter {
       this.currentStatus = {
         state: 'connected',
         model,
+        productId: info.productId,
         storage: this.storageInfo,
       };
       this.emit('status', this.currentStatus);
@@ -535,106 +539,424 @@ class ZuneManager extends EventEmitter {
       throw new Error('No Zune device connected');
     }
 
-    const handles = await this.mtp.getObjectHandles(this.storageId, 0, 0xFFFFFFFF);
+    const browseStart = Date.now();
+    const elapsed = () => `${((Date.now() - browseStart) / 1000).toFixed(1)}s`;
+    console.log(`ZuneManager: browseContents() starting`);
+
     const result = { music: [], videos: [], pictures: [] };
 
-    for (const handle of handles) {
+    // Collect abstract objects for hierarchy building
+    const artistObjHandles = [];
+    const albumObjHandles = [];
+    const musicItems = [];
+
+    // ---- Pass 1: Recursively enumerate all objects from root ----
+    // The Zune stores content in folders (Association objects). We must
+    // traverse the folder tree starting from root (parent=0) to find
+    // all content, including songs synced by the original Zune software.
+    // NOTE: The Zune may return the same handle from multiple parent folders
+    // (virtual folder views by artist, album, genre, etc.), so we deduplicate.
+    console.log(`ZuneManager: [${elapsed()}] Pass 1 — recursive folder enumeration`);
+    const folderQueue = [0]; // start at root
+    const seenHandles = new Set(); // deduplicate across all folders
+    let totalHandles = 0;
+    let foldersScanned = 0;
+
+    while (folderQueue.length > 0) {
+      const parentHandle = folderQueue.shift();
+      let handles;
       try {
-        const info = await this.mtp.getObjectInfo(handle);
+        console.log(`ZuneManager: [${elapsed()}] getObjectHandles(parent=${parentHandle})...`);
+        handles = await Promise.race([
+          this.mtp.getObjectHandles(this.storageId, 0, parentHandle),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+        ]);
+        console.log(`ZuneManager: [${elapsed()}]   -> ${handles.length} handles`);
+      } catch (err) {
+        console.log(`ZuneManager: [${elapsed()}] getObjectHandles failed for parent ${parentHandle}: ${err.message}`);
+        if (err.message === 'timeout' || err.message.includes('PIPE') || err.message.includes('STALL')) {
+          try { await this.transport.clearHalt('in'); } catch (_) {}
+          try { await this.transport.clearHalt('out'); } catch (_) {}
+        }
+        continue;
+      }
 
-        // Skip folders
-        if (info.objectFormat === ObjectFormat.Association) continue;
+      foldersScanned++;
+      totalHandles += handles.length;
 
-        const item = {
-          handle,
-          filename: info.filename,
-          size: info.compressedSize,
-          format: info.objectFormat,
-        };
+      // Emit scan progress so the renderer can show a progress bar
+      this.emit('browse-progress', {
+        phase: 'scanning',
+        scanned: result.music.length + result.videos.length + result.pictures.length,
+        total: totalHandles,
+        foldersScanned,
+        contents: result,
+      });
 
-        const isMusic =
-          info.objectFormat === ObjectFormat.MP3 ||
-          info.objectFormat === ObjectFormat.WMA ||
-          info.objectFormat === ObjectFormat.AAC;
+      for (let hi = 0; hi < handles.length; hi++) {
+        const handle = handles[hi];
+        if (seenHandles.has(handle)) continue;
+        seenHandles.add(handle);
+        try {
+          // Log every 50 handles, and every handle in the last 51 (to catch late stalls)
+          if ((hi % 50 === 0 && hi > 0) || (handles.length > 50 && hi >= handles.length - 51)) {
+            console.log(`ZuneManager: [${elapsed()}]   getObjectInfo ${hi}/${handles.length} handle=${handle} (folder ${parentHandle})`);
+          }
+          const info = await Promise.race([
+            this.mtp.getObjectInfo(handle),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
+          ]);
 
-        const isVideo =
-          info.objectFormat === ObjectFormat.WMV ||
-          info.objectFormat === ObjectFormat.MP4;
+          // Collect abstract objects for hierarchy building
+          if (info.objectFormat === ObjectFormat.Artist) {
+            artistObjHandles.push(handle);
+            continue;
+          }
+          if (info.objectFormat === ObjectFormat.AbstractAudioAlbum) {
+            albumObjHandles.push(handle);
+            continue;
+          }
 
-        const isImage = info.objectFormat === ObjectFormat.JPEG;
+          // Queue folders for recursive traversal
+          if (info.objectFormat === ObjectFormat.Association) {
+            folderQueue.push(handle);
+            continue;
+          }
 
-        // For unknown formats, categorize by extension
-        let category = null;
-        if (isMusic) {
-          category = 'music';
-        } else if (isVideo) {
-          category = 'videos';
-        } else if (isImage) {
-          category = 'pictures';
-        } else {
-          const ext = (info.filename || '').toLowerCase();
-          if (ext.endsWith('.mp3') || ext.endsWith('.wma') || ext.endsWith('.aac') || ext.endsWith('.m4a')) {
+          const item = {
+            handle,
+            filename: info.filename,
+            size: info.compressedSize,
+            format: info.objectFormat,
+          };
+
+          const isMusic =
+            info.objectFormat === ObjectFormat.MP3 ||
+            info.objectFormat === ObjectFormat.WMA ||
+            info.objectFormat === ObjectFormat.AAC;
+
+          const isVideo =
+            info.objectFormat === ObjectFormat.WMV ||
+            info.objectFormat === ObjectFormat.MP4;
+
+          const isImage = info.objectFormat === ObjectFormat.JPEG;
+
+          // For unknown formats, categorize by extension
+          let category = null;
+          if (isMusic) {
             category = 'music';
-          } else if (ext.endsWith('.wmv') || ext.endsWith('.mp4') || ext.endsWith('.m4v')) {
+          } else if (isVideo) {
             category = 'videos';
-          } else if (ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.png')) {
+          } else if (isImage) {
             category = 'pictures';
           } else {
-            category = 'music';
+            const ext = (info.filename || '').toLowerCase();
+            if (ext.endsWith('.mp3') || ext.endsWith('.wma') || ext.endsWith('.aac') || ext.endsWith('.m4a')) {
+              category = 'music';
+            } else if (ext.endsWith('.wmv') || ext.endsWith('.mp4') || ext.endsWith('.m4v')) {
+              category = 'videos';
+            } else if (ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.png')) {
+              category = 'pictures';
+            }
+          }
+
+          if (category) {
+            result[category].push(item);
+            if (category === 'music') {
+              musicItems.push(item);
+            }
+          }
+        } catch (err) {
+          console.log(`ZuneManager: [${elapsed()}] skipping handle ${handle}: ${err.message}`);
+          if (err.message === 'timeout' || err.message.includes('PIPE') || err.message.includes('STALL')) {
+            try { await this.transport.clearHalt('in'); } catch (_) {}
+            try { await this.transport.clearHalt('out'); } catch (_) {}
           }
         }
+      }
+      console.log(`ZuneManager: [${elapsed()}] folder ${parentHandle} done (${handles.length} handles). Queued subfolders: ${folderQueue.length}`);
+    }
 
-        result[category].push(item);
-      } catch (err) {
-        console.log(`ZuneManager: skipping handle ${handle}: ${err.message}`);
+    console.log(`ZuneManager: [${elapsed()}] Pass 1 done — scanned ${foldersScanned} folders, ${totalHandles} total handles ` +
+      `(${result.music.length} music, ${result.videos.length} videos, ${result.pictures.length} pictures, ` +
+      `${artistObjHandles.length} artist objs, ${albumObjHandles.length} album objs)`);
+
+    // Also try flat enumeration with 0xFFFFFFFF to catch orphaned/root-level
+    // abstract objects that may not live inside any folder
+    // seenHandles is already populated from Pass 1 with all content + abstract handles
+    console.log(`ZuneManager: [${elapsed()}] Flat enumeration (0xFFFFFFFF)...`);
+
+    try {
+      const flatHandles = await Promise.race([
+        this.mtp.getObjectHandles(this.storageId, 0, 0xFFFFFFFF),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+      ]);
+      console.log(`ZuneManager: [${elapsed()}] flat enumeration returned ${flatHandles.length} handles (${seenHandles.size} already seen)`);
+      let flatNew = 0;
+      let flatChecked = 0;
+      for (const handle of flatHandles) {
+        if (seenHandles.has(handle)) continue;
+        seenHandles.add(handle);
+        flatChecked++;
+        try {
+          if (flatChecked % 50 === 0) {
+            console.log(`ZuneManager: [${elapsed()}]   flat getObjectInfo progress: ${flatChecked} new handles checked`);
+          }
+          const info = await Promise.race([
+            this.mtp.getObjectInfo(handle),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
+          ]);
+          if (info.objectFormat === ObjectFormat.Artist) {
+            artistObjHandles.push(handle);
+            flatNew++;
+          } else if (info.objectFormat === ObjectFormat.AbstractAudioAlbum) {
+            albumObjHandles.push(handle);
+            flatNew++;
+          } else if (info.objectFormat === ObjectFormat.Association) {
+            // Skip folders in flat pass — we already traversed
+          } else {
+            const item = {
+              handle,
+              filename: info.filename,
+              size: info.compressedSize,
+              format: info.objectFormat,
+            };
+
+            const isMusic =
+              info.objectFormat === ObjectFormat.MP3 ||
+              info.objectFormat === ObjectFormat.WMA ||
+              info.objectFormat === ObjectFormat.AAC;
+            const isVideo =
+              info.objectFormat === ObjectFormat.WMV ||
+              info.objectFormat === ObjectFormat.MP4;
+            const isImage = info.objectFormat === ObjectFormat.JPEG;
+
+            let category = null;
+            if (isMusic) category = 'music';
+            else if (isVideo) category = 'videos';
+            else if (isImage) category = 'pictures';
+            else {
+              const ext = (info.filename || '').toLowerCase();
+              if (ext.endsWith('.mp3') || ext.endsWith('.wma') || ext.endsWith('.aac') || ext.endsWith('.m4a')) {
+                category = 'music';
+              } else if (ext.endsWith('.wmv') || ext.endsWith('.mp4') || ext.endsWith('.m4v')) {
+                category = 'videos';
+              } else if (ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.png')) {
+                category = 'pictures';
+              }
+            }
+
+            if (category) {
+              result[category].push(item);
+              if (category === 'music') musicItems.push(item);
+              flatNew++;
+            }
+          }
+        } catch (err) {
+          console.log(`ZuneManager: [${elapsed()}] skipping flat handle ${handle}: ${err.message}`);
+          if (err.message === 'timeout' || err.message.includes('PIPE') || err.message.includes('STALL')) {
+            try { await this.transport.clearHalt('in'); } catch (_) {}
+            try { await this.transport.clearHalt('out'); } catch (_) {}
+          }
+        }
+      }
+      if (flatNew > 0) {
+        console.log(`ZuneManager: flat enumeration found ${flatNew} additional objects`);
+      }
+    } catch (err) {
+      console.log(`ZuneManager: flat enumeration (0xFFFFFFFF) failed: ${err.message}`);
+    }
+
+    console.log(`ZuneManager: enumerated ${totalHandles} objects across folder tree: ` +
+      `${result.music.length} music, ${result.videos.length} videos, ${result.pictures.length} pictures, ` +
+      `${artistObjHandles.length} artists, ${albumObjHandles.length} albums`);
+
+    // Send initial results so the UI can render filenames + sizes immediately
+    this.emit('browse-progress', { phase: 'enumerated', contents: result });
+
+    // ---- Pass 2: Build artist handle -> name map ----
+    console.log(`ZuneManager: [${elapsed()}] Pass 2 — resolving ${artistObjHandles.length} artist names`);
+    const artistMap = new Map(); // handle -> artistName
+
+    for (const handle of artistObjHandles) {
+      const name = await this._tryGetPropString(handle, ObjectProperty.Name);
+      if (name) {
+        artistMap.set(handle, name);
       }
     }
 
-    // Second pass: try reading metadata for music/video files.
-    // If any property read fails, abort ALL metadata reads immediately —
-    // a failed read stalls the USB pipe and every command after it will hang.
-    const mediaItems = [...result.music, ...result.videos];
-    let metadataAborted = false;
+    if (artistMap.size > 0) {
+      console.log(`ZuneManager: resolved ${artistMap.size} artist objects`);
+    }
 
-    for (let i = 0; i < mediaItems.length && !metadataAborted; i++) {
-      const item = mediaItems[i];
+    // ---- Pass 3: Build track handle -> album metadata map ----
+    console.log(`ZuneManager: [${elapsed()}] Pass 3 — resolving ${albumObjHandles.length} album objects`);
+    const trackToAlbumMap = new Map(); // trackHandle -> { albumName, artistName, genre, albumArt }
 
-      // Try title
+    for (let ai = 0; ai < albumObjHandles.length; ai++) {
+      if (ai > 0 && ai % 10 === 0) {
+        console.log(`ZuneManager: [${elapsed()}]   album progress: ${ai}/${albumObjHandles.length}`);
+      }
+      const albumHandle = albumObjHandles[ai];
+      // Read album name
+      const albumName = await this._tryGetPropString(albumHandle, ObjectProperty.Name);
+      if (!albumName) continue;
+
+      // Read artist via ArtistId (uint32 handle pointing to an Artist object)
+      let artistName = null;
+      const artistId = await this._tryGetPropUint32(albumHandle, ObjectProperty.ArtistId);
+      if (artistId !== null && artistMap.has(artistId)) {
+        artistName = artistMap.get(artistId);
+      }
+      // Fallback: try reading Artist string directly on the album object
+      if (!artistName) {
+        artistName = await this._tryGetPropString(albumHandle, ObjectProperty.Artist);
+      }
+
+      // Read genre
+      const genre = await this._tryGetPropString(albumHandle, ObjectProperty.Genre);
+
+      // Read album art from RepresentativeSampleData
+      let albumArt = null;
+      const artData = await this._tryGetPropArray(albumHandle, ObjectProperty.RepresentativeSampleData);
+      if (artData && artData.length > 0) {
+        const base64 = artData.toString('base64');
+        albumArt = `data:image/jpeg;base64,${base64}`;
+      }
+
+      // Get track references for this album
+      let trackRefs = [];
+      try {
+        trackRefs = await Promise.race([
+          this.mtp.getObjectReferences(albumHandle),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+        ]);
+      } catch (err) {
+        console.log(`ZuneManager: getObjectReferences failed for album "${albumName}": ${err.message}`);
+        if (err.message === 'timeout' || err.message.includes('PIPE') || err.message.includes('STALL')) {
+          await this.transport.clearHalt('in');
+          await this.transport.clearHalt('out');
+        }
+      }
+
+      console.log(`ZuneManager: album "${albumName}" by "${artistName || '?'}" -> ${trackRefs.length} tracks`);
+
+      // Map each referenced track handle to this album's metadata
+      const albumMeta = { albumName, artistName, genre, albumArt };
+      for (const trackHandle of trackRefs) {
+        trackToAlbumMap.set(trackHandle, albumMeta);
+      }
+    }
+
+    if (trackToAlbumMap.size > 0) {
+      console.log(`ZuneManager: mapped ${trackToAlbumMap.size} tracks to albums via hierarchy`);
+    }
+
+    // ---- Apply hierarchy metadata to music items (fast, no MTP calls) ----
+    for (const item of musicItems) {
+      const hierarchyMeta = trackToAlbumMap.get(item.handle);
+      if (hierarchyMeta) {
+        item.artist = hierarchyMeta.artistName || '';
+        item.album = hierarchyMeta.albumName || '';
+        item.genre = hierarchyMeta.genre || '';
+        item.albumArt = hierarchyMeta.albumArt || null;
+      }
+    }
+
+    // Send results with album hierarchy metadata (artist, album, art)
+    this.emit('browse-progress', { phase: 'albums-resolved', enriched: 0, enrichTotal: musicItems.length, contents: result });
+
+    // ---- Pass 4: Enrich music tracks with per-track property reads ----
+    console.log(`ZuneManager: [${elapsed()}] Pass 4 — enriching ${musicItems.length} music tracks with per-track metadata`);
+    let perTrackReadsFailed = false;
+
+    for (let i = 0; i < musicItems.length; i++) {
+      if (i > 0 && i % 25 === 0) {
+        console.log(`ZuneManager: [${elapsed()}]   track enrichment progress: ${i}/${musicItems.length}${perTrackReadsFailed ? ' (per-track reads stopped)' : ''}`);
+      }
+      if (i > 0 && i % 100 === 0) {
+        this.emit('browse-progress', { phase: 'enriching', enriched: i, enrichTotal: musicItems.length, contents: result });
+      }
+      const item = musicItems[i];
+
+      const hierarchyMeta = trackToAlbumMap.get(item.handle);
+      const hasHierarchyMeta = hierarchyMeta && hierarchyMeta.artistName && hierarchyMeta.albumName;
+
+      // Per-track property reads
+      if (!perTrackReadsFailed) {
+        // Always read title (hierarchy only has album/artist, not per-track title)
+        const title = await this._tryGetPropString(item.handle, ObjectProperty.Name);
+        if (title === null) {
+          console.log(`ZuneManager: per-track Name read failed (handle=${item.handle}), stopping per-track reads`);
+          perTrackReadsFailed = true;
+        } else if (title) {
+          item.title = title;
+        }
+      }
+
+      if (!perTrackReadsFailed && !hasHierarchyMeta) {
+        // Only read per-track Artist/AlbumName if hierarchy didn't provide them
+        const trackArtist = await this._tryGetPropString(item.handle, ObjectProperty.Artist);
+        if (trackArtist === null) {
+          perTrackReadsFailed = true;
+        } else if (trackArtist) {
+          item.artist = item.artist || trackArtist;
+        }
+
+        const trackAlbum = await this._tryGetPropString(item.handle, ObjectProperty.AlbumName);
+        if (trackAlbum === null) {
+          perTrackReadsFailed = true;
+        } else if (trackAlbum) {
+          item.album = item.album || trackAlbum;
+        }
+      }
+
+      // Step C: Duration, track number, and genre fallback
+      if (!perTrackReadsFailed) {
+        const duration = await this._tryGetPropUint32(item.handle, ObjectProperty.Duration);
+        if (duration !== null) {
+          item.duration = duration;
+        }
+
+        const trackNum = await this._tryGetPropUint16(item.handle, ObjectProperty.Track);
+        if (trackNum !== null) {
+          item.trackNumber = trackNum;
+        }
+
+        // Read genre from track if hierarchy didn't provide it
+        if (!item.genre) {
+          const genre = await this._tryGetPropString(item.handle, ObjectProperty.Genre);
+          if (genre === null) {
+            perTrackReadsFailed = true;
+          } else if (genre) {
+            item.genre = genre;
+          }
+        }
+      }
+
+      if (i === 0 && !perTrackReadsFailed) {
+        console.log(`ZuneManager: first track metadata OK (title="${item.title}", artist="${item.artist}", album="${item.album}"), reading rest...`);
+      }
+    }
+
+    // Also read title for video items
+    console.log(`ZuneManager: [${elapsed()}] Reading titles for ${result.videos.length} videos`);
+    let videoReadsFailed = false;
+    for (const item of result.videos) {
+      if (videoReadsFailed) break;
       const title = await this._tryGetPropString(item.handle, ObjectProperty.Name);
       if (title === null) {
-        console.log(`ZuneManager: metadata read failed at handle ${item.handle} (Name), aborting metadata`);
-        metadataAborted = true;
-        break;
-      }
-      item.title = title;
-
-      // Try artist
-      const artist = await this._tryGetPropString(item.handle, ObjectProperty.Artist);
-      if (artist === null) {
-        console.log(`ZuneManager: metadata read failed at handle ${item.handle} (Artist), aborting metadata`);
-        metadataAborted = true;
-        break;
-      }
-      item.artist = artist;
-
-      // Try album
-      const album = await this._tryGetPropString(item.handle, ObjectProperty.AlbumName);
-      if (album === null) {
-        console.log(`ZuneManager: metadata read failed at handle ${item.handle} (AlbumName), aborting metadata`);
-        metadataAborted = true;
-        break;
-      }
-      item.album = album;
-
-      if (i === 0) {
-        console.log(`ZuneManager: metadata read OK (title="${title}", artist="${artist}", album="${album}"), reading rest...`);
+        videoReadsFailed = true;
+      } else {
+        item.title = title;
       }
     }
 
-    if (!metadataAborted && mediaItems.length > 0) {
-      console.log(`ZuneManager: metadata read complete for ${mediaItems.length} items`);
+    if (perTrackReadsFailed) {
+      console.log(`ZuneManager: per-track reads failed, relying on hierarchy data for remaining tracks`);
     }
 
+    console.log(`ZuneManager: [${elapsed()}] browse complete: ${result.music.length} music, ${result.videos.length} videos, ${result.pictures.length} pictures`);
     return result;
   }
 
@@ -676,6 +998,14 @@ class ZuneManager extends EventEmitter {
     return { deleted, failed, errors, storage: this.storageInfo };
   }
 
+  async getFile(handle) {
+    if (!this.connected) {
+      throw new Error('No Zune device connected');
+    }
+    const data = await this.mtp.getObject(handle);
+    return data;
+  }
+
   async _tryGetPropString(handle, propCode, timeoutMs = 3000) {
     try {
       const result = await Promise.race([
@@ -690,6 +1020,63 @@ class ZuneManager extends EventEmitter {
       // so subsequent MTP commands can still work
       if (err.message === 'timeout' || err.message.includes('PIPE') || err.message.includes('STALL')) {
         console.log(`ZuneManager: property read stalled (handle=${handle}, prop=0x${propCode.toString(16)}), clearing pipes`);
+        await this.transport.clearHalt('in');
+        await this.transport.clearHalt('out');
+      }
+      return null;
+    }
+  }
+
+  async _tryGetPropUint32(handle, propCode, timeoutMs = 3000) {
+    try {
+      const result = await Promise.race([
+        this.mtp.getObjectPropUint32(handle, propCode),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), timeoutMs)
+        ),
+      ]);
+      return result;
+    } catch (err) {
+      if (err.message === 'timeout' || err.message.includes('PIPE') || err.message.includes('STALL')) {
+        console.log(`ZuneManager: uint32 read stalled (handle=${handle}, prop=0x${propCode.toString(16)}), clearing pipes`);
+        await this.transport.clearHalt('in');
+        await this.transport.clearHalt('out');
+      }
+      return null;
+    }
+  }
+
+  async _tryGetPropUint16(handle, propCode, timeoutMs = 3000) {
+    try {
+      const result = await Promise.race([
+        this.mtp.getObjectPropUint16(handle, propCode),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), timeoutMs)
+        ),
+      ]);
+      return result;
+    } catch (err) {
+      if (err.message === 'timeout' || err.message.includes('PIPE') || err.message.includes('STALL')) {
+        console.log(`ZuneManager: uint16 read stalled (handle=${handle}, prop=0x${propCode.toString(16)}), clearing pipes`);
+        await this.transport.clearHalt('in');
+        await this.transport.clearHalt('out');
+      }
+      return null;
+    }
+  }
+
+  async _tryGetPropArray(handle, propCode, timeoutMs = 5000) {
+    try {
+      const result = await Promise.race([
+        this.mtp.getObjectPropArray(handle, propCode),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), timeoutMs)
+        ),
+      ]);
+      return result;
+    } catch (err) {
+      if (err.message === 'timeout' || err.message.includes('PIPE') || err.message.includes('STALL')) {
+        console.log(`ZuneManager: array read stalled (handle=${handle}, prop=0x${propCode.toString(16)}), clearing pipes`);
         await this.transport.clearHalt('in');
         await this.transport.clearHalt('out');
       }

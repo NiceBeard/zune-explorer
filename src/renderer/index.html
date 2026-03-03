@@ -254,6 +254,46 @@
             </div>
         </div>
 
+        <div id="zune-scan-progress" style="display:none">
+            <p class="zune-scan-label">scanning device...</p>
+            <div class="zune-scan-bar">
+                <div class="zune-scan-fill" id="zune-scan-fill"></div>
+            </div>
+            <p class="zune-scan-stats" id="zune-scan-stats">0 / 0 files</p>
+            <p class="zune-scan-error" id="zune-scan-error" style="display:none"></p>
+        </div>
+
+        <div id="zune-diff-view" style="display:none">
+            <div class="zune-diff-summary">
+                <span class="zune-diff-stat" id="zune-diff-matched">0 matched</span>
+                <span class="zune-diff-stat zune-diff-stat-push" id="zune-diff-local-only">0 to sync</span>
+                <span class="zune-diff-stat zune-diff-stat-pull" id="zune-diff-device-only">0 on device only</span>
+            </div>
+            <div class="zune-diff-tabs">
+                <button class="zune-diff-tab active" data-diff="local-only">missing from device</button>
+                <button class="zune-diff-tab" data-diff="device-only">missing from computer</button>
+                <button class="zune-diff-tab" data-diff="matched">on both</button>
+            </div>
+            <div class="zune-diff-group-bar" id="zune-diff-group-bar">
+                <button class="zune-diff-group-btn active" data-group="all">all tracks</button>
+                <button class="zune-diff-group-btn" data-group="album">by album</button>
+                <button class="zune-diff-group-btn" data-group="artist">by artist</button>
+            </div>
+            <label class="zune-diff-select-all" id="zune-diff-select-all">
+                <input type="checkbox" id="zune-diff-select-all-check">
+                <span id="zune-diff-select-all-label">select all (0 tracks)</span>
+            </label>
+            <div class="zune-diff-list" id="zune-diff-list"></div>
+            <div class="zune-diff-actions" id="zune-diff-actions" style="display:none">
+                <button class="zune-sync-btn zune-push-btn" id="zune-push-btn">sync to device</button>
+                <button class="zune-sync-btn zune-pull-btn" id="zune-pull-btn">copy to computer</button>
+            </div>
+            <div class="zune-diff-footer">
+                <button class="zune-sync-btn zune-rescan-btn" id="zune-rescan-btn">rescan device</button>
+                <button class="zune-sync-btn zune-diff-back-btn" id="zune-diff-back">back</button>
+            </div>
+        </div>
+
         <div class="zune-browse-view" id="zune-browse-view" style="display:none">
             <button class="zune-browse-back" id="zune-browse-back">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">

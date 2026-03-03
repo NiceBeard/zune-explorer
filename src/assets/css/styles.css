@@ -109,8 +109,46 @@ body {
     z-index: 3;
 }
 
+/* Show-sync state — sync panel takes center stage */
+.panoramic-container.show-sync .recent-panel {
+    z-index: 0;
+    transform: translateX(-30vw);
+    opacity: 0;
+}
+
+.panoramic-container.show-sync .menu-panel {
+    z-index: 1;
+    right: auto;
+    left: 0;
+    width: 35vw;
+    transform: translateX(0);
+}
+
+.panoramic-container.show-sync .menu-container {
+    transform: scale(0.55);
+    transform-origin: left center;
+}
+
+.panoramic-container.show-sync .menu-text,
+.panoramic-container.show-sync .menu-count {
+    color: var(--zune-text-dim);
+}
+
+.panoramic-container.show-sync .menu-subtitle {
+    color: rgba(102, 102, 102, 0.5);
+}
+
+.panoramic-container.show-sync .content-panel {
+    transform: translateX(100vw);
+    z-index: 0;
+}
+
+.panoramic-container.show-sync .menu-panel {
+    cursor: pointer;
+}
+
 /* Behind panel cursor - indicates clickable to bring to front */
-.panoramic-container:not(.show-recent):not(.show-content) .recent-panel {
+.panoramic-container:not(.show-recent):not(.show-content):not(.show-sync) .recent-panel {
     cursor: pointer;
 }
 
@@ -388,6 +426,25 @@ body {
     background: rgba(255, 105, 0, 0.1);
     border-color: rgba(255, 105, 0, 0.3);
     transform: translateY(-2px);
+}
+
+/* Drag-and-drop feedback for file items and music rows */
+.file-item[draggable="true"],
+.recent-file[draggable="true"],
+.music-song-row[draggable="true"],
+.music-album-track-row[draggable="true"] {
+    cursor: grab;
+}
+
+.file-item[draggable="true"]:active,
+.recent-file[draggable="true"]:active,
+.music-song-row[draggable="true"]:active,
+.music-album-track-row[draggable="true"]:active {
+    cursor: grabbing;
+}
+
+.dragging {
+    opacity: 0.4;
 }
 
 .file-info {
@@ -1283,12 +1340,18 @@ body.platform-win32 .now-playing-panel {
     display: flex;
     flex-direction: column;
     gap: 24px;
-    transition: right var(--transition-duration) var(--transition-easing);
+    transition: right var(--transition-duration) var(--transition-easing),
+                width var(--transition-duration) var(--transition-easing);
     overflow-y: auto;
 }
 
 .zune-sync-panel.open {
     right: 0;
+}
+
+.zune-sync-panel.expanded {
+    width: 65vw;
+    overflow-y: hidden;
 }
 
 .zune-sync-title {
@@ -1335,12 +1398,18 @@ body.platform-win32 .now-playing-panel {
     border-radius: 8px;
     padding: 32px 16px;
     text-align: center;
-    transition: border-color 0.2s, background 0.2s;
+    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+    pointer-events: auto;
 }
 
 .zune-drop-zone.dragover {
     border-color: var(--zune-orange);
-    background: rgba(255, 105, 0, 0.05);
+    background: rgba(255, 105, 0, 0.08);
+    box-shadow: inset 0 0 20px rgba(255, 105, 0, 0.1);
+}
+
+.zune-drop-zone.dragover .zune-drop-text {
+    color: var(--zune-orange);
 }
 
 .zune-drop-text {
@@ -1594,6 +1663,20 @@ body.platform-win32 .now-playing-panel {
     text-overflow: ellipsis;
 }
 
+.zune-browse-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    flex-shrink: 0;
+    gap: 2px;
+}
+
+.zune-browse-duration {
+    font-size: 11px;
+    color: var(--zune-text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
 .zune-browse-size {
     font-size: 11px;
     color: var(--zune-text-dim);
@@ -1642,6 +1725,354 @@ body.platform-win32 .now-playing-panel {
     border-color: #ff3333;
     color: #ff3333;
     background: rgba(255, 51, 51, 0.1);
+}
+
+/* ==============================
+   Scan Progress + Diff View
+   ============================== */
+
+#zune-scan-progress {
+    padding: 8px 0;
+}
+
+.zune-scan-label {
+    font-size: 14px;
+    color: var(--zune-text-secondary);
+    margin-bottom: 12px;
+    font-weight: 300;
+    text-transform: lowercase;
+}
+
+.zune-scan-bar {
+    height: 3px;
+    background: #1a1a1a;
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.zune-scan-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--zune-orange), var(--zune-magenta));
+    border-radius: 2px;
+    transition: width 0.3s ease;
+    width: 0%;
+}
+
+.zune-scan-stats {
+    font-size: 11px;
+    color: var(--zune-text-dim);
+    margin-top: 6px;
+}
+
+.zune-scan-error {
+    font-size: 12px;
+    color: var(--zune-orange);
+    margin-top: 8px;
+}
+
+/* Diff view */
+#zune-diff-view {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    flex: 1;
+    min-height: 0;
+}
+
+.zune-diff-summary {
+    display: flex;
+    gap: 16px;
+    padding: 4px 0 12px;
+    flex-shrink: 0;
+}
+
+.zune-diff-stat {
+    font-size: 12px;
+    color: var(--zune-text-dim);
+    font-weight: 300;
+}
+
+.zune-diff-stat-push {
+    color: var(--zune-orange);
+}
+
+.zune-diff-stat-pull {
+    color: var(--zune-magenta);
+}
+
+.zune-diff-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid #222;
+    margin-bottom: 8px;
+    flex-shrink: 0;
+}
+
+.zune-diff-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--zune-text-dim);
+    padding: 8px 12px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    text-transform: lowercase;
+    transition: color 0.2s, border-color 0.2s;
+    white-space: nowrap;
+}
+
+.zune-diff-tab:hover {
+    color: var(--zune-text-secondary);
+}
+
+.zune-diff-tab.active {
+    color: var(--zune-orange);
+    border-bottom-color: var(--zune-orange);
+}
+
+.zune-diff-list {
+    flex: 1;
+    overflow-y: auto;
+    max-height: 300px;
+    scrollbar-width: thin;
+    scrollbar-color: #333 transparent;
+}
+
+.zune-sync-panel.expanded .zune-diff-list {
+    max-height: none;
+}
+
+.zune-diff-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.zune-diff-list::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 2px;
+}
+
+.zune-diff-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 4px;
+    border-bottom: 1px solid #111;
+    font-size: 12px;
+    color: var(--zune-text-secondary);
+    cursor: default;
+}
+
+.zune-diff-item:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.zune-diff-check {
+    flex-shrink: 0;
+    accent-color: var(--zune-orange);
+}
+
+.zune-diff-art {
+    width: 32px;
+    height: 32px;
+    object-fit: cover;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
+.zune-diff-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.zune-diff-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--zune-text);
+    font-size: 12px;
+}
+
+.zune-diff-meta {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--zune-text-dim);
+    font-size: 11px;
+}
+
+.zune-diff-actions {
+    display: flex;
+    gap: 8px;
+    padding-top: 8px;
+    flex-shrink: 0;
+}
+
+.zune-diff-actions .zune-sync-btn {
+    flex: 1;
+}
+
+.zune-push-btn {
+    border-color: var(--zune-orange) !important;
+    color: var(--zune-orange) !important;
+}
+
+.zune-push-btn:hover {
+    background: rgba(255, 105, 0, 0.1) !important;
+}
+
+.zune-pull-btn {
+    border-color: var(--zune-magenta) !important;
+    color: var(--zune-magenta) !important;
+}
+
+.zune-pull-btn:hover {
+    background: rgba(255, 0, 102, 0.1) !important;
+}
+
+.zune-diff-footer {
+    display: flex;
+    gap: 8px;
+    padding-top: 8px;
+    margin-top: 4px;
+    flex-shrink: 0;
+}
+
+.zune-diff-footer .zune-sync-btn {
+    flex: 1;
+    font-size: 12px;
+    padding: 8px 12px;
+}
+
+.zune-rescan-btn {
+    border-color: #333 !important;
+    color: var(--zune-text-dim) !important;
+}
+
+/* Group-by sub-tabs */
+.zune-diff-group-bar {
+    display: flex;
+    gap: 0;
+    margin-bottom: 6px;
+    flex-shrink: 0;
+}
+
+.zune-diff-group-btn {
+    background: none;
+    border: none;
+    color: var(--zune-text-dim);
+    padding: 4px 10px;
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    text-transform: lowercase;
+    border-bottom: 1px solid transparent;
+    transition: color 0.2s;
+}
+
+.zune-diff-group-btn:hover {
+    color: var(--zune-text-secondary);
+}
+
+.zune-diff-group-btn.active {
+    color: var(--zune-text);
+    border-bottom-color: var(--zune-text-dim);
+}
+
+/* Select-all */
+.zune-diff-select-all {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 4px;
+    border-bottom: 1px solid #1a1a1a;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--zune-text-dim);
+    flex-shrink: 0;
+}
+
+.zune-diff-select-all input {
+    accent-color: var(--zune-orange);
+}
+
+/* Group headers */
+.zune-diff-group-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 4px;
+    cursor: pointer;
+    border-bottom: 1px solid #111;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.zune-diff-group-header:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.zune-diff-group-art {
+    width: 40px;
+    height: 40px;
+    object-fit: cover;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
+.zune-diff-group-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.zune-diff-group-name {
+    font-size: 13px;
+    color: var(--zune-text);
+    font-weight: 400;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.zune-diff-group-meta {
+    font-size: 11px;
+    color: var(--zune-text-dim);
+}
+
+.zune-diff-group-check {
+    flex-shrink: 0;
+    accent-color: var(--zune-orange);
+}
+
+.zune-diff-group-arrow {
+    color: var(--zune-text-dim);
+    font-size: 11px;
+    flex-shrink: 0;
+    width: 16px;
+    transition: transform 0.2s;
+}
+
+.zune-diff-group-arrow.collapsed {
+    transform: rotate(-90deg);
+}
+
+/* Group tracks (indented) */
+.zune-diff-group-tracks {
+    padding-left: 16px;
+}
+
+.zune-diff-group-tracks.collapsed {
+    display: none;
+}
+
+.zune-diff-empty {
+    font-size: 13px;
+    color: var(--zune-text-dim);
+    text-align: center;
+    padding: 24px 0;
+    font-weight: 300;
 }
 
 /* ==============================

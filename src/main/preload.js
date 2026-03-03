@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   getDirectoryContents: (path) => ipcRenderer.invoke('get-directory-contents', path),
@@ -25,8 +25,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   zuneBrowseContents: () => ipcRenderer.invoke('zune-browse-contents'),
   zuneDeleteObjects: (handles) => ipcRenderer.invoke('zune-delete-objects', handles),
   zuneEject: () => ipcRenderer.invoke('zune-eject'),
+  zuneCacheLoad: (deviceKey) => ipcRenderer.invoke('zune-cache-load', deviceKey),
+  zuneCacheSave: (deviceKey, data) => ipcRenderer.invoke('zune-cache-save', deviceKey, data),
+  zuneCacheInvalidate: (deviceKey) => ipcRenderer.invoke('zune-cache-invalidate', deviceKey),
+  zunePullFile: (handle, filename, destDir, metadata) => ipcRenderer.invoke('zune-pull-file', handle, filename, destDir, metadata),
   zuneProbeProperties: (handle) => ipcRenderer.invoke('zune-probe-properties', handle),
   zuneProbeWmdrmpd: () => ipcRenderer.invoke('zune-probe-wmdrmpd'),
   onZuneStatus: (callback) => ipcRenderer.on('zune-status', (event, status) => callback(status)),
-  onZuneTransferProgress: (callback) => ipcRenderer.on('zune-transfer-progress', (event, progress) => callback(progress))
+  onZuneTransferProgress: (callback) => ipcRenderer.on('zune-transfer-progress', (event, progress) => callback(progress)),
+  onZuneBrowseProgress: (callback) => ipcRenderer.on('zune-browse-progress', (event, data) => callback(data)),
+
+  // Drag-and-drop path resolution (sandbox-safe)
+  getPathForFile: (file) => webUtils.getPathForFile(file),
 });

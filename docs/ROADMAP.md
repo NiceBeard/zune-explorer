@@ -30,10 +30,8 @@ Pull files from the Zune to the computer via MTP GetObject. Could enable backup/
 
 ## Music Experience Enhancements
 
-### Sub-Category Navigation (Zune HD Style)
-When entering a category like Music, show the title flowing off the top in giant font with horizontal scrollable sub-categories below (ALBUMS, ARTISTS, SONGS, PLAYLISTS). Album art grid with alphabetical letter dividers — exactly like the Zune HD browsing experience.
-
-Reference: `docs/music-zune.png`
+### ~~Sub-Category Navigation (Zune HD Style)~~ (Done)
+Music view with giant hero header, horizontal sub-tabs (ALBUMS, ARTISTS, SONGS, GENRES), album art grid with letter dividers, alpha jump overlay, and drill-down views for albums and artists. Batch metadata scanning with progressive loading. Playback integration from any sub-view.
 
 ### Playlists
 Create, edit, and save playlists as JSON files. Add a "playlists" sub-category under Music. Drag-to-reorder, save/load, delete.
@@ -57,5 +55,18 @@ Pin frequently used files or folders to the left sidebar alongside recent files.
 ### Left Sidebar Expansion
 Currently the left sidebar only shows recent files. Could expand to include pins, playlists, and quick-access items.
 
-### Zune HD as a Design System
-The dream: Zune HD's design language applied as a full desktop OS experience. Bold typography as navigation, panoramic horizontal scrolling, dark theme with accent colors, touch-friendly targets. Every screen follows the giant-header-with-sub-categories pattern.
+### Zune HD as a Design System (In Progress)
+The dream: Zune HD's design language applied as a full desktop OS experience. Bold typography as navigation, panoramic horizontal scrolling, dark theme with accent colors, touch-friendly targets.
+
+**Completed:**
+- Giant hero header pattern on all categories (340px, weight 100, muted white, clips off top edge)
+- Hero headers persist through folder browsing (dynamic folder name as hero text)
+- Zune HD angular back button SVG (square linecaps, miter joins)
+- Visual hierarchy: bright active tabs, dim inactive tabs, orange accents
+- Music sub-category tabs with Zune HD styling
+
+**Remaining:**
+- Now Playing screen in Zune HD style (full-screen album art, minimal controls)
+- Animations and transitions between views (slide, fade, momentum)
+- Touch/gesture support for horizontal panoramic scrolling
+- Accent color theming (user-selectable color beyond orange)

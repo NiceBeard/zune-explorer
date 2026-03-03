@@ -1,10 +1,18 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
+const os = require('os');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const platform = require('./platform-' + (process.platform === 'win32' ? 'win32' : 'darwin') + '.js');
 const { ZuneManager } = require('./zune/zune-manager');
+const { DeviceCache } = require('./zune/device-cache');
+
+const execFileAsync = promisify(execFile);
+const ffmpegPath = require('ffmpeg-static');
 
 const zuneManager = new ZuneManager();
+let deviceCache = null; // initialized after app.whenReady
 
 // Simple dev mode detection
 const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev');
@@ -76,6 +84,8 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
 
+  deviceCache = new DeviceCache(app.getPath('userData'));
+
   // Start Zune USB detection
   zuneManager.start();
 
@@ -85,6 +95,9 @@ app.whenReady().then(() => {
   });
   zuneManager.on('transfer-progress', (progress) => {
     if (mainWindow) mainWindow.webContents.send('zune-transfer-progress', progress);
+  });
+  zuneManager.on('browse-progress', (data) => {
+    if (mainWindow) mainWindow.webContents.send('zune-browse-progress', data);
   });
 
   app.on('activate', () => {
@@ -375,6 +388,120 @@ ipcMain.handle('zune-probe-wmdrmpd', async () => {
     const results = await zuneManager.probeWmdrmpd();
     console.log('=== WMDRMPD PROBE COMPLETE ===\n');
     return { success: true, results };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Device cache IPC
+ipcMain.handle('zune-cache-load', async (event, deviceKey) => {
+  try {
+    const data = await deviceCache.load(deviceKey);
+    return { success: true, data };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('zune-cache-save', async (event, deviceKey, cacheData) => {
+  try {
+    await deviceCache.save(deviceKey, cacheData);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('zune-cache-invalidate', async (event, deviceKey) => {
+  try {
+    await deviceCache.invalidate(deviceKey);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Pull file from device — converts WMA to MP3, embeds metadata + album art
+const WMA_EXTENSIONS = new Set(['.wma']);
+
+ipcMain.handle('zune-pull-file', async (event, handle, filename, destDir, metadata) => {
+  try {
+    const data = await zuneManager.getFile(handle);
+    const ext = path.extname(filename).toLowerCase();
+    const baseName = path.basename(filename, ext);
+
+    // Save raw file to temp location first
+    const tempRaw = path.join(os.tmpdir(), `zune-pull-${Date.now()}-${filename}`);
+    await fs.writeFile(tempRaw, data);
+
+    let finalPath;
+
+    if (WMA_EXTENSIONS.has(ext)) {
+      // Convert WMA → MP3 via ffmpeg
+      const mp3Name = baseName + '.mp3';
+      finalPath = path.join(destDir, mp3Name);
+
+      const ffArgs = ['-i', tempRaw];
+
+      // Embed album art if available (base64 data URL → temp file)
+      let tempArt = null;
+      const albumArt = metadata?.albumArt;
+      if (albumArt && albumArt.startsWith('data:image/')) {
+        try {
+          const match = albumArt.match(/^data:image\/(\w+);base64,(.+)$/);
+          if (match) {
+            const artExt = match[1] === 'jpeg' ? 'jpg' : match[1];
+            tempArt = path.join(os.tmpdir(), `zune-art-${Date.now()}.${artExt}`);
+            await fs.writeFile(tempArt, Buffer.from(match[2], 'base64'));
+            ffArgs.push('-i', tempArt);
+          }
+        } catch (_) { /* art embedding is best-effort */ }
+      }
+
+      ffArgs.push(
+        '-c:a', 'libmp3lame',
+        '-b:a', '320k',
+        '-ar', '44100',
+        '-ac', '2',
+      );
+
+      // Map audio from input 0, art from input 1 (if present)
+      if (tempArt) {
+        ffArgs.push(
+          '-map', '0:a',
+          '-map', '1:0',
+          '-c:v', 'copy',
+          '-id3v2_version', '3',
+          '-metadata:s:v', 'title=Album cover',
+          '-metadata:s:v', 'comment=Cover (front)',
+        );
+      }
+
+      // Embed text metadata
+      if (metadata?.title) ffArgs.push('-metadata', `title=${metadata.title}`);
+      if (metadata?.artist) ffArgs.push('-metadata', `artist=${metadata.artist}`);
+      if (metadata?.album) ffArgs.push('-metadata', `album=${metadata.album}`);
+      if (metadata?.genre) ffArgs.push('-metadata', `genre=${metadata.genre}`);
+      if (metadata?.trackNumber) ffArgs.push('-metadata', `track=${metadata.trackNumber}`);
+
+      ffArgs.push('-y', finalPath);
+
+      await execFileAsync(ffmpegPath, ffArgs);
+
+      // Clean up temp files
+      await fs.unlink(tempRaw).catch(() => {});
+      if (tempArt) await fs.unlink(tempArt).catch(() => {});
+    } else {
+      // MP3/AAC — just move to destination (already playable)
+      finalPath = path.join(destDir, filename);
+      await fs.rename(tempRaw, finalPath).catch(async () => {
+        // rename fails across filesystems, fall back to copy+delete
+        await fs.copyFile(tempRaw, finalPath);
+        await fs.unlink(tempRaw).catch(() => {});
+      });
+    }
+
+    return { success: true, path: finalPath };
   } catch (error) {
     return { success: false, error: error.message };
   }

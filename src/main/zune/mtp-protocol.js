@@ -311,6 +311,22 @@ class MtpProtocol {
     return str;
   }
 
+  async getObjectPropUint32(objectHandle, propCode) {
+    const payload = await this.getObjectPropValue(objectHandle, propCode);
+    return payload.readUInt32LE(0);
+  }
+
+  async getObjectPropUint16(objectHandle, propCode) {
+    const payload = await this.getObjectPropValue(objectHandle, propCode);
+    return payload.readUInt16LE(0);
+  }
+
+  async getObjectPropArray(objectHandle, propCode) {
+    const payload = await this.getObjectPropValue(objectHandle, propCode);
+    const count = payload.readUInt32LE(0);
+    return payload.slice(4, 4 + count);
+  }
+
   async getThumb(objectHandle) {
     await this.sendCommand(OperationCode.GetThumb, [objectHandle]);
     const data = await this.receiveData();
