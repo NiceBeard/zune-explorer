@@ -5,12 +5,8 @@ const ZUNE_VENDOR_ID = 0x045E;
 
 const ZUNE_DEVICES = {
   0x063E: 'Zune HD',
-  0x0710: 'Zune 32GB'
+  0x0710: 'Zune 30'
 };
-
-// Endpoint numbers for MTP bulk transfers (from Zune device descriptor)
-const BULK_OUT_ENDPOINT = 1;
-const BULK_IN_ENDPOINT = 1;
 
 class UsbTransport {
   constructor() {
@@ -18,6 +14,9 @@ class UsbTransport {
     this.webusb = new WebUSB({ allowAllDevices: true });
     this.attachCallbacks = [];
     this.detachCallbacks = [];
+    this.bulkOutEndpoint = null;
+    this.bulkInEndpoint = null;
+    this.mtpInterface = null;
   }
 
   async findZune() {
@@ -38,8 +37,78 @@ class UsbTransport {
     return null;
   }
 
+  /**
+   * Discover MTP interface and bulk endpoints from device configuration.
+   * MTP uses class 6 (Still Image / PTP), subclass 1, protocol 1.
+   * Falls back to first interface with bulk in+out endpoints.
+   */
+  _discoverEndpoints() {
+    const config = this.device.configuration;
+    if (!config) throw new Error('No active USB configuration');
+
+    console.log(`UsbTransport: configuration ${config.configurationValue}, ${config.interfaces.length} interface(s)`);
+
+    let mtpIface = null;
+
+    // First pass: look for MTP/PTP class (6/1/1)
+    for (const iface of config.interfaces) {
+      for (const alt of iface.alternates) {
+        console.log(`UsbTransport:   interface ${iface.interfaceNumber} alt ${alt.alternateSetting}: class=${alt.interfaceClass} sub=${alt.interfaceSubclass} proto=${alt.interfaceProtocol} endpoints=${alt.endpoints.length}`);
+        if (alt.interfaceClass === 6 && alt.interfaceSubclass === 1 && alt.interfaceProtocol === 1) {
+          mtpIface = { iface, alt };
+          break;
+        }
+      }
+      if (mtpIface) break;
+    }
+
+    // Second pass: fall back to first interface with bulk in+out
+    if (!mtpIface) {
+      for (const iface of config.interfaces) {
+        for (const alt of iface.alternates) {
+          const hasIn = alt.endpoints.some(e => e.direction === 'in' && e.type === 'bulk');
+          const hasOut = alt.endpoints.some(e => e.direction === 'out' && e.type === 'bulk');
+          if (hasIn && hasOut) {
+            mtpIface = { iface, alt };
+            break;
+          }
+        }
+        if (mtpIface) break;
+      }
+    }
+
+    if (!mtpIface) throw new Error('No MTP interface found on device');
+
+    const { iface, alt } = mtpIface;
+    this.mtpInterface = iface.interfaceNumber;
+
+    for (const ep of alt.endpoints) {
+      if (ep.type === 'bulk' && ep.direction === 'out') {
+        this.bulkOutEndpoint = ep.endpointNumber;
+      } else if (ep.type === 'bulk' && ep.direction === 'in') {
+        this.bulkInEndpoint = ep.endpointNumber;
+      }
+    }
+
+    if (this.bulkOutEndpoint === null || this.bulkInEndpoint === null) {
+      throw new Error('MTP interface missing bulk endpoints');
+    }
+
+    console.log(`UsbTransport: MTP interface=${this.mtpInterface} bulkOut=${this.bulkOutEndpoint} bulkIn=${this.bulkInEndpoint}`);
+  }
+
+  async _openAndClaim() {
+    await this.device.open();
+
+    if (this.device.configuration === null) {
+      await this.device.selectConfiguration(1);
+    }
+
+    this._discoverEndpoints();
+    await this.device.claimInterface(this.mtpInterface);
+  }
+
   async open(vendorId, productId) {
-    // Try requestDevice first (works at startup)
     let device = null;
     try {
       device = await this.webusb.requestDevice({
@@ -54,14 +123,7 @@ class UsbTransport {
     }
 
     this.device = device;
-    await this.device.open();
-
-    // Select configuration if not already active
-    if (this.device.configuration === null) {
-      await this.device.selectConfiguration(1);
-    }
-
-    await this.device.claimInterface(0);
+    await this._openAndClaim();
   }
 
   /**
@@ -70,19 +132,15 @@ class UsbTransport {
    */
   async openFromLibusb(libusbDevice) {
     this.device = await WebUSBDevice.createInstance(libusbDevice);
-    await this.device.open();
-
-    if (this.device.configuration === null) {
-      await this.device.selectConfiguration(1);
-    }
-
-    await this.device.claimInterface(0);
+    await this._openAndClaim();
   }
 
   async close() {
     if (this.device) {
       try {
-        await this.device.releaseInterface(0);
+        if (this.mtpInterface !== null) {
+          await this.device.releaseInterface(this.mtpInterface);
+        }
       } catch {
         // Ignore release errors
       }
@@ -93,42 +151,40 @@ class UsbTransport {
       }
     }
     this.device = null;
+    this.bulkOutEndpoint = null;
+    this.bulkInEndpoint = null;
+    this.mtpInterface = null;
   }
 
   async bulkWrite(data) {
-    // WebUSB transferOut expects a BufferSource
-    const result = await this.device.transferOut(BULK_OUT_ENDPOINT, data);
+    const result = await this.device.transferOut(this.bulkOutEndpoint, data);
     if (result.status !== 'ok') {
       throw new Error(`USB bulk write failed: ${result.status}`);
     }
   }
 
   async bulkRead(length) {
-    const result = await this.device.transferIn(BULK_IN_ENDPOINT, length);
+    const result = await this.device.transferIn(this.bulkInEndpoint, length);
     if (result.status !== 'ok') {
       throw new Error(`USB bulk read failed: ${result.status}`);
     }
-    // Convert DataView to Buffer
     return Buffer.from(result.data.buffer, result.data.byteOffset, result.data.byteLength);
   }
 
   async clearHalt(direction) {
     try {
-      const endpoint = direction === 'in'
-        ? 'in' : 'out';
-      await this.device.clearHalt(endpoint, direction === 'in' ? BULK_IN_ENDPOINT : BULK_OUT_ENDPOINT);
+      const epNum = direction === 'in' ? this.bulkInEndpoint : this.bulkOutEndpoint;
+      await this.device.clearHalt(direction, epNum);
     } catch (err) {
       console.log('UsbTransport: clearHalt failed:', err.message);
     }
   }
 
   startHotplugDetection() {
-    // Use the classic libusb API for hotplug events (WebUSB doesn't support them)
     usb.on('attach', (device) => {
       const { idVendor, idProduct } = device.deviceDescriptor;
 
       if (idVendor === ZUNE_VENDOR_ID && ZUNE_DEVICES[idProduct]) {
-        // Pass the raw libusb device so we can wrap it directly
         const info = { model: ZUNE_DEVICES[idProduct], productId: idProduct, libusbDevice: device };
 
         for (const callback of this.attachCallbacks) {

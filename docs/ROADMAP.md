@@ -22,7 +22,7 @@ Extracts embedded cover art from audio files and sets it on the album object via
 ### ~~Fix Drag-and-Drop to Sync Panel~~ (Done)
 Drag-and-drop file transfer to the sync panel working.
 
-### Zune 32GB Testing
+### Zune 32GB Testing (In Progress)
 Verify the full sync flow on the brown Zune 32GB (PID 0x0710). May have different MTP behavior or endpoint configuration.
 
 ### ~~Two-Way Sync~~ (Done)
@@ -55,6 +55,12 @@ Pin frequently used files or folders to the left sidebar alongside recent files.
 ### Left Sidebar Expansion
 Currently the left sidebar only shows recent files. Could expand to include pins, playlists, and quick-access items.
 
+### ~~USB Hotplug Detection~~ (Done)
+Fixed hotplug by wrapping libusb device directly via WebUSBDevice.createInstance() instead of WebUSB requestDevice(), which can't see devices connected after app start. Retry with escalating delays for device initialization.
+
+### ~~Sync Panel Redesign~~ (Done)
+Zune HD-style sync panel: segmented storage bar (music/videos/pictures/other), borderless text navigation, subtle drop zone, back arrow overlapping header, inline rescan link, eject icon with hover tooltip, panel edge bar toggle, play icon on music category in explore menu.
+
 ### Zune HD as a Design System (In Progress)
 The dream: Zune HD's design language applied as a full desktop OS experience. Bold typography as navigation, panoramic horizontal scrolling, dark theme with accent colors, touch-friendly targets.
 
@@ -64,6 +70,8 @@ The dream: Zune HD's design language applied as a full desktop OS experience. Bo
 - Zune HD angular back button SVG (square linecaps, miter joins)
 - Visual hierarchy: bright active tabs, dim inactive tabs, orange accents
 - Music sub-category tabs with Zune HD styling
+- Sync panel with Zune text-as-navigation, segmented storage, panel edge bar
+- Play icon on music menu item (matching Zune HD home screen)
 
 **Remaining:**
 - Now Playing screen in Zune HD style (full-screen album art, minimal controls)

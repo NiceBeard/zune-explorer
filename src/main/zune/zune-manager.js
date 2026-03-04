@@ -620,6 +620,18 @@ class ZuneManager extends EventEmitter {
           if ((hi % 50 === 0 && hi > 0) || (handles.length > 50 && hi >= handles.length - 51)) {
             console.log(`ZuneManager: [${elapsed()}]   getObjectInfo ${hi}/${handles.length} handle=${handle} (folder ${parentHandle})`);
           }
+          // Emit scanning progress every 50 handles within a folder
+          if (hi > 0 && hi % 50 === 0) {
+            this.emit('browse-progress', {
+              phase: 'scanning',
+              scanned: result.music.length + result.videos.length + result.pictures.length,
+              total: handles.length,
+              foldersScanned,
+              handleProgress: hi,
+              handleTotal: handles.length,
+              contents: result,
+            });
+          }
           const info = await Promise.race([
             this.mtp.getObjectInfo(handle),
             new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
@@ -814,6 +826,7 @@ class ZuneManager extends EventEmitter {
     for (let ai = 0; ai < albumObjHandles.length; ai++) {
       if (ai > 0 && ai % 10 === 0) {
         console.log(`ZuneManager: [${elapsed()}]   album progress: ${ai}/${albumObjHandles.length}`);
+        this.emit('browse-progress', { phase: 'resolving-albums', resolved: ai, resolveTotal: albumObjHandles.length, contents: result });
       }
       const albumHandle = albumObjHandles[ai];
       // Read album name
@@ -892,7 +905,7 @@ class ZuneManager extends EventEmitter {
       if (i > 0 && i % 25 === 0) {
         console.log(`ZuneManager: [${elapsed()}]   track enrichment progress: ${i}/${musicItems.length}${perTrackReadsFailed ? ' (per-track reads stopped)' : ''}`);
       }
-      if (i > 0 && i % 100 === 0) {
+      if (i > 0 && i % 25 === 0) {
         this.emit('browse-progress', { phase: 'enriching', enriched: i, enrichTotal: musicItems.length, contents: result });
       }
       const item = musicItems[i];

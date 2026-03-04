@@ -504,7 +504,13 @@ class ZuneSyncPanel {
                 scanFileCount = found;
                 const elapsed = ((Date.now() - this.scanStartTime) / 1000).toFixed(0);
                 statsEl.textContent = `${found} files found · ${elapsed}s`;
-                const pct = Math.min(90, (data.foldersScanned || 0) * 5);
+                // Use per-handle progress if available (large single-folder devices)
+                let pct;
+                if (data.handleProgress && data.handleTotal) {
+                    pct = Math.min(90, Math.round((data.handleProgress / data.handleTotal) * 90));
+                } else {
+                    pct = Math.min(90, (data.foldersScanned || 0) * 5);
+                }
                 fillEl.style.width = pct + '%';
             } else if (data.phase === 'enumerated') {
                 const found = (data.contents.music?.length || 0) +
@@ -515,10 +521,18 @@ class ZuneSyncPanel {
                 fillEl.style.width = '0%';
                 labelEl.textContent = 'syncing files...';
                 statsEl.textContent = `0 / ${scanFileCount}`;
+            } else if (data.phase === 'resolving-albums') {
+                const resolved = data.resolved || 0;
+                const total = data.resolveTotal || 1;
+                const pct = Math.round((resolved / total) * 100);
+                fillEl.style.width = pct + '%';
+                labelEl.textContent = 'resolving albums...';
+                statsEl.textContent = `${resolved} / ${total}`;
             } else if (data.phase === 'albums-resolved') {
                 // Album hierarchy resolved, enrichment starting
                 const total = data.enrichTotal || scanFileCount;
                 fillEl.style.width = '0%';
+                labelEl.textContent = 'syncing files...';
                 statsEl.textContent = `0 / ${total}`;
             } else if (data.phase === 'enriching') {
                 const enriched = data.enriched || 0;
