@@ -19,14 +19,14 @@ Solved by creating Artist objects (format 0xB218) and Abstract Audio Album objec
 ### ~~Album Art~~ (Done)
 Extracts embedded cover art from audio files and sets it on the album object via RepresentativeSampleData (0xDC86).
 
-### Fix Drag-and-Drop to Sync Panel
-Dragging files from the file explorer onto the "drop files here" zone doesn't work. May be an Electron drag event or CSS issue.
+### ~~Fix Drag-and-Drop to Sync Panel~~ (Done)
+Drag-and-drop file transfer to the sync panel working.
 
 ### Zune 32GB Testing
 Verify the full sync flow on the brown Zune 32GB (PID 0x0710). May have different MTP behavior or endpoint configuration.
 
-### Two-Way Sync
-Pull files from the Zune to the computer via MTP GetObject. Could enable backup/restore workflows.
+### ~~Two-Way Sync~~ (Done)
+Pull files from the Zune to the computer via MTP GetObject. WMA files automatically converted to MP3 320k via ffmpeg. Device metadata (title, artist, album, genre, track number) embedded as ID3 tags. Album art from Zune's AbstractAudioAlbum objects embedded as cover art. Full-screen sync management view with grouped selection by album/artist, select-all, collapsible groups, and smart diff engine comparing local and device libraries.
 
 ## Music Experience Enhancements
 
@@ -70,3 +70,8 @@ The dream: Zune HD's design language applied as a full desktop OS experience. Bo
 - Animations and transitions between views (slide, fade, momentum)
 - Touch/gesture support for horizontal panoramic scrolling
 - Accent color theming (user-selectable color beyond orange)
+
+## Distribution
+
+### ~~Custom DMG Installer~~ (Done)
+Zune-themed DMG background (black, orange-to-magenta gradient, orange folder icon, drag arrow). Built with appdmg to work around electron-builder's DS_Store corruption bug on macOS.

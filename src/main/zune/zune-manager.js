@@ -58,7 +58,25 @@ class ZuneManager extends EventEmitter {
     this.emit('status', this.currentStatus);
 
     try {
-      await this.transport.open(ZUNE_VENDOR_ID, info.productId);
+      // Use libusb device directly if available (hotplug), otherwise requestDevice (startup)
+      if (info.libusbDevice) {
+        // Device may not be ready immediately after hotplug — retry with delay
+        let lastErr;
+        for (let attempt = 1; attempt <= 5; attempt++) {
+          try {
+            await new Promise(r => setTimeout(r, attempt * 500));
+            await this.transport.openFromLibusb(info.libusbDevice);
+            lastErr = null;
+            break;
+          } catch (err) {
+            lastErr = err;
+            console.log(`ZuneManager: hotplug open attempt ${attempt}/5 failed: ${err.message}`);
+          }
+        }
+        if (lastErr) throw lastErr;
+      } else {
+        await this.transport.open(ZUNE_VENDOR_ID, info.productId);
+      }
       console.log('ZuneManager: USB device opened, starting MTP...');
 
       this.mtp = new MtpProtocol(this.transport);

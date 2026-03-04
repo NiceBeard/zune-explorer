@@ -1,4 +1,5 @@
 const { WebUSB, usb } = require('usb');
+const { WebUSBDevice } = require('usb/dist/webusb/webusb-device');
 
 const ZUNE_VENDOR_ID = 0x045E;
 
@@ -38,9 +39,15 @@ class UsbTransport {
   }
 
   async open(vendorId, productId) {
-    const device = await this.webusb.requestDevice({
-      filters: [{ vendorId, productId }]
-    });
+    // Try requestDevice first (works at startup)
+    let device = null;
+    try {
+      device = await this.webusb.requestDevice({
+        filters: [{ vendorId, productId }]
+      });
+    } catch {
+      // requestDevice fails for hotplugged devices
+    }
 
     if (!device) {
       throw new Error(`Zune device not found (VID=0x${vendorId.toString(16)}, PID=0x${productId.toString(16)})`);
@@ -50,6 +57,21 @@ class UsbTransport {
     await this.device.open();
 
     // Select configuration if not already active
+    if (this.device.configuration === null) {
+      await this.device.selectConfiguration(1);
+    }
+
+    await this.device.claimInterface(0);
+  }
+
+  /**
+   * Open using a libusb Device object directly (for hotplug).
+   * Wraps it in a WebUSBDevice so the rest of the transport API works.
+   */
+  async openFromLibusb(libusbDevice) {
+    this.device = await WebUSBDevice.createInstance(libusbDevice);
+    await this.device.open();
+
     if (this.device.configuration === null) {
       await this.device.selectConfiguration(1);
     }
@@ -106,7 +128,8 @@ class UsbTransport {
       const { idVendor, idProduct } = device.deviceDescriptor;
 
       if (idVendor === ZUNE_VENDOR_ID && ZUNE_DEVICES[idProduct]) {
-        const info = { model: ZUNE_DEVICES[idProduct], productId: idProduct };
+        // Pass the raw libusb device so we can wrap it directly
+        const info = { model: ZUNE_DEVICES[idProduct], productId: idProduct, libusbDevice: device };
 
         for (const callback of this.attachCallbacks) {
           callback(info);

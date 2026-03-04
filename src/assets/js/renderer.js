@@ -21,6 +21,8 @@ class ZuneSyncPanel {
         this.diffActive = false;
         this.scanStartTime = null;
         this.lastStatus = null;
+        this.deviceModel = null;
+        this.storageBreakdown = null;
 
         this.panel = document.getElementById('zune-sync-panel');
         this.toggleBtn = document.getElementById('zune-toggle-btn');
@@ -107,6 +109,7 @@ class ZuneSyncPanel {
         document.getElementById('zune-eject-btn').addEventListener('click', () => {
             window.electronAPI.zuneEject();
         });
+
 
         // Browse back button
         document.getElementById('zune-browse-back').addEventListener('click', () => {
@@ -203,6 +206,11 @@ class ZuneSyncPanel {
     }
 
     toggle() {
+        if (this.open) {
+            // Closing — exit diff/browse if active
+            if (this.diffActive) this._closeDiff();
+            if (this.browseActive) this._closeBrowse();
+        }
         this.open = !this.open;
         this.panel.classList.toggle('open', this.open);
     }
@@ -220,10 +228,15 @@ class ZuneSyncPanel {
         const progressEl = document.getElementById('zune-sync-progress');
         const completeEl = document.getElementById('zune-sync-complete');
 
+        const ejectBtn = document.getElementById('zune-eject-btn');
+        const silhouette = document.getElementById('zune-device-silhouette');
+
         storageEl.style.display = 'none';
         idleEl.style.display = 'none';
         progressEl.style.display = 'none';
         completeEl.style.display = 'none';
+        ejectBtn.style.display = 'none';
+        silhouette.style.display = 'none';
 
         // Close browse/diff views on any state change that isn't 'connected'
         const browseEl = document.getElementById('zune-browse-view');
@@ -232,7 +245,6 @@ class ZuneSyncPanel {
         switch (status.state) {
             case 'connecting':
                 this.toggleBtn.style.display = 'flex';
-                this.toggleBtn.classList.add('pulse');
                 title.textContent = (status.model || 'zune').toLowerCase();
                 subtitle.textContent = 'connecting...';
                 if (this.browseActive) this._closeBrowse();
@@ -242,14 +254,17 @@ class ZuneSyncPanel {
 
             case 'connected':
                 this.toggleBtn.style.display = 'flex';
-                this.toggleBtn.classList.remove('pulse');
-                title.textContent = (status.model || 'zune').toLowerCase();
+                this.deviceModel = status.model || 'zune';
+                title.textContent = this.deviceModel.toLowerCase();
                 subtitle.textContent = 'connected';
+                this._setDeviceSilhouette(this.deviceModel);
                 // Derive device key
                 if (status.productId && status.storage) {
                     const pidHex = status.productId.toString(16).toUpperCase().padStart(4, '0');
                     this.deviceKey = `${pidHex}-${status.storage.maxCapacity}`;
                 }
+                ejectBtn.style.display = 'block';
+                silhouette.style.display = 'block';
                 if (status.storage) {
                     this._updateStorage(status.storage);
                     storageEl.style.display = 'block';
@@ -268,8 +283,9 @@ class ZuneSyncPanel {
                 if (this.browseActive) this._closeBrowse();
                 if (this.diffActive) this._closeDiff();
                 this.deviceKey = null;
+                this.deviceModel = null;
+                this.storageBreakdown = null;
                 this.toggleBtn.style.display = 'none';
-                this.toggleBtn.classList.remove('pulse');
                 this.open = false;
                 this.panel.classList.remove('open');
                 break;
@@ -283,12 +299,81 @@ class ZuneSyncPanel {
     }
 
     _updateStorage(storage) {
-        const fill = document.getElementById('zune-storage-fill');
         const text = document.getElementById('zune-storage-text');
-        const usedPercent = ((storage.maxCapacity - storage.freeSpace) / storage.maxCapacity) * 100;
-        fill.style.width = usedPercent.toFixed(1) + '%';
+        const legend = document.getElementById('zune-storage-legend');
+        const musicSeg = document.getElementById('zune-storage-music');
+        const videosSeg = document.getElementById('zune-storage-videos');
+        const picturesSeg = document.getElementById('zune-storage-pictures');
+        const otherSeg = document.getElementById('zune-storage-other');
+
         const freeGB = (storage.freeSpace / (1024 * 1024 * 1024)).toFixed(1);
         text.textContent = freeGB + ' GB free';
+
+        const totalUsed = storage.maxCapacity - storage.freeSpace;
+
+        if (this.storageBreakdown) {
+            // Segmented bar with per-category breakdown
+            const bd = this.storageBreakdown;
+            const pct = (bytes) => ((bytes / storage.maxCapacity) * 100).toFixed(2) + '%';
+            musicSeg.style.width = pct(bd.music);
+            videosSeg.style.width = pct(bd.videos);
+            picturesSeg.style.width = pct(bd.pictures);
+            otherSeg.style.width = pct(bd.other);
+            legend.style.display = 'flex';
+        } else {
+            // Simple total-used bar (all as "other" until we have breakdown)
+            const usedPct = ((totalUsed / storage.maxCapacity) * 100).toFixed(1) + '%';
+            musicSeg.style.width = '0%';
+            videosSeg.style.width = '0%';
+            picturesSeg.style.width = '0%';
+            otherSeg.style.width = usedPct;
+            legend.style.display = 'none';
+        }
+    }
+
+    _setDeviceSilhouette(model) {
+        const el = document.getElementById('zune-device-silhouette');
+        if (!el) return;
+        const isHD = model && model.toLowerCase().includes('hd');
+        // Build SVG using DOM methods (no innerHTML with untrusted data — model is not used in SVG)
+        el.textContent = '';
+        const ns = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(ns, 'svg');
+        svg.setAttribute('viewBox', isHD ? '0 0 60 120' : '0 0 70 120');
+        svg.setAttribute('fill', 'white');
+        if (isHD) {
+            // Zune HD — slim, tall, rounded, touch pad circle at bottom
+            const body = document.createElementNS(ns, 'rect');
+            Object.entries({x:'5',y:'2',width:'50',height:'116',rx:'8',fill:'white'}).forEach(([k,v])=>body.setAttribute(k,v));
+            const screen = document.createElementNS(ns, 'rect');
+            Object.entries({x:'12',y:'10',width:'36',height:'55',rx:'2',fill:'black',opacity:'0.2'}).forEach(([k,v])=>screen.setAttribute(k,v));
+            const pad = document.createElementNS(ns, 'circle');
+            Object.entries({cx:'30',cy:'90',r:'14',fill:'black',opacity:'0.3'}).forEach(([k,v])=>pad.setAttribute(k,v));
+            svg.append(body, screen, pad);
+        } else {
+            // Classic Zune — wider body, squircle click pad
+            const body = document.createElementNS(ns, 'rect');
+            Object.entries({x:'3',y:'2',width:'64',height:'116',rx:'10',fill:'white'}).forEach(([k,v])=>body.setAttribute(k,v));
+            const screen = document.createElementNS(ns, 'rect');
+            Object.entries({x:'12',y:'10',width:'46',height:'45',rx:'3',fill:'black',opacity:'0.2'}).forEach(([k,v])=>screen.setAttribute(k,v));
+            const pad = document.createElementNS(ns, 'rect');
+            Object.entries({x:'17',y:'68',width:'36',height:'36',rx:'10',fill:'black',opacity:'0.3'}).forEach(([k,v])=>pad.setAttribute(k,v));
+            svg.append(body, screen, pad);
+        }
+        el.appendChild(svg);
+    }
+
+    _computeStorageBreakdown() {
+        if (!this.browseData || !this.lastStatus?.storage) return;
+        const sumSize = (items) => (items || []).reduce((acc, item) => acc + (item.size || 0), 0);
+        const musicBytes = sumSize(this.browseData.music);
+        const videosBytes = sumSize(this.browseData.videos);
+        const picturesBytes = sumSize(this.browseData.pictures);
+        const totalUsed = this.lastStatus.storage.maxCapacity - this.lastStatus.storage.freeSpace;
+        const knownBytes = musicBytes + videosBytes + picturesBytes;
+        const otherBytes = Math.max(0, totalUsed - knownBytes);
+        this.storageBreakdown = { music: musicBytes, videos: videosBytes, pictures: picturesBytes, other: otherBytes };
+        this._updateStorage(this.lastStatus.storage);
     }
 
     _updateProgress(progress) {
@@ -311,6 +396,8 @@ class ZuneSyncPanel {
                 idleEl.style.display = 'none';
                 progressEl.style.display = 'block';
                 completeEl.style.display = 'none';
+                document.getElementById('zune-sync-title').textContent = 'syncing...';
+                document.getElementById('zune-sync-subtitle').textContent = `${progress.fileIndex + 1} of ${progress.totalFiles}`;
 
                 countEl.textContent = `converting ${progress.fileIndex + 1} of ${progress.totalFiles}`;
                 fileEl.textContent = progress.fileName;
@@ -322,6 +409,8 @@ class ZuneSyncPanel {
                 idleEl.style.display = 'none';
                 progressEl.style.display = 'block';
                 completeEl.style.display = 'none';
+                document.getElementById('zune-sync-title').textContent = 'syncing...';
+                document.getElementById('zune-sync-subtitle').textContent = `${progress.fileIndex + 1} of ${progress.totalFiles}`;
 
                 countEl.textContent = `sending ${progress.fileIndex + 1} of ${progress.totalFiles}`;
                 fileEl.textContent = progress.fileName;
@@ -341,6 +430,8 @@ class ZuneSyncPanel {
             case 'complete':
                 progressEl.style.display = 'none';
                 completeEl.style.display = 'block';
+                document.getElementById('zune-sync-title').textContent = (this.deviceModel || 'zune').toLowerCase();
+                document.getElementById('zune-sync-subtitle').textContent = 'connected';
                 document.getElementById('zune-complete-text').textContent =
                     `${progress.completedFiles} files synced`;
                 if (progress.storage) this._updateStorage(progress.storage);
@@ -353,11 +444,14 @@ class ZuneSyncPanel {
             case 'cancelled':
                 progressEl.style.display = 'none';
                 idleEl.style.display = 'block';
+                document.getElementById('zune-sync-title').textContent = (this.deviceModel || 'zune').toLowerCase();
+                document.getElementById('zune-sync-subtitle').textContent = 'connected';
                 break;
 
             case 'error':
                 progressEl.style.display = 'none';
                 idleEl.style.display = 'block';
+                document.getElementById('zune-sync-title').textContent = (this.deviceModel || 'zune').toLowerCase();
                 document.getElementById('zune-sync-subtitle').textContent =
                     'transfer error: ' + (progress.error || 'unknown');
                 break;
@@ -375,6 +469,7 @@ class ZuneSyncPanel {
             if (cached.success && cached.data) {
                 this.cachedData = cached.data;
                 this.browseData = cached.data.contents;
+                this._computeStorageBreakdown();
                 this._openDiffView();
                 return;
             }
@@ -463,6 +558,7 @@ class ZuneSyncPanel {
                 }
             }
 
+            this._computeStorageBreakdown();
             this._openDiffView();
         } else {
             // Show error
@@ -494,9 +590,12 @@ class ZuneSyncPanel {
         document.getElementById('zune-scan-progress').style.display = 'none';
         document.getElementById('zune-browse-view').style.display = 'none';
         document.getElementById('zune-diff-view').style.display = 'flex';
-
-        // Expand sync panel and push panoramic layout
+        document.getElementById('zune-diff-back').style.display = 'flex';
+        document.getElementById('zune-eject-btn').style.display = 'none';
+        this.panel.classList.add('has-back');
         this.panel.classList.add('expanded');
+
+        // Push panoramic layout
         this.explorer.showSync();
 
         this._computeDiff();
@@ -511,9 +610,12 @@ class ZuneSyncPanel {
         this.diffSelectedHandles.clear();
 
         document.getElementById('zune-diff-view').style.display = 'none';
-
-        // Collapse sync panel and restore panoramic layout
+        document.getElementById('zune-diff-back').style.display = 'none';
+        document.getElementById('zune-eject-btn').style.display = 'block';
+        this.panel.classList.remove('has-back');
         this.panel.classList.remove('expanded');
+
+        // Restore panoramic layout
         this.explorer.hideSync();
 
         if (this.state === 'connected') {
