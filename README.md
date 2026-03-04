@@ -1,110 +1,117 @@
 # Zune Explorer
 
-A file explorer and Zune device manager inspired by the Zune HD interface, built with Electron. Features a panoramic horizontal scrolling UI with files organized into categories and a pure JavaScript MTP/MTPZ stack for two-way music sync with physical Zune devices over USB.
+A desktop app that brings the Zune HD interface to life as a file explorer and music manager. Browse your local files, play music, and sync with physical Zune devices over USB — all through a faithful recreation of the Zune HD's bold typography, panoramic scrolling, and dark aesthetic.
 
-<img width="1276" height="715" alt="image" src="https://github.com/user-attachments/assets/48113e85-121e-4ff3-b28a-99679dde9df9" />
+Built with Electron. Runs on macOS and Windows.
 
 ## Features
 
-### File Explorer
-- **Horizontal panoramic navigation** between file categories
-- **Dark theme** with Zune HD-inspired orange accent colors
+### Zune HD Interface
+- **Panoramic horizontal scrolling** between categories with momentum and snap
+- **Giant hero headers** (340px, weight 100) that clip off the top edge — just like the Zune HD
+- **Dark theme** with orange-to-magenta accent gradient
+- **Music sub-categories** — albums, artists, songs, and genres with album art grids, letter dividers, and alpha jump overlay
+- **Built-in music player** with album art display
 - Files automatically organized into **music**, **videos**, **pictures**, **documents**, and **applications**
-- **Documents** category provides a browsable file system with smart root directories
+- Browsable file system in the documents category with smart root directories
 - Recently accessed files surfaced via platform-native APIs
-- Native app icon extraction
-- Frameless window with custom title bar on Windows
-- Built-in music player with album art
 
 ### Zune USB Sync
-- **Pure JavaScript MTP/MTPZ implementation** — no native drivers or Zune software required
-- **MTPZ authentication** with RSA/AES/CMAC handshake for Zune's encrypted protocol
-- **Two-way sync** — push music to the Zune or pull tracks from the device to your computer
-- **Full-screen sync management** — connecting a Zune opens an expanded diff view with grouped selection by album or artist, select-all, and collapsible groups for managing large libraries
-- **Smart diff engine** — compares local and device libraries by filename and title/artist metadata to show what's missing from each side
-- **Drag-and-drop file transfer** with real-time progress tracking
-- **Automatic format conversion** — WAV, FLAC, OGG, AIFF converted to MP3 320k when pushing to device; WMA converted to MP3 320k when pulling from device
-- **ID3v2.3 retagging** — MP3s automatically retagged for Zune compatibility (Zune can't read ID3v2.4)
-- **Full metadata support** — title, artist, album, genre, track number, duration
-- **Album art preserved in both directions** — embedded cover art sent to the Zune via RepresentativeSampleData; album art from the Zune embedded into pulled MP3s via ffmpeg
-- **Artist & album objects** — creates MTP Artist (0xB218) and AbstractAudioAlbum (0xBA03) objects with ArtistId linking, which the Zune requires to display metadata in its UI
-- **Device content caching** — scan results cached per-device to skip slow MTP enumeration on reconnect
-- **Browse device contents** — view music, videos, and pictures on the Zune organized by category
-- **Delete files** from the device with confirm-on-second-click safety
-- **Eject** to cleanly disconnect without quitting the app
-- **USB hotplug detection** — automatically detects when a Zune is plugged in or removed
+Connect a physical Zune to manage your music library — no Zune desktop software or Windows required.
 
-### Supported Zune Devices
-- Zune HD (all storage sizes)
-- Zune 4/8/16/30/32/80/120
+- **Pure JavaScript MTP/MTPZ stack** — implements the Zune's encrypted USB protocol from scratch
+- **Two-way sync** — push music to the Zune or pull tracks to your computer
+- **Sync management view** — expanded diff view with grouped selection by album/artist, select-all, and collapsible groups
+- **Smart diff engine** — compares local and device libraries by filename and metadata to show what's missing from each side
+- **Drag-and-drop transfer** with real-time progress streaming
+- **Automatic format conversion** — WAV/FLAC/OGG/AIFF to MP3 320k on push; WMA to MP3 320k on pull
+- **ID3v2.3 retagging** — MP3s retagged for Zune compatibility (Zune ignores ID3v2.4)
+- **Full metadata** — title, artist, album, genre, track number, duration
+- **Album art** preserved in both directions
+- **Artist & album hierarchy** — creates the MTP abstract objects the Zune requires to display metadata
+- **Device content caching** — skips slow MTP enumeration on reconnect
+- **Browse, delete, eject** — full device management from the sync panel
+- **USB hotplug** — automatically detects when a Zune is plugged in or removed
 
-## Supported Platforms
-
-- **macOS** — uses Spotlight (`mdfind`, `mdls`) for recent files, `sips` for icon conversion
-- **Windows** — uses Windows Recent folder for recent files, Start Menu for application discovery
-
-## Requirements
-
-- Node.js 18+
-- A Zune device and USB cable (for sync features)
-- MTPZ key data file (for Zune authentication)
+### Supported Devices
+- Zune HD (16GB, 32GB, 64GB)
+- Zune 30, 4, 8, 16, 32, 80, 120
 
 ## Getting Started
 
+### Requirements
+- Node.js 18+
+- A Zune device and USB cable (for sync features)
+- MTPZ key data file (for Zune authentication — see [mtpz-keys](#mtpz-keys))
+- ffmpeg (bundled via ffmpeg-static for format conversion)
+
+### Install and Run
+
 ```bash
-# Install dependencies
 npm install
-
-# Run the app
 npm start
+```
 
-# Run in development mode (with DevTools)
+Development mode with DevTools:
+```bash
 npm run dev
 ```
 
-## Building
+### Building
 
 ```bash
-# Build distributable
 npm run build
 ```
 
-See [BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md) for detailed build and installation steps.
+Produces a DMG on macOS (with a custom Zune-themed installer background) and NSIS/portable on Windows. See [BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md) for details.
+
+### MTPZ Keys
+
+Zune devices require MTPZ authentication before they'll accept MTP commands. You need a key data file placed at `~/.mtpz-data`. This file contains the RSA certificate chain and encryption keys used in the MTPZ handshake. The app will connect to the Zune without it, but authentication will fail and the device won't allow file operations.
 
 ## Architecture
 
 ### MTP/MTPZ Stack
 
-The Zune sync feature is built from scratch in pure JavaScript:
+The entire Zune communication layer is pure JavaScript — no native MTP libraries, no libmtp, no Zune desktop software dependencies:
 
 ```
 src/main/zune/
-├── usb-transport.js    # Raw USB communication via node-usb, hotplug detection
+├── usb-transport.js    # USB communication via node-usb, dynamic endpoint discovery, hotplug
 ├── mtp-protocol.js     # MTP container encoding/decoding, all MTP operations
-├── mtp-constants.js    # Operation codes, response codes, object formats, properties
+├── mtp-constants.js    # Operation codes, response codes, object formats, property codes
 ├── mtpz-auth.js        # MTPZ RSA/AES/CMAC authentication handshake
-├── zune-manager.js     # High-level orchestrator: sync, browse, delete, eject
-└── device-cache.js     # Per-device scan result caching to skip slow MTP enumeration
+├── zune-manager.js     # High-level orchestrator: connect, sync, browse, delete, eject
+└── device-cache.js     # Per-device scan result caching
 ```
 
-The push-to-device pipeline:
-1. USB device detection and claim
-2. MTP session open
-3. MTPZ 6-step authentication handshake
-4. Format conversion (non-native formats → MP3 via ffmpeg)
-5. ID3v2.3 retagging (Zune ignores ID3v2.4)
-6. File transfer via SendObjectInfo/SendObject
-7. Per-track metadata via SetObjectPropValue
-8. Artist object creation (format 0xB218) with Name property
-9. Abstract Audio Album creation (format 0xBA03) with track references
-10. ArtistId (0xDAB9) linking on albums and tracks
-11. Album art via RepresentativeSampleData (0xDC86)
+### Push-to-Device Pipeline
+1. USB device detection and interface claim
+2. MTP session open → MTPZ 6-step authentication handshake
+3. Format conversion (non-native formats → MP3 320k via ffmpeg)
+4. ID3v2.3 retagging for Zune compatibility
+5. File transfer via SendObjectInfo + SendObject
+6. Per-track metadata via SetObjectPropValue
+7. Artist object creation (format 0xB218)
+8. Abstract Audio Album creation (format 0xBA03) with track references and ArtistId linking
+9. Album art via RepresentativeSampleData
 
-The pull-from-device pipeline:
+### Pull-from-Device Pipeline
 1. MTP GetObject retrieves raw file bytes
-2. WMA files converted to MP3 320k via ffmpeg
-3. Device metadata (title, artist, album, genre, track number) embedded as ID3 tags
-4. Album art from Zune's AbstractAudioAlbum objects embedded as cover art in the MP3
+2. WMA → MP3 320k conversion via ffmpeg
+3. Device metadata embedded as ID3 tags
+4. Album art from Zune's album objects embedded as cover art
+
+### Platform Modules
+
+Platform-specific code is isolated in `src/main/platform-darwin.js` and `src/main/platform-win32.js` — recent files, application discovery, and icon extraction are handled natively per OS.
+
+## Platforms
+
+| Platform | Status |
+|----------|--------|
+| macOS    | Full support (Spotlight for recent files, sips for icons, custom DMG installer) |
+| Windows  | Full support (Recent folder, Start Menu discovery, custom title bar) |
 
 ## License
 
