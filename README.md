@@ -16,8 +16,15 @@ Built with Electron. Runs on macOS and Windows.
 - Browsable file system in the documents category with smart root directories
 - Recently accessed files surfaced via platform-native APIs
 
+<img width="1283" height="722" alt="image" src="https://github.com/user-attachments/assets/d0cadec0-f2a5-4305-9aeb-886831145856" />
+<img width="1283" height="722" alt="image" src="https://github.com/user-attachments/assets/01eb0624-7e22-4ab2-a455-03632a22a5dc" />
+<img width="1283" height="722" alt="image" src="https://github.com/user-attachments/assets/902062f3-200f-45f3-be01-a048cea01798" />
+
+
 ### Zune USB Sync
 Connect a physical Zune to manage your music library — no Zune desktop software or Windows required.
+<img width="1283" height="722" alt="image" src="https://github.com/user-attachments/assets/fd9299f4-06c1-41cd-b7ee-086dd4f53c5a" />
+
 
 - **Pure JavaScript MTP/MTPZ stack** — implements the Zune's encrypted USB protocol from scratch
 - **Two-way sync** — push music to the Zune or pull tracks to your computer
