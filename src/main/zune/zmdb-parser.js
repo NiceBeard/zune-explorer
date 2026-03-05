@@ -31,8 +31,9 @@ const Schema = {
   AudiobookTrack: 0x12,
 };
 
-// Fixed-size portion of each schema's record (before backwards varints)
-const ENTRY_SIZES = {
+// Fixed-size portion of each schema's record (before variable-length strings/varints)
+// HD and Classic have different layouts for some schemas
+const ENTRY_SIZES_HD = {
   [Schema.Music]:          32,
   [Schema.Video]:          32,
   [Schema.Picture]:        24,
@@ -40,6 +41,24 @@ const ENTRY_SIZES = {
   [Schema.Album]:          20,
   [Schema.Playlist]:       12,
   [Schema.Artist]:         4,
+  [Schema.Genre]:          1,
+  [Schema.VideoTitle]:     4,
+  [Schema.PhotoAlbum]:     12,
+  [Schema.Collection]:     12,
+  [Schema.PodcastShow]:    8,
+  [Schema.PodcastEpisode]: 32,
+  [Schema.AudiobookTitle]: 8,
+  [Schema.AudiobookTrack]: 36,
+};
+
+const ENTRY_SIZES_CLASSIC = {
+  [Schema.Music]:          28,  // no codecId/rating fields at 28-30
+  [Schema.Video]:          32,
+  [Schema.Picture]:        24,
+  [Schema.Filename]:       8,
+  [Schema.Album]:          12,  // no FILETIME at 12-19, title starts at 12
+  [Schema.Playlist]:       12,
+  [Schema.Artist]:         1,   // just 1 flag byte before name
   [Schema.Genre]:          1,
   [Schema.VideoTitle]:     4,
   [Schema.PhotoAlbum]:     12,
@@ -179,6 +198,7 @@ class ZMDBParser {
   constructor(data, deviceFamily) {
     this.data = Buffer.isBuffer(data) ? data : Buffer.from(data);
     this.isHD = deviceFamily === 'hd';
+    this.entrySizes = this.isHD ? ENTRY_SIZES_HD : ENTRY_SIZES_CLASSIC;
     this.descriptors = [];
     this.indexTable = new Map(); // atom_id -> record_offset
     this.stringCache = new Map();
@@ -266,13 +286,11 @@ class ZMDBParser {
     // Extract media from descriptors using device-specific mapping
     const descMap = this.isHD ? HD_DESCRIPTOR_MAP : CLASSIC_DESCRIPTOR_MAP;
 
-    for (const [descIdx, schemaType] of Object.entries(descMap)) {
+    for (const [descIdx] of Object.entries(descMap)) {
       const idx = Number(descIdx);
       if (idx >= this.descriptors.length || !this.descriptors[idx]) continue;
       const desc = this.descriptors[idx];
       if (!desc.entryCount) continue;
-
-      console.log(`ZMDB: descriptor ${idx} (schema 0x${schemaType.toString(16)}): ${desc.entryCount} entries, entrySize=${desc.entrySize}`);
 
       for (let i = 0; i < desc.entryCount; i++) {
         const eOff = desc.dataOffset + (i * desc.entrySize);
@@ -381,7 +399,7 @@ class ZMDBParser {
       case Schema.Album:
       case Schema.Artist: {
         // UTF-16LE filename in backwards varint field 0x44
-        const entrySize = ENTRY_SIZES[schema] || 0;
+        const entrySize = this.entrySizes[schema] || 0;
         if (entrySize) {
           const fields = parseBackwardsVarints(record, entrySize);
           for (const f of fields) {
@@ -409,16 +427,21 @@ class ZMDBParser {
     const record = this._readRecord(this.indexTable.get(atomId));
     if (!record) return null;
 
-    const artist = { atomId, name: '', filename: '' };
-    if (record.length > 4) artist.name = readNullTerminatedUTF8(record, 4);
+    const artist = { atomId, name: '', filename: '', guid: '' };
 
-    const entrySize = ENTRY_SIZES[Schema.Artist] || 4;
+    const entrySize = this.entrySizes[Schema.Artist]; // 4 for HD, 1 for Classic
+    if (record.length > entrySize) artist.name = readNullTerminatedUTF8(record, entrySize);
     const fields = parseBackwardsVarints(record, entrySize);
     for (const f of fields) {
       if (f.fieldId === 0x44 && f.fieldSize > 2) {
         let start = 0, end = f.data.length;
         if (f.data[0] === 0x00 && f.data[end - 1] === 0x00) { start = 1; end -= 1; }
         artist.filename = utf16LEToUTF8(f.data, start, end);
+      } else if (f.fieldId === 0x14 && f.fieldSize === 16) {
+        // GUID field — format as string for debugging
+        const d = f.data;
+        const hex = (b) => b.toString(16).padStart(2, '0');
+        artist.guid = `{${hex(d[3])}${hex(d[2])}${hex(d[1])}${hex(d[0])}-${hex(d[5])}${hex(d[4])}-${hex(d[7])}${hex(d[6])}-${hex(d[8])}${hex(d[9])}-${hex(d[10])}${hex(d[11])}${hex(d[12])}${hex(d[13])}${hex(d[14])}${hex(d[15])}}`;
       }
     }
 
@@ -455,8 +478,9 @@ class ZMDBParser {
       }
     }
 
-    // Title at offset 20
-    if (record.length > 20) album.title = readNullTerminatedUTF8(record, 20);
+    // Title after fixed fields (20 on HD, 12 on Classic — Classic has no FILETIME)
+    const albumTitleOffset = this.entrySizes[Schema.Album]; // 20 for HD, 12 for Classic
+    if (record.length > albumTitleOffset) album.title = readNullTerminatedUTF8(record, albumTitleOffset);
 
     // Resolve artist
     if (album.artistRef) {
@@ -465,7 +489,7 @@ class ZMDBParser {
     }
 
     // Filename from backwards varint 0x44
-    const entrySize = ENTRY_SIZES[Schema.Album] || 20;
+    const entrySize = this.entrySizes[Schema.Album] || 20;
     const fields = parseBackwardsVarints(record, entrySize);
     for (const f of fields) {
       if (f.fieldId === 0x44 && f.fieldSize > 2) {
@@ -492,7 +516,8 @@ class ZMDBParser {
   // ---- Media parsers ----
 
   _parseTrack(record, atomId) {
-    if (record.length < 32) return null;
+    const titleOffset = this.entrySizes[Schema.Music]; // 32 for HD, 28 for Classic
+    if (record.length < titleOffset) return null;
 
     const albumRef    = readUint32LE(record, 0);
     const artistRef   = readUint32LE(record, 4);
@@ -501,7 +526,7 @@ class ZMDBParser {
 
     const track = {
       atomId,
-      title:       record.length > 32 ? readNullTerminatedUTF8(record, 32) : '',
+      title:       record.length > titleOffset ? readNullTerminatedUTF8(record, titleOffset) : '',
       artist:      '',
       album:       '',
       albumArtist: '',
@@ -511,15 +536,15 @@ class ZMDBParser {
       duration:    readInt32LE(record, 16),
       size:        readInt32LE(record, 20),
       playcount:   readUint16LE(record, 26),
-      codecId:     readUint16LE(record, 28),
-      rating:      record[30],
+      codecId:     this.isHD ? readUint16LE(record, 28) : 0,
+      rating:      this.isHD ? record[30] : 0,
       filename:    '',
       albumRef,
       genreRef,
     };
 
     // Backwards varints for optional fields
-    const fields = parseBackwardsVarints(record, ENTRY_SIZES[Schema.Music]);
+    const fields = parseBackwardsVarints(record, titleOffset);
     for (const f of fields) {
       if (f.fieldId === 0x6c && f.fieldSize >= 1 && f.fieldSize <= 4) {
         track.discNumber = readUint32LE(f.data, 0) || 1;
@@ -565,7 +590,7 @@ class ZMDBParser {
     };
 
     // Filename from backwards varint 0x44
-    const fields = parseBackwardsVarints(record, ENTRY_SIZES[Schema.Video]);
+    const fields = parseBackwardsVarints(record, this.entrySizes[Schema.Video]);
     for (const f of fields) {
       if (f.fieldId === 0x44 && f.fieldSize > 2) {
         let start = 0, end = f.data.length;

@@ -578,7 +578,7 @@ class ZuneManager extends EventEmitter {
 
       for (const track of library.tracks) {
         result.music.push({
-          handle: 0, // ZMDB doesn't give MTP handles
+          handle: track.atomId, // use atomId as unique handle for selection/pull
           filename: track.filename || track.title || 'unknown',
           size: track.size,
           format: track.codecId,
@@ -594,7 +594,7 @@ class ZuneManager extends EventEmitter {
 
       for (const video of library.videos) {
         result.videos.push({
-          handle: 0,
+          handle: video.atomId,
           filename: video.filename || video.title || 'unknown',
           size: video.size,
           format: video.codecId,
@@ -603,7 +603,7 @@ class ZuneManager extends EventEmitter {
 
       for (const pic of library.pictures) {
         result.pictures.push({
-          handle: 0,
+          handle: pic.atomId,
           filename: pic.filename || pic.title || 'unknown',
           size: 0,
           format: 0,
@@ -616,6 +616,112 @@ class ZuneManager extends EventEmitter {
       console.log(`ZuneManager: ZMDB fast path failed in ${elapsed}s: ${err.message}`);
       return null;
     }
+  }
+
+  /**
+   * After ZMDB parse, probe whether atom IDs work as MTP handles for GetObject.
+   * If not, build a filename→handle map lazily when files are actually pulled.
+   */
+  async _probeZMDBHandles(zmdbResult) {
+    if (!zmdbResult.music.length) return;
+
+    // Try GetObject with the first track's atomId to see if it works
+    const probe = zmdbResult.music[0];
+    console.log(`ZuneManager: probing GetObject with atomId 0x${probe.handle.toString(16)} (filename: "${probe.filename}")...`);
+
+    try {
+      const data = await Promise.race([
+        this.mtp.getObject(probe.handle),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+      ]);
+      if (data && data.length > 0) {
+        console.log(`ZuneManager: GetObject(atomId) works! Got ${data.length} bytes — ZMDB handles are valid MTP handles`);
+        this.zmdbHandlesValid = true;
+        return;
+      }
+    } catch (err) {
+      console.log(`ZuneManager: GetObject(atomId) failed: ${err.message}`);
+      // Clear any USB pipe stalls
+      try { await this.transport.clearHalt('in'); } catch (_) {}
+      try { await this.transport.clearHalt('out'); } catch (_) {}
+    }
+
+    // Atom IDs don't work as handles — need to resolve at pull time
+    this.zmdbHandlesValid = false;
+    console.log('ZuneManager: ZMDB atom IDs are not valid MTP handles — will resolve on pull');
+
+    // Build a filename→atomId map from ZMDB so we can match at pull time
+    this._zmdbFilenameMap = new Map();
+    for (const track of zmdbResult.music) {
+      if (track.filename) {
+        this._zmdbFilenameMap.set(track.handle, track.filename);
+      }
+    }
+  }
+
+  /**
+   * Resolve a ZMDB atom ID to a real MTP handle by searching the device.
+   * Called lazily at pull time when ZMDB handles aren't valid MTP handles.
+   */
+  async resolveHandle(atomId) {
+    // If ZMDB handles work as MTP handles, no resolution needed
+    if (this.zmdbHandlesValid !== false) return atomId;
+
+    // Check cache first
+    if (this._handleCache && this._handleCache.has(atomId)) {
+      return this._handleCache.get(atomId);
+    }
+
+    // Build handle cache on first pull (one-time cost)
+    if (!this._handleCache) {
+      console.log('ZuneManager: building handle cache for pull (first time)...');
+      this._handleCache = new Map();
+
+      // Get all handles from root and scan for filenames
+      const folderQueue = [0];
+      const seen = new Set();
+
+      while (folderQueue.length > 0) {
+        const parent = folderQueue.shift();
+        let handles;
+        try {
+          handles = await Promise.race([
+            this.mtp.getObjectHandles(this.storageId, 0, parent),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+          ]);
+        } catch (_) { continue; }
+
+        for (const h of handles) {
+          if (seen.has(h)) continue;
+          seen.add(h);
+          try {
+            const info = await Promise.race([
+              this.mtp.getObjectInfo(h),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
+            ]);
+            if (info.objectFormat === 0x3001) { folderQueue.push(h); continue; }
+            if (info.filename) {
+              // Match MTP filename to ZMDB tracks by basename
+              for (const [aId, zmdbFn] of this._zmdbFilenameMap.entries()) {
+                const zmdbBase = zmdbFn.split(/[/\\]/).pop().toLowerCase();
+                if (info.filename.toLowerCase() === zmdbBase) {
+                  this._handleCache.set(aId, h);
+                  break;
+                }
+              }
+            }
+          } catch (_) {}
+
+          if (seen.size % 500 === 0) {
+            this.emit('pull-progress', { phase: 'resolving', resolved: this._handleCache.size, total: this._zmdbFilenameMap.size });
+          }
+        }
+      }
+
+      console.log(`ZuneManager: handle cache built — ${this._handleCache.size} handles resolved`);
+    }
+
+    return this._handleCache.get(atomId) || atomId;
   }
 
   async browseContents() {
@@ -633,6 +739,10 @@ class ZuneManager extends EventEmitter {
     if (zmdbResult) {
       console.log(`ZuneManager: [${elapsed()}] ZMDB fast path succeeded — ${zmdbResult.music.length} tracks, ${zmdbResult.videos.length} videos, ${zmdbResult.pictures.length} pictures`);
       this.emit('browse-progress', { phase: 'enriching', enriched: zmdbResult.music.length, enrichTotal: zmdbResult.music.length, contents: zmdbResult });
+
+      // Probe if ZMDB atom IDs work as MTP handles (fast — one GetObject test)
+      await this._probeZMDBHandles(zmdbResult);
+
       return zmdbResult;
     }
 
@@ -1110,7 +1220,9 @@ class ZuneManager extends EventEmitter {
     if (!this.connected) {
       throw new Error('No Zune device connected');
     }
-    const data = await this.mtp.getObject(handle);
+    // If ZMDB handles aren't valid MTP handles, resolve first
+    const realHandle = await this.resolveHandle(handle);
+    const data = await this.mtp.getObject(realHandle);
     return data;
   }
 
