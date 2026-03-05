@@ -52,6 +52,7 @@ Grab the latest release from the [Releases page](https://github.com/NiceBeard/zu
 |----------|-------------|------|
 | macOS | Apple Silicon (M1/M2/M3/M4) | `Zune Explorer-*-arm64.dmg` |
 | macOS | Intel | `Zune Explorer-*.dmg` |
+| Windows | x64 | `Zune Explorer Setup *.exe` |
 
 ### macOS Gatekeeper Notice
 
