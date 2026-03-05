@@ -2180,6 +2180,55 @@ body.platform-win32 .now-playing-panel {
     border-bottom-color: var(--zune-text-dim);
 }
 
+/* Diff filter input */
+.zune-diff-filter {
+    display: flex;
+    align-items: center;
+    margin-bottom: 6px;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.zune-diff-filter-input {
+    width: 100%;
+    padding: 8px 32px 8px 12px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.zune-diff-filter-input::placeholder {
+    color: #666;
+}
+
+.zune-diff-filter-input:focus {
+    border-color: var(--zune-orange);
+}
+
+.zune-diff-filter-clear {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: #666;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 4px 8px;
+    line-height: 1;
+    display: none;
+}
+
+.zune-diff-filter-clear:hover {
+    color: #fff;
+}
+
 /* Select-all */
 .zune-diff-select-all {
     display: flex;
