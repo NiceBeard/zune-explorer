@@ -22,8 +22,8 @@ Extracts embedded cover art from audio files and sets it on the album object via
 ### ~~Fix Drag-and-Drop to Sync Panel~~ (Done)
 Drag-and-drop file transfer to the sync panel working.
 
-### Zune 32GB Testing (In Progress)
-Verify the full sync flow on the brown Zune 32GB (PID 0x0710). May have different MTP behavior or endpoint configuration.
+### ~~Zune 30 Testing~~ (Done)
+Verified full sync flow on the Zune 30 (PID 0x0710). Required dynamic USB endpoint discovery (different MTP interface layout than Zune HD) and USB 2.0 port (USB 3.0 doesn't enumerate the device). Scan progress streaming added for all phases.
 
 ### ~~Two-Way Sync~~ (Done)
 Pull files from the Zune to the computer via MTP GetObject. WMA files automatically converted to MP3 320k via ffmpeg. Device metadata (title, artist, album, genre, track number) embedded as ID3 tags. Album art from Zune's AbstractAudioAlbum objects embedded as cover art. Full-screen sync management view with grouped selection by album/artist, select-all, collapsible groups, and smart diff engine comparing local and device libraries.
