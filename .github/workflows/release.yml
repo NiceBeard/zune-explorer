@@ -9,18 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - os: macos-latest
-            arch: arm64
-          - os: macos-13
-            arch: x64
-          - os: windows-latest
-            arch: x64
-
-    runs-on: ${{ matrix.os }}
+  build-mac:
+    runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -33,26 +23,44 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build (macOS)
-        if: runner.os == 'macOS'
-        run: npx electron-builder --mac --${{ matrix.arch }} --publish never
+      - name: Build macOS (arm64 + x64)
+        run: npx electron-builder --mac --arm64 --x64 --publish never
 
-      - name: Build (Windows)
-        if: runner.os == 'Windows'
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-mac
+          path: |
+            dist/*.dmg
+            dist/*.zip
+          if-no-files-found: error
+
+  build-win:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows (x64)
         run: npx electron-builder --win --x64 --publish never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.os }}-${{ matrix.arch }}
-          path: |
-            dist/*.dmg
-            dist/*.zip
-            dist/*.exe
+          name: dist-win
+          path: dist/*.exe
           if-no-files-found: error
 
   release:
-    needs: build
+    needs: [build-mac, build-win]
     runs-on: ubuntu-latest
 
     steps:
