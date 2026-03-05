@@ -12,6 +12,7 @@ const { UsbTransport, ZUNE_VENDOR_ID, ZUNE_DEVICES } = require('./usb-transport.
 const { MtpProtocol } = require('./mtp-protocol.js');
 const { MtpzAuth } = require('./mtpz-auth.js');
 const { ExtensionToFormat, ObjectFormat, ObjectProperty } = require('./mtp-constants.js');
+const { ZMDBParser } = require('./zmdb-parser.js');
 
 // Audio formats the Zune can play natively
 const ZUNE_NATIVE_AUDIO = new Set(['.mp3', '.wma', '.aac', '.m4a']);
@@ -552,6 +553,71 @@ class ZuneManager extends EventEmitter {
     this.cancelRequested = true;
   }
 
+  /**
+   * Try ZMDB fast path: fetch the device's binary database in one bulk transfer
+   * and parse it locally. Returns null if the device doesn't support it.
+   */
+  async _tryZMDB() {
+    const start = Date.now();
+    console.log('ZuneManager: attempting ZMDB fast path...');
+
+    try {
+      const zmdbData = await this.mtp.readZMDB();
+      const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+      console.log(`ZuneManager: ZMDB fetched in ${elapsed}s (${zmdbData.length} bytes)`);
+
+      const isHD = (this.model || '').toLowerCase().includes('hd');
+      const parser = new ZMDBParser(zmdbData, isHD ? 'hd' : 'classic');
+      const library = parser.parse();
+
+      const parseElapsed = ((Date.now() - start) / 1000).toFixed(1);
+      console.log(`ZuneManager: ZMDB parsed in ${parseElapsed}s`);
+
+      // Convert ZMDB library to our browseContents format
+      const result = { music: [], videos: [], pictures: [] };
+
+      for (const track of library.tracks) {
+        result.music.push({
+          handle: 0, // ZMDB doesn't give MTP handles
+          filename: track.filename || track.title || 'unknown',
+          size: track.size,
+          format: track.codecId,
+          title: track.title,
+          artist: track.artist,
+          album: track.album,
+          albumArt: null, // ZMDB doesn't include art data
+          genre: track.genre,
+          trackNumber: track.trackNumber,
+          duration: track.duration,
+        });
+      }
+
+      for (const video of library.videos) {
+        result.videos.push({
+          handle: 0,
+          filename: video.filename || video.title || 'unknown',
+          size: video.size,
+          format: video.codecId,
+        });
+      }
+
+      for (const pic of library.pictures) {
+        result.pictures.push({
+          handle: 0,
+          filename: pic.filename || pic.title || 'unknown',
+          size: 0,
+          format: 0,
+        });
+      }
+
+      return result;
+    } catch (err) {
+      const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+      console.log(`ZuneManager: ZMDB fast path failed in ${elapsed}s: ${err.message}`);
+      return null;
+    }
+  }
+
   async browseContents() {
     if (!this.connected) {
       throw new Error('No Zune device connected');
@@ -560,6 +626,17 @@ class ZuneManager extends EventEmitter {
     const browseStart = Date.now();
     const elapsed = () => `${((Date.now() - browseStart) / 1000).toFixed(1)}s`;
     console.log(`ZuneManager: browseContents() starting`);
+
+    // Try ZMDB fast path first
+    this.emit('browse-progress', { phase: 'scanning', scanned: 0, total: 0, foldersScanned: 0, contents: { music: [], videos: [], pictures: [] } });
+    const zmdbResult = await this._tryZMDB();
+    if (zmdbResult) {
+      console.log(`ZuneManager: [${elapsed()}] ZMDB fast path succeeded — ${zmdbResult.music.length} tracks, ${zmdbResult.videos.length} videos, ${zmdbResult.pictures.length} pictures`);
+      this.emit('browse-progress', { phase: 'enriching', enriched: zmdbResult.music.length, enrichTotal: zmdbResult.music.length, contents: zmdbResult });
+      return zmdbResult;
+    }
+
+    console.log(`ZuneManager: [${elapsed()}] falling back to MTP enumeration`);
 
     const result = { music: [], videos: [], pictures: [] };
 
