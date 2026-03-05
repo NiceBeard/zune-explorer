@@ -201,6 +201,9 @@ class ZuneSyncPanel {
 
         filterInput.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
+                if (this.diffFilterQuery) {
+                    e.stopPropagation();
+                }
                 filterInput.value = '';
                 this.diffFilterQuery = '';
                 filterClear.style.display = 'none';
@@ -1386,7 +1389,7 @@ class ZuneSyncPanel {
         }
 
         const result = [];
-        for (const [key, group] of groups) {
+        for (const [, group] of groups) {
             if (group.name.toLowerCase().includes(q)) {
                 result.push(...group.tracks);
             } else {
@@ -1428,15 +1431,17 @@ class ZuneSyncPanel {
     }
 
     _handleSelectAll(checked) {
+        const groupBy = (this.diffTab === 'local-only' || this.diffTab === 'device-only')
+            ? (this.diffGroupBy || 'all') : 'all';
         let items;
         if (this.diffTab === 'local-only') {
-            items = (this.diffResult?.localOnly || []).filter(i => this._matchesFilter(i));
+            items = this._getFilteredItems(this.diffResult?.localOnly || [], groupBy);
             for (const item of items) {
                 if (checked) this.diffSelectedPaths.add(item.path);
                 else this.diffSelectedPaths.delete(item.path);
             }
         } else if (this.diffTab === 'device-only') {
-            items = (this.diffResult?.deviceOnly || []).filter(i => this._matchesFilter(i));
+            items = this._getFilteredItems(this.diffResult?.deviceOnly || [], groupBy);
             for (const item of items) {
                 if (checked) this.diffSelectedHandles.add(item.handle);
                 else this.diffSelectedHandles.delete(item.handle);
