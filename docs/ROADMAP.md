@@ -28,6 +28,9 @@ Verified full sync flow on the Zune 30 (PID 0x0710). Required dynamic USB endpoi
 ### ~~Two-Way Sync~~ (Done)
 Pull files from the Zune to the computer via MTP GetObject. WMA files automatically converted to MP3 320k via ffmpeg. Device metadata (title, artist, album, genre, track number) embedded as ID3 tags. Album art from Zune's AbstractAudioAlbum objects embedded as cover art. Full-screen sync management view with grouped selection by album/artist, select-all, collapsible groups, and smart diff engine comparing local and device libraries.
 
+### ~~ZMDB Fast Path~~ (Done)
+Parses the Zune's internal binary media database (ZMDB) in a single vendor bulk transfer — 7561 tracks in 0.5 seconds vs 10+ minutes for MTP enumeration. Based on reverse-engineering work by [@magicisinthehole](https://github.com/magicisinthehole/XuneSyncLibrary). Supports both Classic (ZMed v2) and HD (ZMed v5) field layouts. ZMDB atom IDs work directly as MTP handles for GetObject, with a lazy resolver fallback. Pulled files saved as "Artist - Title.mp3" instead of cryptic device filenames.
+
 ## Music Experience Enhancements
 
 ### ~~Sub-Category Navigation (Zune HD Style)~~ (Done)
