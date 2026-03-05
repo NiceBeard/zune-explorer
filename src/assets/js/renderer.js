@@ -1394,13 +1394,13 @@ class ZuneSyncPanel {
     _handleSelectAll(checked) {
         let items;
         if (this.diffTab === 'local-only') {
-            items = this.diffResult?.localOnly || [];
+            items = (this.diffResult?.localOnly || []).filter(i => this._matchesFilter(i));
             for (const item of items) {
                 if (checked) this.diffSelectedPaths.add(item.path);
                 else this.diffSelectedPaths.delete(item.path);
             }
         } else if (this.diffTab === 'device-only') {
-            items = this.diffResult?.deviceOnly || [];
+            items = (this.diffResult?.deviceOnly || []).filter(i => this._matchesFilter(i));
             for (const item of items) {
                 if (checked) this.diffSelectedHandles.add(item.handle);
                 else this.diffSelectedHandles.delete(item.handle);
