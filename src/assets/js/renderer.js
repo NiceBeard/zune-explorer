@@ -1095,9 +1095,8 @@ class ZuneSyncPanel {
         }
 
         // Apply filter
-        const filteredItems = this.diffFilterQuery
-            ? items.filter(item => this._matchesFilter(item))
-            : items;
+        const groupBy = showCheckboxes ? (this.diffGroupBy || 'all') : 'all';
+        const filteredItems = this._getFilteredItems(items, groupBy);
 
         // Show/hide select-all and group bar based on checkbox mode
         const selectAllEl = document.getElementById('zune-diff-select-all');
@@ -1123,8 +1122,6 @@ class ZuneSyncPanel {
             this._updateDiffActionButton();
             return;
         }
-
-        const groupBy = showCheckboxes ? (this.diffGroupBy || 'all') : 'all';
 
         if (groupBy === 'all') {
             this._renderDiffFlat(listEl, filteredItems, showCheckboxes);
@@ -1358,6 +1355,45 @@ class ZuneSyncPanel {
         return (item.title || item.filename || '').toLowerCase().includes(q)
             || (item.artist || '').toLowerCase().includes(q)
             || (item.album || '').toLowerCase().includes(q);
+    }
+
+    _getFilteredItems(items, groupBy) {
+        if (!this.diffFilterQuery) return items;
+        const q = this.diffFilterQuery;
+
+        if (groupBy === 'all') {
+            return items.filter(item => this._matchesFilter(item));
+        }
+
+        // For grouped modes, keep all tracks in a group if the group name matches
+        const groups = new Map();
+        for (const item of items) {
+            let groupName;
+            if (this.diffTab === 'matched') {
+                const loc = item.local || {};
+                const dev = item.device || {};
+                groupName = groupBy === 'album'
+                    ? (loc.album || dev.album || 'Unknown Album')
+                    : (loc.artist || dev.artist || 'Unknown Artist');
+            } else {
+                groupName = groupBy === 'album'
+                    ? (item.album || 'Unknown Album')
+                    : (item.artist || 'Unknown Artist');
+            }
+            const key = groupName.toLowerCase();
+            if (!groups.has(key)) groups.set(key, { name: groupName, tracks: [] });
+            groups.get(key).tracks.push(item);
+        }
+
+        const result = [];
+        for (const [key, group] of groups) {
+            if (group.name.toLowerCase().includes(q)) {
+                result.push(...group.tracks);
+            } else {
+                result.push(...group.tracks.filter(t => this._matchesFilter(t)));
+            }
+        }
+        return result;
     }
 
     _getItemKey(item) {
