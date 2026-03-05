@@ -44,15 +44,34 @@ Connect a physical Zune to manage your music library — no Zune desktop softwar
 - Zune HD (16GB, 32GB, 64GB)
 - Zune 30, 4, 8, 16, 32, 80, 120
 
-## Getting Started
+## Download
+
+Grab the latest release from the [Releases page](https://github.com/NiceBeard/zune-explorer/releases).
+
+| Platform | Architecture | File |
+|----------|-------------|------|
+| macOS | Apple Silicon (M1/M2/M3/M4) | `Zune Explorer-*-arm64.dmg` |
+| macOS | Intel | `Zune Explorer-*.dmg` |
+
+### macOS Gatekeeper Notice
+
+The app is not yet code-signed. macOS will block it on first launch. To open it:
+
+1. Open the DMG and drag Zune Explorer to Applications
+2. **Right-click** (or Control-click) the app in Applications → **Open**
+3. Click **Open** in the dialog that appears
+
+You only need to do this once. Alternatively, run in Terminal:
+```bash
+xattr -cr /Applications/Zune\ Explorer.app
+```
 
 ### Requirements
-- Node.js 18+
 - A Zune device and USB cable (for sync features)
-- MTPZ key data file (for Zune authentication — see [mtpz-keys](#mtpz-keys))
-- ffmpeg (bundled via ffmpeg-static for format conversion)
+- MTPZ key data file at `~/.mtpz-data` (required for Zune authentication — see [MTPZ Keys](#mtpz-keys))
+- USB 2.0 port recommended for Zune 30/classic models
 
-### Install and Run
+## Building from Source
 
 ```bash
 npm install
@@ -64,8 +83,7 @@ Development mode with DevTools:
 npm run dev
 ```
 
-### Building
-
+Build distributable:
 ```bash
 npm run build
 ```
