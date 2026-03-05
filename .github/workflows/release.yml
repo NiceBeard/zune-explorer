@@ -35,11 +35,11 @@ jobs:
 
       - name: Build (macOS)
         if: runner.os == 'macOS'
-        run: npx electron-builder --mac --${{ matrix.arch }}
+        run: npx electron-builder --mac --${{ matrix.arch }} --publish never
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
-        run: npx electron-builder --win --x64
+        run: npx electron-builder --win --x64 --publish never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
