@@ -19,6 +19,8 @@ class ZuneSyncPanel {
         this.diffSelectedPaths = new Set();   // local-only selected paths
         this.diffSelectedHandles = new Set(); // device-only selected handles
         this.diffActive = false;
+        this.diffFilterQuery = '';          // current filter text
+        this._diffFilterTimer = null;       // debounce timer
         this.scanStartTime = null;
         this.lastStatus = null;
         this.deviceModel = null;
@@ -161,6 +163,9 @@ class ZuneSyncPanel {
                 tab.classList.add('active');
                 this.diffSelectedPaths.clear();
                 this.diffSelectedHandles.clear();
+                this.diffFilterQuery = '';
+                document.getElementById('zune-diff-filter-input').value = '';
+                document.getElementById('zune-diff-filter-clear').style.display = 'none';
                 this._renderDiffList();
             });
         });
@@ -179,6 +184,36 @@ class ZuneSyncPanel {
         // Select-all checkbox
         document.getElementById('zune-diff-select-all-check').addEventListener('change', (e) => {
             this._handleSelectAll(e.target.checked);
+        });
+
+        // Diff filter input
+        const filterInput = document.getElementById('zune-diff-filter-input');
+        const filterClear = document.getElementById('zune-diff-filter-clear');
+
+        filterInput.addEventListener('input', () => {
+            clearTimeout(this._diffFilterTimer);
+            this._diffFilterTimer = setTimeout(() => {
+                this.diffFilterQuery = filterInput.value.trim().toLowerCase();
+                filterClear.style.display = this.diffFilterQuery ? 'block' : 'none';
+                this._renderDiffList();
+            }, 150);
+        });
+
+        filterInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                filterInput.value = '';
+                this.diffFilterQuery = '';
+                filterClear.style.display = 'none';
+                this._renderDiffList();
+            }
+        });
+
+        filterClear.addEventListener('click', () => {
+            filterInput.value = '';
+            this.diffFilterQuery = '';
+            filterClear.style.display = 'none';
+            filterInput.focus();
+            this._renderDiffList();
         });
 
         // Push (sync to device)
