@@ -1094,16 +1094,24 @@ class ZuneSyncPanel {
             actionsEl.style.display = 'none';
         }
 
+        // Apply filter
+        const filteredItems = this.diffFilterQuery
+            ? items.filter(item => this._matchesFilter(item))
+            : items;
+
         // Show/hide select-all and group bar based on checkbox mode
         const selectAllEl = document.getElementById('zune-diff-select-all');
         const groupBar = document.getElementById('zune-diff-group-bar');
         selectAllEl.style.display = showCheckboxes ? 'flex' : 'none';
         groupBar.style.display = showCheckboxes ? 'flex' : 'none';
+        document.getElementById('zune-diff-filter').style.display = 'flex';
 
-        if (items.length === 0) {
+        if (filteredItems.length === 0) {
             const emptyDiv = document.createElement('div');
             emptyDiv.className = 'zune-diff-empty';
-            if (this.diffTab === 'local-only') {
+            if (this.diffFilterQuery) {
+                emptyDiv.textContent = 'no matches';
+            } else if (this.diffTab === 'local-only') {
                 emptyDiv.textContent = 'all local music is on the device';
             } else if (this.diffTab === 'device-only') {
                 emptyDiv.textContent = 'all device music is on the computer';
@@ -1111,7 +1119,7 @@ class ZuneSyncPanel {
                 emptyDiv.textContent = 'no matched tracks';
             }
             listEl.appendChild(emptyDiv);
-            this._updateSelectAllState(items);
+            this._updateSelectAllState(filteredItems);
             this._updateDiffActionButton();
             return;
         }
@@ -1119,12 +1127,12 @@ class ZuneSyncPanel {
         const groupBy = showCheckboxes ? (this.diffGroupBy || 'all') : 'all';
 
         if (groupBy === 'all') {
-            this._renderDiffFlat(listEl, items, showCheckboxes);
+            this._renderDiffFlat(listEl, filteredItems, showCheckboxes);
         } else {
-            this._renderDiffGrouped(listEl, items, showCheckboxes, groupBy);
+            this._renderDiffGrouped(listEl, filteredItems, showCheckboxes, groupBy);
         }
 
-        this._updateSelectAllState(items);
+        this._updateSelectAllState(filteredItems);
         this._updateDiffActionButton();
     }
 
@@ -1333,6 +1341,23 @@ class ZuneSyncPanel {
 
         row.appendChild(infoDiv);
         return row;
+    }
+
+    _matchesFilter(item) {
+        if (!this.diffFilterQuery) return true;
+        const q = this.diffFilterQuery;
+
+        if (this.diffTab === 'matched') {
+            const loc = item.local || {};
+            const dev = item.device || {};
+            return (loc.title || dev.title || dev.filename || '').toLowerCase().includes(q)
+                || (loc.artist || dev.artist || '').toLowerCase().includes(q)
+                || (loc.album || dev.album || '').toLowerCase().includes(q);
+        }
+
+        return (item.title || item.filename || '').toLowerCase().includes(q)
+            || (item.artist || '').toLowerCase().includes(q)
+            || (item.album || '').toLowerCase().includes(q);
     }
 
     _getItemKey(item) {
