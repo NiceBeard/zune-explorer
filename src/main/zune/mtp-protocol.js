@@ -661,6 +661,82 @@ class MtpProtocol {
 
     return buf;
   }
+
+  // ---------------------------------------------------------------------------
+  // ZMDB (Zune Media Database) — vendor bulk pipe operation
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Fetch the ZMDB binary blob from the device using vendor operation 0x1792.
+   * This is NOT a standard MTP command — it's a raw 16-byte bulk pipe packet.
+   * The device responds with a 12-byte header followed by the ZMDB payload.
+   *
+   * @param {number[]} objectId - 3-byte object ID (default: music library {0x03, 0x92, 0x1f})
+   * @returns {Buffer} The raw ZMDB binary data
+   */
+  async readZMDB(objectId = [0x03, 0x92, 0x1f]) {
+    // Build 16-byte request packet
+    const request = Buffer.alloc(16);
+    request[0]  = 0x10;  // length byte (16)
+    request[4]  = 0x01;  // command marker
+    request[6]  = 0x17;  // operation code high
+    request[7]  = 0x92;  // operation code low
+    request[8]  = objectId[0];
+    request[9]  = objectId[1];
+    request[10] = objectId[2];
+    request[12] = 0x01;  // trailer
+
+    // Send request
+    await this.transport.bulkWrite(request);
+
+    // Wait for device to prepare response
+    await new Promise(resolve => setTimeout(resolve, 250));
+
+    // Read header (first chunk — device sends header + possibly some data)
+    const headerBuf = await this.transport.bulkRead(65536);
+    if (headerBuf.length < 12) {
+      throw new Error('ZMDB: response too short');
+    }
+
+    // Total size is in the first 4 bytes (little-endian)
+    const totalSize = headerBuf.readUInt32LE(0);
+    console.log(`ZMDB: response total size = ${totalSize} bytes`);
+
+    if (totalSize <= 12) {
+      throw new Error('ZMDB: empty response');
+    }
+
+    const payloadSize = totalSize - 12;
+
+    // The header buffer may contain data beyond the 12-byte header
+    const headerPayload = headerBuf.slice(12);
+    const chunks = [headerPayload];
+    let received = headerPayload.length;
+
+    // Read remaining payload in chunks
+    while (received < payloadSize) {
+      const remaining = payloadSize - received;
+      const chunkSize = Math.min(remaining, 65536);
+      const chunk = await this.transport.bulkRead(chunkSize);
+      chunks.push(chunk);
+      received += chunk.length;
+      if (chunk.length === 0) break; // safety valve
+    }
+
+    // Drain the pipe (ignore errors)
+    try {
+      await Promise.race([
+        this.transport.bulkRead(512),
+        new Promise(resolve => setTimeout(resolve, 100)),
+      ]);
+    } catch {
+      // Expected — drain read often fails
+    }
+
+    const payload = Buffer.concat(chunks, received);
+    console.log(`ZMDB: received ${payload.length} bytes of payload`);
+    return payload;
+  }
 }
 
 module.exports = { MtpProtocol };

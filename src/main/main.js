@@ -428,10 +428,16 @@ ipcMain.handle('zune-pull-file', async (event, handle, filename, destDir, metada
   try {
     const data = await zuneManager.getFile(handle);
     const ext = path.extname(filename).toLowerCase();
-    const baseName = path.basename(filename, ext);
+    let baseName = path.basename(filename, ext);
+
+    // Use title as filename if available (ZMDB filenames can be cryptic)
+    if (metadata?.title) {
+      baseName = metadata.title.replace(/[<>:"/\\|?*]/g, '_');
+      if (metadata?.artist) baseName = `${metadata.artist.replace(/[<>:"/\\|?*]/g, '_')} - ${baseName}`;
+    }
 
     // Save raw file to temp location first
-    const tempRaw = path.join(os.tmpdir(), `zune-pull-${Date.now()}-${filename}`);
+    const tempRaw = path.join(os.tmpdir(), `zune-pull-${Date.now()}-${baseName}${ext}`);
     await fs.writeFile(tempRaw, data);
 
     let finalPath;
@@ -493,7 +499,7 @@ ipcMain.handle('zune-pull-file', async (event, handle, filename, destDir, metada
       if (tempArt) await fs.unlink(tempArt).catch(() => {});
     } else {
       // MP3/AAC — just move to destination (already playable)
-      finalPath = path.join(destDir, filename);
+      finalPath = path.join(destDir, baseName + ext);
       await fs.rename(tempRaw, finalPath).catch(async () => {
         // rename fails across filesystems, fall back to copy+delete
         await fs.copyFile(tempRaw, finalPath);

@@ -540,6 +540,13 @@ class ZuneSyncPanel {
                 const pct = total > 0 ? Math.round((enriched / total) * 100) : 0;
                 fillEl.style.width = pct + '%';
                 statsEl.textContent = `${enriched} / ${total}`;
+            } else if (data.phase === 'resolving-handles') {
+                const resolved = data.resolved || 0;
+                const total = data.total || 1;
+                const pct = Math.round((resolved / total) * 100);
+                fillEl.style.width = pct + '%';
+                labelEl.textContent = 'syncing file handles...';
+                statsEl.textContent = `${resolved} / ${total}`;
             }
             // Keep browse data updated for progressive rendering
             this.browseData = data.contents;
