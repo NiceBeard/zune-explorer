@@ -89,6 +89,7 @@ app.whenReady().then(() => {
 
   deviceCache = new DeviceCache(app.getPath('userData'));
   metadataCache = new MetadataCache(app.getPath('userData'));
+  zuneManager.metadataCache = metadataCache;
 
   // Start Zune USB detection
   zuneManager.start();

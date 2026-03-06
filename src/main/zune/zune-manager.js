@@ -289,6 +289,24 @@ class ZuneManager extends EventEmitter {
         // Read metadata from the original file before any conversion
         const metadata = await this._readMetadata(filePath);
 
+        // Enrich with cached MusicBrainz metadata
+        if (this.metadataCache && metadata.artist && metadata.album) {
+          const cached = await this.metadataCache.get(metadata.artist, metadata.album);
+          if (cached) {
+            if (cached.genre && !metadata.genre) metadata.genre = cached.genre;
+            if (cached.year && !metadata.year) metadata.year = String(cached.year);
+            if (cached.albumArt && !metadata.albumArt) {
+              const base64Match = cached.albumArt.match(/^data:([^;]+);base64,(.+)$/);
+              if (base64Match) {
+                metadata.albumArt = {
+                  data: Buffer.from(base64Match[2], 'base64'),
+                  format: base64Match[1],
+                };
+              }
+            }
+          }
+        }
+
         if (needsConvert) {
           const fileName = path.basename(filePath);
           this.emit('transfer-progress', {
