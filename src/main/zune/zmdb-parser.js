@@ -285,6 +285,7 @@ class ZMDBParser {
 
     // Extract media from descriptors using device-specific mapping
     const descMap = this.isHD ? HD_DESCRIPTOR_MAP : CLASSIC_DESCRIPTOR_MAP;
+    const seenRecordOffsets = new Set();
 
     for (const [descIdx] of Object.entries(descMap)) {
       const idx = Number(descIdx);
@@ -302,6 +303,10 @@ class ZMDBParser {
         // Look up record in index
         if (!this.indexTable.has(atomId)) continue;
         const recordOffset = this.indexTable.get(atomId);
+
+        // Skip duplicate records (same track can appear via multiple descriptors/atoms)
+        if (seenRecordOffsets.has(recordOffset)) continue;
+        seenRecordOffsets.add(recordOffset);
 
         const record = this._readRecord(recordOffset);
         if (!record) continue;

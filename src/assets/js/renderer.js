@@ -19,6 +19,8 @@ class ZuneSyncPanel {
         this.diffSelectedPaths = new Set();   // local-only selected paths
         this.diffSelectedHandles = new Set(); // device-only selected handles
         this.diffActive = false;
+        this.diffFilterQuery = '';          // current filter text
+        this._diffFilterTimer = null;       // debounce timer
         this.scanStartTime = null;
         this.lastStatus = null;
         this.deviceModel = null;
@@ -161,6 +163,9 @@ class ZuneSyncPanel {
                 tab.classList.add('active');
                 this.diffSelectedPaths.clear();
                 this.diffSelectedHandles.clear();
+                this.diffFilterQuery = '';
+                document.getElementById('zune-diff-filter-input').value = '';
+                document.getElementById('zune-diff-filter-clear').style.display = 'none';
                 this._renderDiffList();
             });
         });
@@ -179,6 +184,39 @@ class ZuneSyncPanel {
         // Select-all checkbox
         document.getElementById('zune-diff-select-all-check').addEventListener('change', (e) => {
             this._handleSelectAll(e.target.checked);
+        });
+
+        // Diff filter input
+        const filterInput = document.getElementById('zune-diff-filter-input');
+        const filterClear = document.getElementById('zune-diff-filter-clear');
+
+        filterInput.addEventListener('input', () => {
+            clearTimeout(this._diffFilterTimer);
+            this._diffFilterTimer = setTimeout(() => {
+                this.diffFilterQuery = filterInput.value.trim().toLowerCase();
+                filterClear.style.display = this.diffFilterQuery ? 'block' : 'none';
+                this._renderDiffList();
+            }, 150);
+        });
+
+        filterInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (this.diffFilterQuery) {
+                    e.stopPropagation();
+                }
+                filterInput.value = '';
+                this.diffFilterQuery = '';
+                filterClear.style.display = 'none';
+                this._renderDiffList();
+            }
+        });
+
+        filterClear.addEventListener('click', () => {
+            filterInput.value = '';
+            this.diffFilterQuery = '';
+            filterClear.style.display = 'none';
+            filterInput.focus();
+            this._renderDiffList();
         });
 
         // Push (sync to device)
@@ -648,6 +686,11 @@ class ZuneSyncPanel {
         // Push panoramic layout
         this.explorer.showSync();
 
+        // Ensure local music library is scanned for accurate diff
+        if (this.explorer.musicLibrary.scanState === 'idle') {
+            this.explorer.scanMusicLibrary();
+        }
+
         this._computeDiff();
         this._renderDiffSummary();
         this._renderDiffList();
@@ -1059,16 +1102,23 @@ class ZuneSyncPanel {
             actionsEl.style.display = 'none';
         }
 
+        // Apply filter
+        const groupBy = showCheckboxes ? (this.diffGroupBy || 'all') : 'all';
+        const filteredItems = this._getFilteredItems(items, groupBy);
+
         // Show/hide select-all and group bar based on checkbox mode
         const selectAllEl = document.getElementById('zune-diff-select-all');
         const groupBar = document.getElementById('zune-diff-group-bar');
         selectAllEl.style.display = showCheckboxes ? 'flex' : 'none';
         groupBar.style.display = showCheckboxes ? 'flex' : 'none';
+        document.getElementById('zune-diff-filter').style.display = 'flex';
 
-        if (items.length === 0) {
+        if (filteredItems.length === 0) {
             const emptyDiv = document.createElement('div');
             emptyDiv.className = 'zune-diff-empty';
-            if (this.diffTab === 'local-only') {
+            if (this.diffFilterQuery) {
+                emptyDiv.textContent = 'no matches';
+            } else if (this.diffTab === 'local-only') {
                 emptyDiv.textContent = 'all local music is on the device';
             } else if (this.diffTab === 'device-only') {
                 emptyDiv.textContent = 'all device music is on the computer';
@@ -1076,20 +1126,18 @@ class ZuneSyncPanel {
                 emptyDiv.textContent = 'no matched tracks';
             }
             listEl.appendChild(emptyDiv);
-            this._updateSelectAllState(items);
+            this._updateSelectAllState(filteredItems);
             this._updateDiffActionButton();
             return;
         }
 
-        const groupBy = showCheckboxes ? (this.diffGroupBy || 'all') : 'all';
-
         if (groupBy === 'all') {
-            this._renderDiffFlat(listEl, items, showCheckboxes);
+            this._renderDiffFlat(listEl, filteredItems, showCheckboxes);
         } else {
-            this._renderDiffGrouped(listEl, items, showCheckboxes, groupBy);
+            this._renderDiffGrouped(listEl, filteredItems, showCheckboxes, groupBy);
         }
 
-        this._updateSelectAllState(items);
+        this._updateSelectAllState(filteredItems);
         this._updateDiffActionButton();
     }
 
@@ -1300,6 +1348,62 @@ class ZuneSyncPanel {
         return row;
     }
 
+    _matchesFilter(item) {
+        if (!this.diffFilterQuery) return true;
+        const q = this.diffFilterQuery;
+
+        if (this.diffTab === 'matched') {
+            const loc = item.local || {};
+            const dev = item.device || {};
+            return (loc.title || dev.title || dev.filename || '').toLowerCase().includes(q)
+                || (loc.artist || dev.artist || '').toLowerCase().includes(q)
+                || (loc.album || dev.album || '').toLowerCase().includes(q);
+        }
+
+        return (item.title || item.filename || '').toLowerCase().includes(q)
+            || (item.artist || '').toLowerCase().includes(q)
+            || (item.album || '').toLowerCase().includes(q);
+    }
+
+    _getFilteredItems(items, groupBy) {
+        if (!this.diffFilterQuery) return items;
+        const q = this.diffFilterQuery;
+
+        if (groupBy === 'all') {
+            return items.filter(item => this._matchesFilter(item));
+        }
+
+        // For grouped modes, keep all tracks in a group if the group name matches
+        const groups = new Map();
+        for (const item of items) {
+            let groupName;
+            if (this.diffTab === 'matched') {
+                const loc = item.local || {};
+                const dev = item.device || {};
+                groupName = groupBy === 'album'
+                    ? (loc.album || dev.album || 'Unknown Album')
+                    : (loc.artist || dev.artist || 'Unknown Artist');
+            } else {
+                groupName = groupBy === 'album'
+                    ? (item.album || 'Unknown Album')
+                    : (item.artist || 'Unknown Artist');
+            }
+            const key = groupName.toLowerCase();
+            if (!groups.has(key)) groups.set(key, { name: groupName, tracks: [] });
+            groups.get(key).tracks.push(item);
+        }
+
+        const result = [];
+        for (const [, group] of groups) {
+            if (group.name.toLowerCase().includes(q)) {
+                result.push(...group.tracks);
+            } else {
+                result.push(...group.tracks.filter(t => this._matchesFilter(t)));
+            }
+        }
+        return result;
+    }
+
     _getItemKey(item) {
         if (this.diffTab === 'local-only') return item.path;
         if (this.diffTab === 'device-only') return item.handle;
@@ -1332,15 +1436,17 @@ class ZuneSyncPanel {
     }
 
     _handleSelectAll(checked) {
+        const groupBy = (this.diffTab === 'local-only' || this.diffTab === 'device-only')
+            ? (this.diffGroupBy || 'all') : 'all';
         let items;
         if (this.diffTab === 'local-only') {
-            items = this.diffResult?.localOnly || [];
+            items = this._getFilteredItems(this.diffResult?.localOnly || [], groupBy);
             for (const item of items) {
                 if (checked) this.diffSelectedPaths.add(item.path);
                 else this.diffSelectedPaths.delete(item.path);
             }
         } else if (this.diffTab === 'device-only') {
-            items = this.diffResult?.deviceOnly || [];
+            items = this._getFilteredItems(this.diffResult?.deviceOnly || [], groupBy);
             for (const item of items) {
                 if (checked) this.diffSelectedHandles.add(item.handle);
                 else this.diffSelectedHandles.delete(item.handle);
@@ -2986,6 +3092,13 @@ class ZuneExplorer {
             // Re-render current sub-view if still in music
             if (this.currentCategory === 'music' && this.currentView === 'content') {
                 this.renderMusicSubContent();
+            }
+
+            // Recompute diff if device browse is active (local library changed)
+            if (this.zunePanel && this.zunePanel.diffActive) {
+                this.zunePanel._computeDiff();
+                this.zunePanel._renderDiffSummary();
+                this.zunePanel._renderDiffList();
             }
         });
 
