@@ -7,12 +7,15 @@ const { promisify } = require('util');
 const platform = require('./platform-' + (process.platform === 'win32' ? 'win32' : 'darwin') + '.js');
 const { ZuneManager } = require('./zune/zune-manager');
 const { DeviceCache } = require('./zune/device-cache');
+const { MetadataCache } = require('./metadata-cache.js');
+const musicbrainz = require('./musicbrainz.js');
 
 const execFileAsync = promisify(execFile);
 const ffmpegPath = require('ffmpeg-static');
 
 const zuneManager = new ZuneManager();
 let deviceCache = null; // initialized after app.whenReady
+let metadataCache;
 
 // Simple dev mode detection
 const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev');
@@ -85,6 +88,8 @@ app.whenReady().then(() => {
   createWindow();
 
   deviceCache = new DeviceCache(app.getPath('userData'));
+  metadataCache = new MetadataCache(app.getPath('userData'));
+  zuneManager.metadataCache = metadataCache;
 
   // Start Zune USB detection
   zuneManager.start();
@@ -631,6 +636,51 @@ ipcMain.handle('zune-install-driver', async () => {
     await fs.unlink(tmpScript).catch(() => {});
     await fs.unlink(tmpLog).catch(() => {});
   }
+});
+
+// Metadata enrichment
+ipcMain.handle('metadata-search', async (event, album, artist) => {
+  try {
+    const results = await musicbrainz.searchReleases(album, artist);
+    return { success: true, results };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('metadata-thumbnail', async (event, mbid) => {
+  try {
+    const dataUrl = await musicbrainz.getThumbnail(mbid);
+    return { success: true, dataUrl };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('metadata-fetch', async (event, mbid) => {
+  try {
+    const release = await musicbrainz.getRelease(mbid);
+    const albumArt = await musicbrainz.getCoverArt(mbid);
+    const result = { ...release, albumArt };
+    return { success: true, result };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('metadata-cache-get', async (event, artist, album) => {
+  const data = await metadataCache.get(artist, album);
+  return { success: true, data };
+});
+
+ipcMain.handle('metadata-cache-set', async (event, artist, album, data) => {
+  await metadataCache.set(artist, album, data);
+  return { success: true };
+});
+
+ipcMain.handle('metadata-cache-get-all', async () => {
+  const data = await metadataCache.getAll();
+  return { success: true, data };
 });
 
 ipcMain.handle('window-minimize', async () => {

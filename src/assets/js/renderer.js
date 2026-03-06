@@ -3087,6 +3087,7 @@ class ZuneExplorer {
                 if (data.scanned >= data.total) {
                     progressEl.style.display = 'none';
                     lib.scanState = 'complete';
+                    this.applyCachedMetadata();
                 } else {
                     progressEl.style.display = 'block';
                     progressEl.textContent = `scanning ${data.scanned} of ${data.total}...`;
@@ -3284,6 +3285,10 @@ class ZuneExplorer {
                     this.musicDrillDown = { type: 'album', key: album.key };
                     this.renderMusicView();
                 });
+                tile.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    this.showMetadataLookup(album.name, album.artist);
+                });
                 grid.appendChild(tile);
             }
         }
@@ -3400,6 +3405,14 @@ class ZuneExplorer {
                 row.addEventListener('click', () => {
                     this.musicDrillDown = { type: 'artist', name: (artist.name).toLowerCase() };
                     this.renderMusicView();
+                });
+                row.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    const firstAlbumKey = [...artist.albums][0];
+                    const firstAlbum = firstAlbumKey ? this.musicLibrary.albums.get(firstAlbumKey) : null;
+                    if (firstAlbum) {
+                        this.showMetadataLookup(firstAlbum.name, artist.name);
+                    }
                 });
                 list.appendChild(row);
             }
@@ -3576,10 +3589,17 @@ class ZuneExplorer {
                 this.audioPlayer.play(files[0], files);
             }
         });
+        const lookupLink = document.createElement('button');
+        lookupLink.className = 'music-lookup-btn';
+        lookupLink.textContent = 'look up metadata';
+        lookupLink.addEventListener('click', () => {
+            this.showMetadataLookup(album.name, album.artist);
+        });
         info.appendChild(nameEl);
         info.appendChild(artistEl);
         info.appendChild(yearEl);
         info.appendChild(playAllBtn);
+        info.appendChild(lookupLink);
         header.appendChild(info);
         detail.appendChild(header);
 
@@ -3733,6 +3753,243 @@ class ZuneExplorer {
         this.selectedFile = file;
         this.addToRecentFiles(file);
         this.updateRecentFiles();
+    }
+
+    async showMetadataLookup(albumName, artistName) {
+        const modal = document.getElementById('metadata-modal');
+        const status = document.getElementById('metadata-modal-status');
+        const results = document.getElementById('metadata-modal-results');
+        const closeBtn = document.getElementById('metadata-modal-close');
+
+        modal.style.display = 'flex';
+        status.textContent = `Searching for "${albumName}" by ${artistName}...`;
+        status.style.display = 'block';
+        results.textContent = '';
+
+        const onClose = () => { modal.style.display = 'none'; };
+        closeBtn.onclick = onClose;
+        modal.addEventListener('click', (e) => { if (e.target === modal) onClose(); });
+
+        const showResults = (searchResult) => {
+            status.textContent = `Found ${searchResult.results.length} match${searchResult.results.length !== 1 ? 'es' : ''} — pick one:`;
+            results.textContent = '';
+
+            for (const match of searchResult.results) {
+                const item = document.createElement('div');
+                item.className = 'metadata-match-item';
+
+                const artContainer = document.createElement('div');
+                artContainer.className = 'metadata-match-art';
+                // Placeholder: vinyl record icon
+                const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                svg.setAttribute('width', '48');
+                svg.setAttribute('height', '48');
+                svg.setAttribute('viewBox', '0 0 48 48');
+                const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                rect.setAttribute('width', '48');
+                rect.setAttribute('height', '48');
+                rect.setAttribute('rx', '4');
+                rect.setAttribute('fill', '#1a1a1a');
+                const circle1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle1.setAttribute('cx', '24');
+                circle1.setAttribute('cy', '24');
+                circle1.setAttribute('r', '10');
+                circle1.setAttribute('fill', 'none');
+                circle1.setAttribute('stroke', '#333');
+                circle1.setAttribute('stroke-width', '1');
+                const circle2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle2.setAttribute('cx', '24');
+                circle2.setAttribute('cy', '24');
+                circle2.setAttribute('r', '4');
+                circle2.setAttribute('fill', '#333');
+                svg.appendChild(rect);
+                svg.appendChild(circle1);
+                svg.appendChild(circle2);
+                artContainer.appendChild(svg);
+                item.appendChild(artContainer);
+
+                const textWrap = document.createElement('div');
+                textWrap.className = 'metadata-match-text';
+
+                const title = document.createElement('div');
+                title.className = 'metadata-match-title';
+                title.textContent = match.title;
+
+                const detail = document.createElement('div');
+                detail.className = 'metadata-match-detail';
+                const parts = [match.artist];
+                if (match.year) parts.push(match.year);
+                if (match.label) parts.push(match.label);
+                if (match.trackCount) parts.push(`${match.trackCount} tracks`);
+                detail.textContent = parts.join(' — ');
+
+                textWrap.appendChild(title);
+                textWrap.appendChild(detail);
+                item.appendChild(textWrap);
+
+                item.addEventListener('click', () => {
+                    this.showMetadataPreview(modal, status, results, match, albumName, artistName, searchResult, showResults);
+                });
+
+                results.appendChild(item);
+
+                // Fetch thumbnail asynchronously
+                window.electronAPI.metadataThumbnail(match.mbid).then(res => {
+                    if (res.success && res.dataUrl) {
+                        const img = document.createElement('img');
+                        img.className = 'metadata-match-art-img';
+                        img.src = res.dataUrl;
+                        img.alt = match.title;
+                        artContainer.textContent = '';
+                        artContainer.appendChild(img);
+                    }
+                });
+            }
+        };
+
+        const searchResult = await window.electronAPI.metadataSearch(albumName, artistName);
+        if (!searchResult.success || searchResult.results.length === 0) {
+            status.textContent = searchResult.success ? 'No matches found.' : `Error: ${searchResult.error}`;
+            return;
+        }
+
+        showResults(searchResult);
+    }
+
+    async showMetadataPreview(modal, status, results, match, albumName, artistName, searchResult, showResults) {
+        status.textContent = 'Fetching metadata and cover art...';
+        results.textContent = '';
+
+        // Spinner
+        const spinner = document.createElement('div');
+        spinner.className = 'metadata-spinner';
+        results.appendChild(spinner);
+
+        const fetchResult = await window.electronAPI.metadataFetch(match.mbid);
+
+        if (!fetchResult.success) {
+            status.textContent = `Error: ${fetchResult.error}`;
+            results.textContent = '';
+            return;
+        }
+
+        const metadata = fetchResult.result;
+        status.style.display = 'none';
+        results.textContent = '';
+
+        // Preview card
+        const preview = document.createElement('div');
+        preview.className = 'metadata-preview';
+
+        // Cover art + info row
+        const row = document.createElement('div');
+        row.className = 'metadata-preview-row';
+
+        if (metadata.albumArt) {
+            const img = document.createElement('img');
+            img.className = 'metadata-preview-art';
+            img.src = metadata.albumArt;
+            img.alt = metadata.title;
+            row.appendChild(img);
+        }
+
+        const info = document.createElement('div');
+        info.className = 'metadata-preview-info';
+
+        const titleEl = document.createElement('div');
+        titleEl.className = 'metadata-preview-title';
+        titleEl.textContent = metadata.title;
+        info.appendChild(titleEl);
+
+        const artistEl = document.createElement('div');
+        artistEl.className = 'metadata-preview-artist';
+        artistEl.textContent = metadata.artist;
+        info.appendChild(artistEl);
+
+        const detailParts = [];
+        if (metadata.year) detailParts.push(metadata.year);
+        if (metadata.genre) detailParts.push(metadata.genre);
+        if (metadata.tracks?.length) detailParts.push(`${metadata.tracks.length} tracks`);
+        if (detailParts.length) {
+            const detailEl = document.createElement('div');
+            detailEl.className = 'metadata-preview-detail';
+            detailEl.textContent = detailParts.join(' — ');
+            info.appendChild(detailEl);
+        }
+
+        row.appendChild(info);
+        preview.appendChild(row);
+
+        // Action buttons
+        const actions = document.createElement('div');
+        actions.className = 'metadata-preview-actions';
+
+        const backBtn = document.createElement('button');
+        backBtn.className = 'metadata-preview-back';
+        backBtn.textContent = 'back';
+        backBtn.addEventListener('click', () => {
+            status.style.display = 'block';
+            showResults(searchResult);
+        });
+
+        const applyBtn = document.createElement('button');
+        applyBtn.className = 'metadata-preview-apply';
+        applyBtn.textContent = 'apply';
+        applyBtn.addEventListener('click', async () => {
+            await window.electronAPI.metadataCacheSet(artistName, albumName, metadata);
+            this.applyMetadataToLibrary(artistName, albumName, metadata);
+            modal.style.display = 'none';
+        });
+
+        actions.appendChild(backBtn);
+        actions.appendChild(applyBtn);
+        preview.appendChild(actions);
+
+        results.appendChild(preview);
+    }
+
+    applyMetadataToLibrary(artistName, albumName, metadata) {
+        const albumKey = `${albumName.toLowerCase()}||${artistName.toLowerCase()}`;
+        const album = this.musicLibrary.albums.get(albumKey);
+        if (album) {
+            if (metadata.albumArt) album.albumArt = metadata.albumArt;
+            if (metadata.year) album.year = metadata.year;
+            if (metadata.genre) album.genre = metadata.genre;
+        }
+
+        const artistKey = artistName.toLowerCase();
+        const artist = this.musicLibrary.artists.get(artistKey);
+        if (artist && metadata.albumArt && !artist.enrichedArt) {
+            artist.albumArt = metadata.albumArt;
+            artist.enrichedArt = true;
+        }
+
+        if (this.currentCategory === 'music' && this.currentView === 'content') {
+            this.renderMusicSubContent();
+        }
+    }
+
+    async applyCachedMetadata() {
+        const result = await window.electronAPI.metadataCacheGetAll();
+        if (!result.success || !result.data) return;
+
+        for (const [cacheKey, metadata] of Object.entries(result.data)) {
+            const [artistNorm, albumNorm] = cacheKey.split('|');
+            for (const [albumKey, album] of this.musicLibrary.albums) {
+                const matchesAlbum = album.name.toLowerCase().trim() === albumNorm;
+                const matchesArtist = album.artist.toLowerCase().trim() === artistNorm;
+                if (matchesAlbum && matchesArtist) {
+                    if (metadata.albumArt) album.albumArt = metadata.albumArt;
+                    if (metadata.year) album.year = metadata.year;
+                    if (metadata.genre) album.genre = metadata.genre;
+                    break;
+                }
+            }
+        }
+
+        if (this.currentCategory === 'music' && this.currentView === 'content') {
+            this.renderMusicSubContent();
+        }
     }
 
     showContextMenu(e, file) {

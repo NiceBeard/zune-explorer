@@ -2913,3 +2913,235 @@ body.platform-win32 .now-playing-panel {
     color: #333;
     cursor: default;
 }
+
+/* ==============================
+   Metadata Lookup Modal
+   ============================== */
+
+.metadata-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.metadata-modal {
+    background: #111;
+    border: 1px solid rgba(255, 105, 0, 0.3);
+    border-radius: 8px;
+    width: 500px;
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.metadata-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid #222;
+}
+
+.metadata-modal-title {
+    font-size: 16px;
+    font-weight: 400;
+    color: #fff;
+    margin: 0;
+}
+
+.metadata-modal-close {
+    background: none;
+    border: none;
+    color: #666;
+    font-size: 22px;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+.metadata-modal-close:hover {
+    color: #fff;
+}
+
+.metadata-modal-status {
+    padding: 12px 20px;
+    color: #888;
+    font-size: 13px;
+}
+
+.metadata-modal-results {
+    overflow-y: auto;
+    padding: 0 20px 16px;
+}
+
+.metadata-match-item {
+    padding: 12px;
+    border: 1px solid #222;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.metadata-match-item:hover {
+    border-color: var(--zune-orange);
+    background: rgba(255, 105, 0, 0.08);
+}
+
+.metadata-match-art {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.metadata-match-art-img {
+    width: 48px;
+    height: 48px;
+    object-fit: cover;
+    border-radius: 4px;
+}
+
+.metadata-match-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.metadata-match-title {
+    color: #fff;
+    font-size: 14px;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.metadata-match-detail {
+    color: #888;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.metadata-match-applying {
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+/* Spinner */
+.metadata-spinner {
+    width: 28px;
+    height: 28px;
+    border: 2px solid #333;
+    border-top-color: var(--zune-orange);
+    border-radius: 50%;
+    margin: 24px auto;
+    animation: metadata-spin 0.8s linear infinite;
+}
+
+@keyframes metadata-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Preview card */
+.metadata-preview-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.metadata-preview-art {
+    width: 120px;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.metadata-preview-info {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-width: 0;
+}
+
+.metadata-preview-title {
+    font-size: 18px;
+    font-weight: 400;
+    color: #fff;
+    margin-bottom: 4px;
+}
+
+.metadata-preview-artist {
+    font-size: 14px;
+    color: var(--zune-text-secondary);
+    margin-bottom: 4px;
+}
+
+.metadata-preview-detail {
+    font-size: 12px;
+    color: #666;
+}
+
+.metadata-preview-actions {
+    display: flex;
+    justify-content: space-between;
+    padding-top: 12px;
+    border-top: 1px solid #222;
+}
+
+.metadata-preview-back,
+.metadata-preview-apply {
+    background: none;
+    border: none;
+    font-size: 14px;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 8px 0;
+    text-transform: lowercase;
+}
+
+.metadata-preview-back {
+    color: #666;
+}
+
+.metadata-preview-back:hover {
+    color: #fff;
+}
+
+.metadata-preview-apply {
+    color: var(--zune-orange);
+}
+
+.metadata-preview-apply:hover {
+    color: #ff8533;
+}
+
+.music-lookup-btn {
+    background: none;
+    border: none;
+    color: #666;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 4px 0;
+    margin-top: 8px;
+    display: block;
+    font-family: inherit;
+}
+
+.music-lookup-btn:hover {
+    color: var(--zune-orange);
+}
