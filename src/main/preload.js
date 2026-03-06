@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getRecentFiles: () => ipcRenderer.invoke('get-recent-files'),
   getPlatform: () => ipcRenderer.invoke('get-platform'),
   getSpecialFolders: () => ipcRenderer.invoke('get-special-folders'),
+  getExternalVolumes: () => ipcRenderer.invoke('get-external-volumes'),
   scanApplications: () => ipcRenderer.invoke('scan-applications'),
   getAudioMetadata: (path) => ipcRenderer.invoke('get-audio-metadata', path),
   batchScanAudioMetadata: (paths, options) => ipcRenderer.invoke('batch-scan-audio-metadata', paths, options),
