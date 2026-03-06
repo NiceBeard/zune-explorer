@@ -37,6 +37,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onZuneTransferProgress: (callback) => ipcRenderer.on('zune-transfer-progress', (event, progress) => callback(progress)),
   onZuneBrowseProgress: (callback) => ipcRenderer.on('zune-browse-progress', (event, data) => callback(data)),
 
+  // Metadata enrichment
+  metadataSearch: (album, artist) => ipcRenderer.invoke('metadata-search', album, artist),
+  metadataFetch: (mbid) => ipcRenderer.invoke('metadata-fetch', mbid),
+  metadataCacheGet: (artist, album) => ipcRenderer.invoke('metadata-cache-get', artist, album),
+  metadataCacheSet: (artist, album, data) => ipcRenderer.invoke('metadata-cache-set', artist, album, data),
+  metadataCacheGetAll: () => ipcRenderer.invoke('metadata-cache-get-all'),
+
   // Drag-and-drop path resolution (sandbox-safe)
   getPathForFile: (file) => webUtils.getPathForFile(file),
 });
