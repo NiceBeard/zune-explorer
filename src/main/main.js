@@ -447,6 +447,38 @@ ipcMain.handle('zune-cache-invalidate', async (event, deviceKey) => {
 // Pull file from device — converts WMA to MP3, embeds metadata + album art
 const WMA_EXTENSIONS = new Set(['.wma']);
 
+ipcMain.handle('pick-pull-destination', async () => {
+  const settingsPath = path.join(app.getPath('userData'), 'pull-destination.json');
+  let defaultPath;
+  try {
+    const data = await fs.readFile(settingsPath, 'utf-8');
+    defaultPath = JSON.parse(data).path;
+  } catch {
+    defaultPath = app.getPath('music');
+  }
+
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose destination folder',
+    defaultPath,
+    properties: ['openDirectory', 'createDirectory'],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { success: false, cancelled: true };
+  }
+
+  const chosen = result.filePaths[0];
+
+  // Remember for next time
+  try {
+    await fs.writeFile(settingsPath, JSON.stringify({ path: chosen }));
+  } catch {
+    // Non-critical — just won't remember next time
+  }
+
+  return { success: true, path: chosen };
+});
+
 ipcMain.handle('zune-pull-file', async (event, handle, filename, destDir, metadata) => {
   try {
     const data = await zuneManager.getFile(handle);
