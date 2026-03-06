@@ -1552,11 +1552,10 @@ class ZuneSyncPanel {
         const handles = Array.from(this.diffSelectedHandles);
         this.diffSelectedHandles.clear();
 
-        // Determine destination directory (user's Music folder)
-        const homePath = this.explorer.homePath;
-        const musicDir = this.explorer.platform === 'win32'
-            ? `${homePath}\\Music`
-            : `${homePath}/Music`;
+        // Ask user where to save
+        const destResult = await window.electronAPI.pickPullDestination();
+        if (!destResult.success) return;
+        const musicDir = destResult.path;
 
         const pullBtn = document.getElementById('zune-pull-btn');
         pullBtn.textContent = `copying 0 of ${handles.length}...`;
