@@ -686,6 +686,11 @@ class ZuneSyncPanel {
         // Push panoramic layout
         this.explorer.showSync();
 
+        // Ensure local music library is scanned for accurate diff
+        if (this.explorer.musicLibrary.scanState === 'idle') {
+            this.explorer.scanMusicLibrary();
+        }
+
         this._computeDiff();
         this._renderDiffSummary();
         this._renderDiffList();
@@ -3087,6 +3092,13 @@ class ZuneExplorer {
             // Re-render current sub-view if still in music
             if (this.currentCategory === 'music' && this.currentView === 'content') {
                 this.renderMusicSubContent();
+            }
+
+            // Recompute diff if device browse is active (local library changed)
+            if (this.zunePanel && this.zunePanel.diffActive) {
+                this.zunePanel._computeDiff();
+                this.zunePanel._renderDiffSummary();
+                this.zunePanel._renderDiffList();
             }
         });
 
