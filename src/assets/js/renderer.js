@@ -2139,7 +2139,11 @@ class ZuneExplorer {
             return;
         }
 
-        const extensions = this.fileExtensions[this.currentCategory] || [];
+        let extensions = this.fileExtensions[this.currentCategory] || [];
+        // Documents file browser also shows music and video files
+        if (this.currentCategory === 'documents') {
+            extensions = [...extensions, ...this.fileExtensions.music, ...this.fileExtensions.videos];
+        }
 
         const folders = result.files.filter(f => f.isDirectory && !f.name.startsWith('.'));
         const files = result.files.filter(f =>
