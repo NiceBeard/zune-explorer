@@ -11,7 +11,8 @@ function getAllowedPrefixes() {
     app.getPath('home'),
     '/Applications',
     '/System/Applications',
-    '/System/Cryptexes/App/System/Applications'
+    '/System/Cryptexes/App/System/Applications',
+    '/Volumes'
   ];
 }
 
@@ -313,9 +314,36 @@ async function getAppIcon(appPath) {
   return { success: false, error: 'No icon found' };
 }
 
+async function getExternalVolumes() {
+  const volumes = [];
+  try {
+    const entries = await fs.readdir('/Volumes', { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+      const volumePath = path.join('/Volumes', entry.name);
+      // Skip the boot volume (symlink to /)
+      try {
+        const real = await fs.realpath(volumePath);
+        if (real === '/') continue;
+      } catch {
+        continue;
+      }
+      volumes.push({
+        name: entry.name,
+        path: volumePath,
+        kind: 'volume',
+      });
+    }
+  } catch {
+    // /Volumes not readable
+  }
+  return volumes;
+}
+
 module.exports = {
   getAllowedPrefixes,
   scanApplications,
   getRecentFiles,
-  getAppIcon
+  getAppIcon,
+  getExternalVolumes
 };

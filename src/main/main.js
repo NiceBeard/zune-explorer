@@ -240,6 +240,15 @@ ipcMain.handle('get-special-folders', async () => {
   return result;
 });
 
+ipcMain.handle('get-external-volumes', async () => {
+  try {
+    const volumes = await platform.getExternalVolumes();
+    return { success: true, volumes };
+  } catch (error) {
+    return { success: false, error: error.message, volumes: [] };
+  }
+});
+
 ipcMain.handle('scan-applications', async () => {
   try {
     const homePath = app.getPath('home');

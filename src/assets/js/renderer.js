@@ -1651,6 +1651,7 @@ class ZuneExplorer {
         this.browsingMode = false;       // true when browsing directories (vs root view)
         this.homePath = null;            // cached home directory path
         this.smartRoots = [];            // populated in init()
+        this.externalVolumes = [];
         this.audioPlayer = null;
         this.nowPlayingOpen = false;
         this.zunePanel = null;
@@ -1704,6 +1705,10 @@ class ZuneExplorer {
                 { name: 'Pictures',  path: `${this.homePath}/Pictures` },
                 { name: 'Home',      path: this.homePath },
             ];
+        }
+        const volResult = await window.electronAPI.getExternalVolumes();
+        if (volResult.success) {
+            this.externalVolumes = volResult.volumes;
         }
         await this.scanFileSystem();
         this.zunePanel = new ZuneSyncPanel(this);
@@ -2046,6 +2051,14 @@ class ZuneExplorer {
                 });
                 content.appendChild(item);
             });
+            this.externalVolumes.forEach(vol => {
+                const item = this.createFolderElement({
+                    name: vol.name,
+                    path: vol.path,
+                    isDirectory: true
+                });
+                content.appendChild(item);
+            });
         } else {
             content.classList.add('root-grid');
             this.smartRoots.forEach(root => {
@@ -2084,6 +2097,48 @@ class ZuneExplorer {
                 tile.addEventListener('click', () => this.navigateToFolder(root.path));
                 content.appendChild(tile);
             });
+        }
+
+        if (this.externalVolumes.length > 0) {
+            const volumeGrid = document.createElement('div');
+            volumeGrid.className = 'category-content root-grid volume-grid';
+            this.externalVolumes.forEach(vol => {
+                const tile = document.createElement('div');
+                tile.className = 'root-tile volume-tile';
+
+                const icon = document.createElement('div');
+                icon.className = 'root-tile-icon';
+                const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                svg.setAttribute('viewBox', '0 0 48 48');
+                svg.setAttribute('fill', 'none');
+                const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                p.setAttribute('d', 'M6 12C6 9.79 7.79 8 10 8H18L22 12H38C40.21 12 42 13.79 42 16V36C42 38.21 40.21 40 38 40H10C7.79 40 6 38.21 6 36V12Z');
+                p.setAttribute('fill', 'rgba(74, 158, 255, 0.2)');
+                p.setAttribute('stroke', '#4a9eff');
+                p.setAttribute('stroke-width', '2');
+                svg.appendChild(p);
+                icon.appendChild(svg);
+
+                const info = document.createElement('div');
+                info.className = 'root-tile-info';
+
+                const name = document.createElement('div');
+                name.className = 'root-tile-name';
+                name.textContent = vol.name;
+
+                const detail = document.createElement('div');
+                detail.className = 'root-tile-detail';
+                detail.textContent = vol.path;
+
+                info.appendChild(name);
+                info.appendChild(detail);
+                tile.appendChild(icon);
+                tile.appendChild(info);
+
+                tile.addEventListener('click', () => this.navigateToFolder(vol.path));
+                volumeGrid.appendChild(tile);
+            });
+            categoryView.appendChild(volumeGrid);
         }
 
         categoryView.appendChild(content);

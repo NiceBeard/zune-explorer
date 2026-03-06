@@ -739,6 +739,15 @@ body {
     transform: translateY(-3px);
 }
 
+.volume-tile:hover {
+    background: rgba(74, 158, 255, 0.1);
+    border-color: rgba(74, 158, 255, 0.3);
+}
+
+.volume-grid {
+    margin-top: 20px;
+}
+
 .root-tile-icon {
     width: 48px;
     height: 48px;
