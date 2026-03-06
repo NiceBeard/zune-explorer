@@ -3778,6 +3778,39 @@ class ZuneExplorer {
                 const item = document.createElement('div');
                 item.className = 'metadata-match-item';
 
+                const artContainer = document.createElement('div');
+                artContainer.className = 'metadata-match-art';
+                // Placeholder: vinyl record icon
+                const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                svg.setAttribute('width', '48');
+                svg.setAttribute('height', '48');
+                svg.setAttribute('viewBox', '0 0 48 48');
+                const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                rect.setAttribute('width', '48');
+                rect.setAttribute('height', '48');
+                rect.setAttribute('rx', '4');
+                rect.setAttribute('fill', '#1a1a1a');
+                const circle1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle1.setAttribute('cx', '24');
+                circle1.setAttribute('cy', '24');
+                circle1.setAttribute('r', '10');
+                circle1.setAttribute('fill', 'none');
+                circle1.setAttribute('stroke', '#333');
+                circle1.setAttribute('stroke-width', '1');
+                const circle2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle2.setAttribute('cx', '24');
+                circle2.setAttribute('cy', '24');
+                circle2.setAttribute('r', '4');
+                circle2.setAttribute('fill', '#333');
+                svg.appendChild(rect);
+                svg.appendChild(circle1);
+                svg.appendChild(circle2);
+                artContainer.appendChild(svg);
+                item.appendChild(artContainer);
+
+                const textWrap = document.createElement('div');
+                textWrap.className = 'metadata-match-text';
+
                 const title = document.createElement('div');
                 title.className = 'metadata-match-title';
                 title.textContent = match.title;
@@ -3790,14 +3823,27 @@ class ZuneExplorer {
                 if (match.trackCount) parts.push(`${match.trackCount} tracks`);
                 detail.textContent = parts.join(' — ');
 
-                item.appendChild(title);
-                item.appendChild(detail);
+                textWrap.appendChild(title);
+                textWrap.appendChild(detail);
+                item.appendChild(textWrap);
 
                 item.addEventListener('click', () => {
                     this.showMetadataPreview(modal, status, results, match, albumName, artistName, searchResult, showResults);
                 });
 
                 results.appendChild(item);
+
+                // Fetch thumbnail asynchronously
+                window.electronAPI.metadataThumbnail(match.mbid).then(res => {
+                    if (res.success && res.dataUrl) {
+                        const img = document.createElement('img');
+                        img.className = 'metadata-match-art-img';
+                        img.src = res.dataUrl;
+                        img.alt = match.title;
+                        artContainer.textContent = '';
+                        artContainer.appendChild(img);
+                    }
+                });
             }
         };
 

@@ -2989,6 +2989,9 @@ body.platform-win32 .now-playing-panel {
     margin-bottom: 8px;
     cursor: pointer;
     transition: border-color 0.15s, background 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 12px;
 }
 
 .metadata-match-item:hover {
@@ -2996,15 +2999,41 @@ body.platform-win32 .now-playing-panel {
     background: rgba(255, 105, 0, 0.08);
 }
 
+.metadata-match-art {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.metadata-match-art-img {
+    width: 48px;
+    height: 48px;
+    object-fit: cover;
+    border-radius: 4px;
+}
+
+.metadata-match-text {
+    flex: 1;
+    min-width: 0;
+}
+
 .metadata-match-title {
     color: #fff;
     font-size: 14px;
     margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .metadata-match-detail {
     color: #888;
     font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .metadata-match-applying {

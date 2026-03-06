@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Metadata enrichment
   metadataSearch: (album, artist) => ipcRenderer.invoke('metadata-search', album, artist),
+  metadataThumbnail: (mbid) => ipcRenderer.invoke('metadata-thumbnail', mbid),
   metadataFetch: (mbid) => ipcRenderer.invoke('metadata-fetch', mbid),
   metadataCacheGet: (artist, album) => ipcRenderer.invoke('metadata-cache-get', artist, album),
   metadataCacheSet: (artist, album, data) => ipcRenderer.invoke('metadata-cache-set', artist, album, data),

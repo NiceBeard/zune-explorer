@@ -124,4 +124,35 @@ async function getCoverArt(mbid) {
   }
 }
 
-module.exports = { searchReleases, getRelease, getCoverArt };
+// Fetch a small thumbnail without MusicBrainz rate limiting (CAA is a separate service)
+function fetchUnlimited(url) {
+  return new Promise((resolve, reject) => {
+    const req = getClient(url).get(url, { headers: { 'User-Agent': USER_AGENT } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        fetchUnlimited(res.headers.location).then(resolve, reject);
+        return;
+      }
+      if (res.statusCode !== 200) {
+        reject(new Error(`HTTP ${res.statusCode}`));
+        return;
+      }
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
+      res.on('end', () => resolve({ data: Buffer.concat(chunks), contentType: res.headers['content-type'] }));
+    });
+    req.on('error', reject);
+    req.setTimeout(10000, () => { req.destroy(); reject(new Error('Request timeout')); });
+  });
+}
+
+async function getThumbnail(mbid) {
+  try {
+    const url = `https://coverartarchive.org/release/${mbid}/front-250`;
+    const { data, contentType } = await fetchUnlimited(url);
+    return `data:${contentType};base64,${data.toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { searchReleases, getRelease, getCoverArt, getThumbnail };

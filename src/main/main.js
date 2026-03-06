@@ -647,6 +647,15 @@ ipcMain.handle('metadata-search', async (event, album, artist) => {
   }
 });
 
+ipcMain.handle('metadata-thumbnail', async (event, mbid) => {
+  try {
+    const dataUrl = await musicbrainz.getThumbnail(mbid);
+    return { success: true, dataUrl };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('metadata-fetch', async (event, mbid) => {
   try {
     const release = await musicbrainz.getRelease(mbid);
