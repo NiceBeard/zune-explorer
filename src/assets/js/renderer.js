@@ -3087,6 +3087,7 @@ class ZuneExplorer {
                 if (data.scanned >= data.total) {
                     progressEl.style.display = 'none';
                     lib.scanState = 'complete';
+                    this.applyCachedMetadata();
                 } else {
                     progressEl.style.display = 'block';
                     progressEl.textContent = `scanning ${data.scanned} of ${data.total}...`;
@@ -3830,6 +3831,29 @@ class ZuneExplorer {
         if (artist && metadata.albumArt && !artist.enrichedArt) {
             artist.albumArt = metadata.albumArt;
             artist.enrichedArt = true;
+        }
+
+        if (this.currentCategory === 'music' && this.currentView === 'content') {
+            this.renderMusicSubContent();
+        }
+    }
+
+    async applyCachedMetadata() {
+        const result = await window.electronAPI.metadataCacheGetAll();
+        if (!result.success || !result.data) return;
+
+        for (const [cacheKey, metadata] of Object.entries(result.data)) {
+            const [artistNorm, albumNorm] = cacheKey.split('|');
+            for (const [albumKey, album] of this.musicLibrary.albums) {
+                const matchesAlbum = album.name.toLowerCase().trim() === albumNorm;
+                const matchesArtist = album.artist.toLowerCase().trim() === artistNorm;
+                if (matchesAlbum && matchesArtist) {
+                    if (metadata.albumArt) album.albumArt = metadata.albumArt;
+                    if (metadata.year) album.year = metadata.year;
+                    if (metadata.genre) album.genre = metadata.genre;
+                    break;
+                }
+            }
         }
 
         if (this.currentCategory === 'music' && this.currentView === 'content') {
