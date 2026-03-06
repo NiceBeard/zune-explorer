@@ -1,4 +1,9 @@
 const https = require('https');
+const http = require('http');
+
+function getClient(url) {
+  return url.startsWith('http://') ? http : https;
+}
 
 const USER_AGENT = 'ZuneExplorer/1.1.0 (https://github.com/NiceBeard/zune-explorer)';
 let lastRequestTime = 0;
@@ -10,7 +15,7 @@ function rateLimitedFetch(url) {
 
     setTimeout(() => {
       lastRequestTime = Date.now();
-      const req = https.get(url, { headers: { 'User-Agent': USER_AGENT, 'Accept': 'application/json' } }, (res) => {
+      const req = getClient(url).get(url, { headers: { 'User-Agent': USER_AGENT, 'Accept': 'application/json' } }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           rateLimitedFetch(res.headers.location).then(resolve, reject);
           return;
@@ -39,7 +44,7 @@ function fetchBinary(url) {
 
     setTimeout(() => {
       lastRequestTime = Date.now();
-      const req = https.get(url, { headers: { 'User-Agent': USER_AGENT } }, (res) => {
+      const req = getClient(url).get(url, { headers: { 'User-Agent': USER_AGENT } }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           fetchBinary(res.headers.location).then(resolve, reject);
           return;
