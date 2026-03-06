@@ -3770,51 +3770,136 @@ class ZuneExplorer {
         closeBtn.onclick = onClose;
         modal.addEventListener('click', (e) => { if (e.target === modal) onClose(); });
 
+        const showResults = (searchResult) => {
+            status.textContent = `Found ${searchResult.results.length} match${searchResult.results.length !== 1 ? 'es' : ''} — pick one:`;
+            results.textContent = '';
+
+            for (const match of searchResult.results) {
+                const item = document.createElement('div');
+                item.className = 'metadata-match-item';
+
+                const title = document.createElement('div');
+                title.className = 'metadata-match-title';
+                title.textContent = match.title;
+
+                const detail = document.createElement('div');
+                detail.className = 'metadata-match-detail';
+                const parts = [match.artist];
+                if (match.year) parts.push(match.year);
+                if (match.label) parts.push(match.label);
+                if (match.trackCount) parts.push(`${match.trackCount} tracks`);
+                detail.textContent = parts.join(' — ');
+
+                item.appendChild(title);
+                item.appendChild(detail);
+
+                item.addEventListener('click', () => {
+                    this.showMetadataPreview(modal, status, results, match, albumName, artistName, searchResult, showResults);
+                });
+
+                results.appendChild(item);
+            }
+        };
+
         const searchResult = await window.electronAPI.metadataSearch(albumName, artistName);
         if (!searchResult.success || searchResult.results.length === 0) {
             status.textContent = searchResult.success ? 'No matches found.' : `Error: ${searchResult.error}`;
             return;
         }
 
-        status.textContent = `Found ${searchResult.results.length} match${searchResult.results.length !== 1 ? 'es' : ''} — pick one:`;
+        showResults(searchResult);
+    }
 
-        for (const match of searchResult.results) {
-            const item = document.createElement('div');
-            item.className = 'metadata-match-item';
+    async showMetadataPreview(modal, status, results, match, albumName, artistName, searchResult, showResults) {
+        status.textContent = 'Fetching metadata and cover art...';
+        results.textContent = '';
 
-            const title = document.createElement('div');
-            title.className = 'metadata-match-title';
-            title.textContent = match.title;
+        // Spinner
+        const spinner = document.createElement('div');
+        spinner.className = 'metadata-spinner';
+        results.appendChild(spinner);
 
-            const detail = document.createElement('div');
-            detail.className = 'metadata-match-detail';
-            const parts = [match.artist];
-            if (match.year) parts.push(match.year);
-            if (match.label) parts.push(match.label);
-            if (match.trackCount) parts.push(`${match.trackCount} tracks`);
-            detail.textContent = parts.join(' — ');
+        const fetchResult = await window.electronAPI.metadataFetch(match.mbid);
 
-            item.appendChild(title);
-            item.appendChild(detail);
-
-            item.addEventListener('click', async () => {
-                item.classList.add('metadata-match-applying');
-                status.textContent = 'Fetching metadata and cover art...';
-
-                const fetchResult = await window.electronAPI.metadataFetch(match.mbid);
-                if (!fetchResult.success) {
-                    status.textContent = `Error: ${fetchResult.error}`;
-                    item.classList.remove('metadata-match-applying');
-                    return;
-                }
-
-                await window.electronAPI.metadataCacheSet(artistName, albumName, fetchResult.result);
-                this.applyMetadataToLibrary(artistName, albumName, fetchResult.result);
-                modal.style.display = 'none';
-            });
-
-            results.appendChild(item);
+        if (!fetchResult.success) {
+            status.textContent = `Error: ${fetchResult.error}`;
+            results.textContent = '';
+            return;
         }
+
+        const metadata = fetchResult.result;
+        status.style.display = 'none';
+        results.textContent = '';
+
+        // Preview card
+        const preview = document.createElement('div');
+        preview.className = 'metadata-preview';
+
+        // Cover art + info row
+        const row = document.createElement('div');
+        row.className = 'metadata-preview-row';
+
+        if (metadata.albumArt) {
+            const img = document.createElement('img');
+            img.className = 'metadata-preview-art';
+            img.src = metadata.albumArt;
+            img.alt = metadata.title;
+            row.appendChild(img);
+        }
+
+        const info = document.createElement('div');
+        info.className = 'metadata-preview-info';
+
+        const titleEl = document.createElement('div');
+        titleEl.className = 'metadata-preview-title';
+        titleEl.textContent = metadata.title;
+        info.appendChild(titleEl);
+
+        const artistEl = document.createElement('div');
+        artistEl.className = 'metadata-preview-artist';
+        artistEl.textContent = metadata.artist;
+        info.appendChild(artistEl);
+
+        const detailParts = [];
+        if (metadata.year) detailParts.push(metadata.year);
+        if (metadata.genre) detailParts.push(metadata.genre);
+        if (metadata.tracks?.length) detailParts.push(`${metadata.tracks.length} tracks`);
+        if (detailParts.length) {
+            const detailEl = document.createElement('div');
+            detailEl.className = 'metadata-preview-detail';
+            detailEl.textContent = detailParts.join(' — ');
+            info.appendChild(detailEl);
+        }
+
+        row.appendChild(info);
+        preview.appendChild(row);
+
+        // Action buttons
+        const actions = document.createElement('div');
+        actions.className = 'metadata-preview-actions';
+
+        const backBtn = document.createElement('button');
+        backBtn.className = 'metadata-preview-back';
+        backBtn.textContent = 'back';
+        backBtn.addEventListener('click', () => {
+            status.style.display = 'block';
+            showResults(searchResult);
+        });
+
+        const applyBtn = document.createElement('button');
+        applyBtn.className = 'metadata-preview-apply';
+        applyBtn.textContent = 'apply';
+        applyBtn.addEventListener('click', async () => {
+            await window.electronAPI.metadataCacheSet(artistName, albumName, metadata);
+            this.applyMetadataToLibrary(artistName, albumName, metadata);
+            modal.style.display = 'none';
+        });
+
+        actions.appendChild(backBtn);
+        actions.appendChild(applyBtn);
+        preview.appendChild(actions);
+
+        results.appendChild(preview);
     }
 
     applyMetadataToLibrary(artistName, albumName, metadata) {

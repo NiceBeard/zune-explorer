@@ -3012,6 +3012,95 @@ body.platform-win32 .now-playing-panel {
     opacity: 0.5;
 }
 
+/* Spinner */
+.metadata-spinner {
+    width: 28px;
+    height: 28px;
+    border: 2px solid #333;
+    border-top-color: var(--zune-orange);
+    border-radius: 50%;
+    margin: 24px auto;
+    animation: metadata-spin 0.8s linear infinite;
+}
+
+@keyframes metadata-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Preview card */
+.metadata-preview-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.metadata-preview-art {
+    width: 120px;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.metadata-preview-info {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-width: 0;
+}
+
+.metadata-preview-title {
+    font-size: 18px;
+    font-weight: 400;
+    color: #fff;
+    margin-bottom: 4px;
+}
+
+.metadata-preview-artist {
+    font-size: 14px;
+    color: var(--zune-text-secondary);
+    margin-bottom: 4px;
+}
+
+.metadata-preview-detail {
+    font-size: 12px;
+    color: #666;
+}
+
+.metadata-preview-actions {
+    display: flex;
+    justify-content: space-between;
+    padding-top: 12px;
+    border-top: 1px solid #222;
+}
+
+.metadata-preview-back,
+.metadata-preview-apply {
+    background: none;
+    border: none;
+    font-size: 14px;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 8px 0;
+    text-transform: lowercase;
+}
+
+.metadata-preview-back {
+    color: #666;
+}
+
+.metadata-preview-back:hover {
+    color: #fff;
+}
+
+.metadata-preview-apply {
+    color: var(--zune-orange);
+}
+
+.metadata-preview-apply:hover {
+    color: #ff8533;
+}
+
 .music-lookup-btn {
     background: none;
     border: none;
