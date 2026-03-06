@@ -14,9 +14,22 @@ function getAllowedPrefixes() {
     name => { try { return app.getPath(name); } catch { return null; } }
   ).filter(Boolean);
 
+  // Include all detected drive roots so users can browse C:\music, D:\, etc.
+  const driveRoots = [];
+  for (let code = 65; code <= 90; code++) { // A-Z
+    const drive = String.fromCharCode(code) + ':\\';
+    try {
+      require('fs').accessSync(drive);
+      driveRoots.push(drive);
+    } catch {
+      // Drive doesn't exist
+    }
+  }
+
   return [
     home,
     ...specialFolders,
+    ...driveRoots,
     programFiles,
     programFilesX86,
     path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
@@ -202,9 +215,29 @@ async function getAppIcon(appPath) {
   }
 }
 
+async function getExternalVolumes() {
+  const volumes = [];
+  for (let code = 65; code <= 90; code++) { // A-Z
+    const letter = String.fromCharCode(code);
+    const drivePath = letter + ':\\';
+    try {
+      await fs.access(drivePath);
+      volumes.push({
+        name: letter + ':',
+        path: drivePath,
+        kind: 'volume',
+      });
+    } catch {
+      // Drive doesn't exist
+    }
+  }
+  return volumes;
+}
+
 module.exports = {
   getAllowedPrefixes,
   scanApplications,
   getRecentFiles,
-  getAppIcon
+  getAppIcon,
+  getExternalVolumes
 };
