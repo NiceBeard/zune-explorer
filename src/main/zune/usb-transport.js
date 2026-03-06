@@ -1,5 +1,9 @@
 const { WebUSB, usb } = require('usb');
 const { WebUSBDevice } = require('usb/dist/webusb/webusb-device');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+
+const execFileAsync = promisify(execFile);
 
 const ZUNE_VENDOR_ID = 0x045E;
 
@@ -215,6 +219,28 @@ class UsbTransport {
 
   onDetach(callback) {
     this.detachCallbacks.push(callback);
+  }
+
+  /**
+   * Windows-only: check if a Zune device is visible in Device Manager but
+   * inaccessible to libusb (i.e. it's using the Windows MTP driver instead of
+   * WinUSB). Returns true when a Zune VID is found via PnP but findZune() would
+   * return nothing, indicating a driver switch is needed.
+   */
+  async detectMissingDriver() {
+    if (process.platform !== 'win32') return false;
+
+    try {
+      const { stdout } = await execFileAsync('powershell.exe', [
+        '-NoProfile', '-NonInteractive', '-Command',
+        `$count = (Get-PnpDevice | Where-Object { $_.HardwareID -and ($_.HardwareID -join ',') -match 'VID_045E' } | Measure-Object).Count; Write-Output $count`
+      ], { timeout: 8000 });
+
+      const count = parseInt(stdout.trim(), 10);
+      return count > 0;
+    } catch (_) {
+      return false;
+    }
   }
 }
 

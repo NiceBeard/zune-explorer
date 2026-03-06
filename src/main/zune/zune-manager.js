@@ -44,6 +44,12 @@ class ZuneManager extends EventEmitter {
 
     if (existing) {
       this._handleAttach(existing);
+    } else if (process.platform === 'win32') {
+      const needsDriver = await this.transport.detectMissingDriver();
+      if (needsDriver) {
+        this.currentStatus = { state: 'driver-needed' };
+        this.emit('status', this.currentStatus);
+      }
     }
   }
 

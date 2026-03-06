@@ -1,0 +1,44 @@
+; Zune WinUSB Driver INF
+; For use with Zune Explorer on Windows 10 and later.
+; Installs Microsoft's inbox WinUSB driver for Zune devices so that
+; the libusb-based USB stack in Zune Explorer can communicate with them.
+;
+; Install via: pnputil /add-driver zune-winusb.inf /install
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = USBDevice
+ClassGUID   = {88BAE032-5A81-49f0-BC3D-A4FF138216D6}
+Provider    = %Provider%
+CatalogFile = zune-winusb.cat
+DriverVer   = 01/01/2025,1.0.0.0
+
+[Manufacturer]
+%Provider% = Standard,NTamd64,NTarm64
+
+[Standard.NTamd64]
+%ZuneHD.DeviceDesc% = USB_Install, USB\VID_045E&PID_063E
+%Zune30.DeviceDesc% = USB_Install, USB\VID_045E&PID_0710
+
+[Standard.NTarm64]
+%ZuneHD.DeviceDesc% = USB_Install, USB\VID_045E&PID_063E
+%Zune30.DeviceDesc% = USB_Install, USB\VID_045E&PID_0710
+
+[USB_Install]
+Include    = winusb.inf
+Needs      = WINUSB.NT
+
+[USB_Install.Services]
+Include    = winusb.inf
+Needs      = WINUSB.NT.Services
+
+[USB_Install.HW]
+AddReg = Dev_AddReg
+
+[Dev_AddReg]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{6E45736A-2B1B-4078-B772-B3AF2B6FDE1C}"
+
+[Strings]
+Provider            = "Zune Explorer"
+ZuneHD.DeviceDesc   = "Zune HD"
+Zune30.DeviceDesc   = "Zune 30"

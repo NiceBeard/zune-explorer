@@ -72,6 +72,16 @@ xattr -cr /Applications/Zune\ Explorer.app
 - MTPZ key data file at `~/.mtpz-data` (required for Zune authentication — see [MTPZ Keys](#mtpz-keys))
 - USB 2.0 port recommended for Zune 30/classic models
 
+### Windows: USB Driver
+
+The app uses libusb to talk directly to the Zune over USB. Windows claims Zune devices with its own MTP driver by default, which blocks libusb access. A WinUSB driver is required.
+
+**NSIS installer (recommended):** The installer automatically stages the WinUSB driver via `pnputil` during installation. Plug in your Zune after installation and it should be detected.
+
+**In-app setup:** If the installer couldn't stage the driver (e.g. you're using the portable build), plug in your Zune and Zune Explorer will detect the conflict and show an **"install usb driver"** button in the sync panel. Click it, approve the UAC prompt, then unplug and replug your Zune.
+
+**Manual fallback (Zadig):** If the automatic install doesn't work, use [Zadig](https://zadig.akeo.ie/) — select your Zune, choose the WinUSB driver, and click Replace Driver. After switching to WinUSB the Zune will no longer appear as a portable device in Windows Explorer, but Zune Explorer will manage it directly. To revert, open Device Manager, find the Zune, and uninstall its driver.
+
 ## Building from Source
 
 ```bash

@@ -110,6 +110,23 @@ class ZuneSyncPanel {
             window.electronAPI.zuneEject();
         });
 
+        // Install WinUSB driver (Windows only)
+        const installDriverBtn = document.getElementById('zune-install-driver-btn');
+        if (installDriverBtn) {
+            installDriverBtn.addEventListener('click', async () => {
+                const hint = document.getElementById('zune-driver-hint');
+                installDriverBtn.disabled = true;
+                if (hint) hint.textContent = 'installing... a UAC prompt may appear';
+                const result = await window.electronAPI.zuneInstallDriver();
+                installDriverBtn.disabled = false;
+                if (result.success) {
+                    if (hint) hint.textContent = 'driver installed — connecting...';
+                } else {
+                    if (hint) hint.textContent = 'install failed: ' + (result.error || 'unknown error');
+                }
+            });
+        }
+
 
         // Browse back button
         document.getElementById('zune-browse-back').addEventListener('click', () => {
@@ -237,6 +254,8 @@ class ZuneSyncPanel {
         completeEl.style.display = 'none';
         ejectBtn.style.display = 'none';
         silhouette.style.display = 'none';
+        const driverNeededEl = document.getElementById('zune-driver-needed');
+        if (driverNeededEl) driverNeededEl.style.display = 'none';
 
         // Close browse/diff views on any state change that isn't 'connected'
         const browseEl = document.getElementById('zune-browse-view');
@@ -288,6 +307,16 @@ class ZuneSyncPanel {
                 this.toggleBtn.style.display = 'none';
                 this.open = false;
                 this.panel.classList.remove('open');
+                break;
+
+            case 'driver-needed':
+                if (this.browseActive) this._closeBrowse();
+                if (this.diffActive) this._closeDiff();
+                this.toggleBtn.style.display = 'flex';
+                title.textContent = 'zune';
+                subtitle.textContent = 'driver required';
+                if (driverNeededEl) driverNeededEl.style.display = 'flex';
+                this.show();
                 break;
 
             case 'error':
@@ -1548,15 +1577,16 @@ class ZuneExplorer {
             document.body.classList.add('platform-darwin');
         }
         this.homePath = await window.electronAPI.getHomeDirectory();
+        const sf = await window.electronAPI.getSpecialFolders();
         if (this.platform === 'win32') {
             this.smartRoots = [
-                { name: 'Desktop',   path: `${this.homePath}\\Desktop` },
-                { name: 'Documents', path: `${this.homePath}\\Documents` },
-                { name: 'Downloads', path: `${this.homePath}\\Downloads` },
-                { name: 'Music',     path: `${this.homePath}\\Music` },
-                { name: 'Videos',    path: `${this.homePath}\\Videos` },
-                { name: 'Pictures',  path: `${this.homePath}\\Pictures` },
-                { name: 'Home',      path: this.homePath },
+                { name: 'Desktop',   path: sf.desktop   || `${this.homePath}\\Desktop` },
+                { name: 'Documents', path: sf.documents  || `${this.homePath}\\Documents` },
+                { name: 'Downloads', path: sf.downloads  || `${this.homePath}\\Downloads` },
+                { name: 'Music',     path: sf.music      || `${this.homePath}\\Music` },
+                { name: 'Videos',    path: sf.videos     || `${this.homePath}\\Videos` },
+                { name: 'Pictures',  path: sf.pictures   || `${this.homePath}\\Pictures` },
+                { name: 'Home',      path: sf.home       || this.homePath },
             ];
         } else {
             this.smartRoots = [

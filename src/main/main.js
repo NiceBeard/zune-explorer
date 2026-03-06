@@ -226,6 +226,15 @@ ipcMain.handle('get-platform', async () => {
   return process.platform;
 });
 
+ipcMain.handle('get-special-folders', async () => {
+  const names = ['desktop', 'documents', 'downloads', 'music', 'videos', 'pictures', 'home'];
+  const result = {};
+  for (const name of names) {
+    try { result[name] = app.getPath(name); } catch { /* not available */ }
+  }
+  return result;
+});
+
 ipcMain.handle('scan-applications', async () => {
   try {
     const homePath = app.getPath('home');
@@ -519,6 +528,108 @@ ipcMain.handle('zune-eject', async () => {
     return { success: true };
   } catch (error) {
     return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('zune-install-driver', async () => {
+  if (process.platform !== 'win32') {
+    return { success: false, error: 'Only applicable on Windows' };
+  }
+
+  const infPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'zune-winusb.inf')
+    : path.join(__dirname, '../../build-resources/zune-winusb.inf');
+
+  // Verify the .inf file actually exists before attempting installation
+  try {
+    await fs.access(infPath);
+  } catch {
+    return { success: false, error: `Driver file not found: ${infPath}` };
+  }
+
+  // Write the install script to a temp file to avoid quoting hell
+  const tmpScript = path.join(os.tmpdir(), 'zune-driver-install.ps1');
+  const tmpLog = path.join(os.tmpdir(), 'zune-driver-install.log');
+  // Build the script as an array of lines so the PowerShell here-string
+  // closing "@ is guaranteed to start at column 0 (required by PS syntax).
+  const scriptLines = [
+    `$infSrc = "${infPath}"`,
+    `$log    = "${tmpLog.replace(/\\/g, '\\\\')}"`,
+    `$hwids  = @("USB\\VID_045E&PID_063E", "USB\\VID_045E&PID_0710")`,
+    ``,
+    `# Work in a temp directory so we can write the .cat alongside the .inf`,
+    `$workDir = Join-Path $env:TEMP "zune-driver-pkg"`,
+    `New-Item -ItemType Directory -Force -Path $workDir | Out-Null`,
+    `$inf = Join-Path $workDir "zune-winusb.inf"`,
+    `$cat = Join-Path $workDir "zune-winusb.cat"`,
+    `Copy-Item $infSrc $inf -Force`,
+    ``,
+    `# 1. Create a self-signed code-signing cert (Zadig does the same thing)`,
+    `$cert = New-SelfSignedCertificate \``,
+    `    -Subject "CN=Zune Explorer Driver" \``,
+    `    -Type CodeSigningCert \``,
+    `    -KeyUsage DigitalSignature \``,
+    `    -CertStoreLocation "Cert:\\LocalMachine\\My" \``,
+    `    -NotAfter (Get-Date).AddYears(10)`,
+    ``,
+    `# 2. Trust the cert so Windows accepts driver packages signed with it`,
+    `foreach ($store in @("Root", "TrustedPublisher")) {`,
+    `    $s = New-Object System.Security.Cryptography.X509Certificates.X509Store($store, "LocalMachine")`,
+    `    $s.Open("ReadWrite"); $s.Add($cert); $s.Close()`,
+    `}`,
+    ``,
+    `# 3. Create and sign the catalog file`,
+    `New-FileCatalog -Path $inf -CatalogFilePath $cat -CatalogVersion 1 | Out-Null`,
+    `Set-AuthenticodeSignature -FilePath $cat -Certificate $cert | Out-Null`,
+    ``,
+    `# 4. Stage + install the signed package`,
+    `$out = pnputil /add-driver $inf /install 2>&1 | Out-String`,
+    `Add-Content $log "pnputil: $out"`,
+    ``,
+    `# 5. Force-update any currently connected Zune from MTP to WinUSB`,
+    `Add-Type -TypeDefinition @"`,
+    `using System;`,
+    `using System.Runtime.InteropServices;`,
+    `public class ZuneSetupApi {`,
+    `    public const uint INSTALLFLAG_FORCE = 0x00000001;`,
+    `    [DllImport("setupapi.dll", CharSet = CharSet.Auto, SetLastError = true)]`,
+    `    public static extern bool UpdateDriverForPlugAndPlayDevices(`,
+    `        IntPtr hwndParent, string hardwareId, string fullInfPath,`,
+    `        uint installFlags, ref bool bRebootRequired);`,
+    `}`,
+    `"@`,
+    ``,
+    `$reboot = $false`,
+    `foreach ($hwid in $hwids) {`,
+    `    [ZuneSetupApi]::UpdateDriverForPlugAndPlayDevices(`,
+    `        [IntPtr]::Zero, $hwid, $inf,`,
+    `        [ZuneSetupApi]::INSTALLFLAG_FORCE, [ref]$reboot) | Out-Null`,
+    `}`,
+    `Add-Content $log "done"`,
+  ];
+  const scriptContent = scriptLines.join('\r\n');
+
+  try {
+    await fs.writeFile(tmpScript, scriptContent, 'utf8');
+
+    // Run the script elevated via UAC
+    await execFileAsync('powershell.exe', [
+      '-NoProfile', '-NonInteractive', '-Command',
+      `Start-Process powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${tmpScript}' -Verb RunAs -Wait`
+    ], { timeout: 60000 });
+
+    // Read back the log written by the elevated script
+    const log = await fs.readFile(tmpLog, 'utf8').catch(() => '(no log output)');
+    console.log('zune-install-driver log:\n', log);
+    if (log.includes('invalid') || log.includes('error') || log.includes('Error')) {
+      return { success: false, error: log.trim() };
+    }
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  } finally {
+    await fs.unlink(tmpScript).catch(() => {});
+    await fs.unlink(tmpLog).catch(() => {});
   }
 });
 

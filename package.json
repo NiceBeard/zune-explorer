@@ -71,6 +71,15 @@
         }
       ]
     },
+    "extraResources": [
+      {
+        "from": "build-resources/zune-winusb.inf",
+        "to": "zune-winusb.inf"
+      }
+    ],
+    "nsis": {
+      "include": "build-resources/installer.nsh"
+    },
     "win": {
       "target": [
         {

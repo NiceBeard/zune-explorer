@@ -9,8 +9,14 @@ function getAllowedPrefixes() {
   const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
   const localAppData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
 
+  // Use app.getPath() for special folders so OneDrive/shell redirects are followed
+  const specialFolders = ['desktop', 'documents', 'downloads', 'music', 'videos', 'pictures'].map(
+    name => { try { return app.getPath(name); } catch { return null; } }
+  ).filter(Boolean);
+
   return [
     home,
+    ...specialFolders,
     programFiles,
     programFilesX86,
     path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
