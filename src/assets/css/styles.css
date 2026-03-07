@@ -2455,6 +2455,59 @@ body.platform-win32 .now-playing-panel {
     font-weight: 300;
 }
 
+.extensionless-toast {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1a1a1a;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    z-index: 9999;
+    font-size: 14px;
+    color: var(--zune-text);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.ext-fix-btn {
+    background: var(--zune-orange);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.ext-fix-btn:hover {
+    background: #e55f00;
+}
+
+.ext-fix-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.ext-dismiss-btn {
+    background: transparent;
+    color: var(--zune-text-dim);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    padding: 6px 16px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.ext-dismiss-btn:hover {
+    color: var(--zune-text);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
 .music-sub-content {
     min-height: 200px;
     position: relative;

@@ -1644,6 +1644,7 @@ class ZuneExplorer {
             documents: ['.pdf', '.txt', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.rtf'],
             applications: ['.app', '.exe', '.dmg', '.pkg', '.deb', '.msi']
         };
+        this.extensionlessFiles = [];    // music files with no extension (need fixing)
         this.selectedFile = null;
         this.currentPath = null;        // current directory being browsed
         this.pathHistory = [];           // stack of previous paths for back navigation
@@ -2438,6 +2439,13 @@ class ZuneExplorer {
                     if (!this.categorizedFiles[category].some(f => f.path === file.path)) {
                         this.categorizedFiles[category].push(file);
                     }
+                } else if (category === 'music' && file.extension === '') {
+                    // Extensionless files in Music folder — include for scanning,
+                    // music-metadata will detect format from content
+                    if (!this.categorizedFiles[category].some(f => f.path === file.path)) {
+                        this.categorizedFiles[category].push(file);
+                        this.extensionlessFiles.push(file.path);
+                    }
                 }
             }
         } catch (error) {
@@ -3143,6 +3151,7 @@ class ZuneExplorer {
                     progressEl.style.display = 'none';
                     lib.scanState = 'complete';
                     this.applyCachedMetadata();
+                    this.promptExtensionlessFix();
                 } else {
                     progressEl.style.display = 'block';
                     progressEl.textContent = `scanning ${data.scanned} of ${data.total}...`;
@@ -4127,6 +4136,64 @@ class ZuneExplorer {
         }
         
         this.hideContextMenu();
+    }
+
+    promptExtensionlessFix() {
+        // Filter to only extensionless files that were successfully parsed as music
+        const fixable = this.extensionlessFiles.filter(p => this.musicLibrary.tracks.has(p));
+        if (fixable.length === 0) return;
+
+        const toast = document.createElement('div');
+        toast.className = 'extensionless-toast';
+
+        const msg = document.createElement('span');
+        msg.textContent = `${fixable.length} music file${fixable.length > 1 ? 's are' : ' is'} missing a file extension.`;
+        toast.appendChild(msg);
+
+        const fixBtn = document.createElement('button');
+        fixBtn.className = 'ext-fix-btn';
+        fixBtn.textContent = 'Fix';
+        toast.appendChild(fixBtn);
+
+        const dismissBtn = document.createElement('button');
+        dismissBtn.className = 'ext-dismiss-btn';
+        dismissBtn.textContent = 'Dismiss';
+        toast.appendChild(dismissBtn);
+
+        dismissBtn.addEventListener('click', () => {
+            toast.remove();
+        });
+
+        fixBtn.addEventListener('click', async () => {
+            fixBtn.disabled = true;
+            fixBtn.textContent = 'Fixing...';
+            const result = await window.electronAPI.fixExtensionlessFiles(fixable);
+            if (result.success && result.renamed.length > 0) {
+                // Update paths in categorizedFiles and music library
+                for (const { oldPath, newPath } of result.renamed) {
+                    const file = this.categorizedFiles.music.find(f => f.path === oldPath);
+                    if (file) {
+                        file.path = newPath;
+                        file.extension = newPath.substring(newPath.lastIndexOf('.'));
+                        file.name = newPath.split(/[/\\]/).pop();
+                    }
+                    const track = this.musicLibrary.tracks.get(oldPath);
+                    if (track) {
+                        this.musicLibrary.tracks.delete(oldPath);
+                        track.path = newPath;
+                        this.musicLibrary.tracks.set(newPath, track);
+                    }
+                }
+                this.extensionlessFiles = [];
+                this.rebuildMusicIndexes();
+                if (this.currentCategory === 'music' && this.currentView === 'content') {
+                    this.renderMusicSubContent();
+                }
+            }
+            toast.remove();
+        });
+
+        document.body.appendChild(toast);
     }
 }
 

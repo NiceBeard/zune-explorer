@@ -447,6 +447,44 @@ ipcMain.handle('zune-cache-invalidate', async (event, deviceKey) => {
 // Pull file from device — converts WMA to MP3, embeds metadata + album art
 const WMA_EXTENSIONS = new Set(['.wma']);
 
+ipcMain.handle('fix-extensionless-files', async (event, filePaths) => {
+  const renamed = [];
+  for (const filePath of filePaths) {
+    if (!isAllowedPath(filePath)) continue;
+    if (path.extname(filePath) !== '') continue; // already has extension
+    try {
+      const buf = Buffer.alloc(12);
+      const fh = await fs.open(filePath, 'r');
+      await fh.read(buf, 0, 12, 0);
+      await fh.close();
+
+      let ext = null;
+      // MP3: ID3 header or MPEG sync word
+      if (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) ext = '.mp3';       // ID3
+      else if (buf[0] === 0xFF && (buf[1] & 0xE0) === 0xE0) ext = '.mp3';             // MPEG sync
+      // FLAC
+      else if (buf[0] === 0x66 && buf[1] === 0x4C && buf[2] === 0x61 && buf[3] === 0x43) ext = '.flac';
+      // OGG
+      else if (buf[0] === 0x4F && buf[1] === 0x67 && buf[2] === 0x67 && buf[3] === 0x53) ext = '.ogg';
+      // M4A/AAC (ftyp box)
+      else if (buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) ext = '.m4a';
+      // WAV (RIFF)
+      else if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) ext = '.wav';
+      // WMA (ASF header)
+      else if (buf[0] === 0x30 && buf[1] === 0x26 && buf[2] === 0xB2 && buf[3] === 0x75) ext = '.wma';
+
+      if (ext) {
+        const newPath = filePath + ext;
+        await fs.rename(filePath, newPath);
+        renamed.push({ oldPath: filePath, newPath });
+      }
+    } catch {
+      // Skip files we can't read or rename
+    }
+  }
+  return { success: true, renamed };
+});
+
 ipcMain.handle('pick-pull-destination', async () => {
   const settingsPath = path.join(app.getPath('userData'), 'pull-destination.json');
   let defaultPath;
