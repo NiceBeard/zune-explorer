@@ -692,8 +692,28 @@ class ZuneSyncPanel {
         }
 
         this._computeDiff();
+        this._enrichDeviceArt();
         this._renderDiffSummary();
         this._renderDiffList();
+    }
+
+    _enrichDeviceArt() {
+        if (!this.diffResult) return;
+        const albums = this.explorer.musicLibrary.albums;
+        // Build a lookup by normalized album name for fuzzy matching
+        const artByAlbum = new Map();
+        for (const [, album] of albums) {
+            if (album.albumArt) {
+                artByAlbum.set(album.name.toLowerCase().trim(), album.albumArt);
+            }
+        }
+        for (const item of this.diffResult.deviceOnly) {
+            if (item.albumArt) continue;
+            const albumName = (item.album || '').toLowerCase().trim();
+            if (albumName && artByAlbum.has(albumName)) {
+                item.albumArt = artByAlbum.get(albumName);
+            }
+        }
     }
 
     _closeDiff() {
@@ -3166,6 +3186,7 @@ class ZuneExplorer {
             // Recompute diff if device browse is active (local library changed)
             if (this.zunePanel && this.zunePanel.diffActive) {
                 this.zunePanel._computeDiff();
+                this.zunePanel._enrichDeviceArt();
                 this.zunePanel._renderDiffSummary();
                 this.zunePanel._renderDiffList();
             }

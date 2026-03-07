@@ -118,7 +118,9 @@ function readNullTerminatedUTF8(buf, offset, maxLen) {
   let i = offset;
   while (i < end && buf[i] !== 0) i++;
   if (i === offset) return '';
-  return buf.slice(offset, i).toString('utf8');
+  // Strip leading encoding artifacts from some ZMDB records: replacement chars (U+FFFD),
+  // BOM (U+FEFF), geometric shapes (U+25A0-25FF), misc symbols (U+2600-26FF)
+  return buf.slice(offset, i).toString('utf8').replace(/^[\ufffd\ufeff\u25a0-\u25ff\u2600-\u26ff]+\s*/, '');
 }
 
 function readNullTerminatedUTF16LE(buf, offset, maxLen) {
@@ -237,10 +239,22 @@ class ZMDBParser {
       throw new Error('Not a ZMDB file (bad magic)');
     }
 
-    // Verify ZMed header at 0x20
+    // Verify ZMed header at 0x20 and detect format version
     if (this.data.slice(0x20, 0x24).toString('ascii') !== 'ZMed') {
       throw new Error('Missing ZMed header');
     }
+    const zmedVersion = readUint16LE(this.data, 0x24);
+    // ZMed v5 = HD, v2 = Classic; override device family if ZMDB says otherwise
+    if (zmedVersion >= 5 && !this.isHD) {
+      console.log(`ZMDB: ZMed version ${zmedVersion} detected — switching to HD layout`);
+      this.isHD = true;
+      this.entrySizes = ENTRY_SIZES_HD;
+    } else if (zmedVersion > 0 && zmedVersion < 5 && this.isHD) {
+      console.log(`ZMDB: ZMed version ${zmedVersion} detected — switching to Classic layout`);
+      this.isHD = false;
+      this.entrySizes = ENTRY_SIZES_CLASSIC;
+    }
+    console.log(`ZMDB: ZMed version=${zmedVersion}, isHD=${this.isHD}`);
 
     // Find ZArr descriptor block (search 0x30 to 0x100)
     let zarrOffset = 0;
@@ -563,7 +577,7 @@ class ZMDBParser {
 
     const track = {
       atomId,
-      title:       '',
+      title:       record.length > titleOffset ? readNullTerminatedUTF8(record, titleOffset) : '',
       artist:      '',
       album:       '',
       albumArtist: '',
@@ -573,8 +587,8 @@ class ZMDBParser {
       duration:    readInt32LE(record, 16),
       size:        readInt32LE(record, 20),
       playcount:   readUint16LE(record, 26),
-      codecId:     this.isHD ? readUint16LE(record, 28) : 0,
-      rating:      this.isHD ? record[30] : 0,
+      codecId:     readUint16LE(record, 28),
+      rating:      record.length > 30 ? record[30] : 0,
       filename:    '',
       albumRef,
       genreRef,
