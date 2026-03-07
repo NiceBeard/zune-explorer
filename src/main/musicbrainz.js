@@ -5,7 +5,7 @@ function getClient(url) {
   return url.startsWith('http://') ? http : https;
 }
 
-const USER_AGENT = 'ZuneExplorer/1.2.0 (https://github.com/NiceBeard/zune-explorer)';
+const USER_AGENT = 'ZuneExplorer/1.2.1 (https://github.com/NiceBeard/zune-explorer)';
 let lastRequestTime = 0;
 
 function rateLimitedFetch(url) {

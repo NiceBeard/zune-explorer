@@ -47,8 +47,11 @@ Connect to Spotify (or other services) via OAuth and browse your library through
 ### Cloud Storage Integration
 Browse Google Drive, OneDrive, and other cloud storage via their REST APIs. Show them as additional roots alongside local directories. Music files from cloud storage could stream or cache locally for playback.
 
-### External Storage Detection
+### ~~External Storage Detection~~ (Done)
 Detect mounted volumes (USB drives, external disks) and expose them as browsable roots. Surface media files from external storage into the appropriate categories.
+
+### ~~Deep Folder Scanning & Symlink Support~~ (Done)
+Media scanning now recurses to unlimited depth (was capped at 3 levels). Symlinks are followed correctly — a symlink to an external volume is treated as a directory and traversed.
 
 ### Pins
 Pin frequently used files or folders to the left sidebar alongside recent files. Persist pins in local storage across sessions.

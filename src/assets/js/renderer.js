@@ -2431,7 +2431,7 @@ class ZuneExplorer {
 
         for (const [category, dirs] of Object.entries(categoryDirs)) {
             for (const dir of dirs) {
-                await this.scanDirectoryRecursive(dir, category, 3);
+                await this.scanDirectoryRecursive(dir, category);
             }
         }
 
@@ -2444,8 +2444,7 @@ class ZuneExplorer {
         }
     }
 
-    async scanDirectoryRecursive(dirPath, category, maxDepth) {
-        if (maxDepth <= 0) return;
+    async scanDirectoryRecursive(dirPath, category) {
         try {
             const result = await window.electronAPI.getDirectoryContents(dirPath);
             if (!result.success) return;
@@ -2454,7 +2453,7 @@ class ZuneExplorer {
             for (const file of result.files) {
                 if (file.name.startsWith('.')) continue;
                 if (file.isDirectory) {
-                    await this.scanDirectoryRecursive(file.path, category, maxDepth - 1);
+                    await this.scanDirectoryRecursive(file.path, category);
                 } else if (extensions.includes(file.extension)) {
                     if (!this.categorizedFiles[category].some(f => f.path === file.path)) {
                         this.categorizedFiles[category].push(file);

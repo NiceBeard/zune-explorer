@@ -136,10 +136,10 @@ ipcMain.handle('get-directory-contents', async (event, dirPath) => {
           return {
             name: file.name,
             path: filePath,
-            isDirectory: file.isDirectory(),
+            isDirectory: stats.isDirectory(),
             size: stats.size,
             modified: stats.mtime,
-            extension: file.isDirectory() ? '' : path.extname(file.name).toLowerCase()
+            extension: stats.isDirectory() ? '' : path.extname(file.name).toLowerCase()
           };
         } catch {
           return null;

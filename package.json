@@ -1,6 +1,6 @@
 {
   "name": "zune-explorer",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "A Zune HD-inspired file explorer built with Electron",
   "main": "src/main/main.js",
   "scripts": {

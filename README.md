@@ -12,6 +12,8 @@ Built with Electron. Runs on macOS and Windows.
 - **Dark theme** with orange-to-magenta accent gradient
 - **Music sub-categories** — albums, artists, songs, and genres with album art grids, letter dividers, and alpha jump overlay
 - **Built-in music player** with album art display
+- **Deep folder scanning** — recurses through your entire music/videos/pictures directory tree, no matter how nested
+- **Symlink support** — follows symlinks to external drives and network volumes
 - Files automatically organized into **music**, **videos**, **pictures**, **documents**, and **applications**
 - Browsable file system in the documents category with smart root directories
 - **External drive discovery** — mounted volumes and drives appear in the documents root view
