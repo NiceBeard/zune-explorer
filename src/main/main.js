@@ -482,8 +482,10 @@ ipcMain.handle('pick-pull-destination', async () => {
 ipcMain.handle('zune-pull-file', async (event, handle, filename, destDir, metadata) => {
   try {
     const data = await zuneManager.getFile(handle);
-    const ext = path.extname(filename).toLowerCase();
+    let ext = path.extname(filename).toLowerCase();
     let baseName = path.basename(filename, ext);
+    // Zune filenames sometimes lack an extension — default to .mp3
+    if (!ext) ext = '.mp3';
 
     // Use title as filename if available (ZMDB filenames can be cryptic)
     if (metadata?.title) {
