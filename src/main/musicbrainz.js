@@ -64,7 +64,7 @@ function fetchBinary(url) {
 }
 
 async function searchReleases(album, artist) {
-  const query = encodeURIComponent(`release:"${album}" AND artist:"${artist}"`);
+  const query = encodeURIComponent(`release:${album} AND artist:${artist}`);
   const url = `https://musicbrainz.org/ws/2/release/?query=${query}&limit=5&fmt=json`;
   const data = await rateLimitedFetch(url);
   return (data.releases || []).map(r => ({
