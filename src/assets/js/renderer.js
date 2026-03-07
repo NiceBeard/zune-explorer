@@ -3206,7 +3206,8 @@ class ZuneExplorer {
                 title.textContent = album ? album.name : 'Album';
                 breadcrumb.textContent = 'music';
             } else if (this.musicDrillDown.type === 'artist') {
-                const artist = this.musicLibrary.artists.get(this.musicDrillDown.name);
+                const resolvedKey = this.resolveArtistKey(this.musicDrillDown.name);
+                const artist = this.musicLibrary.artists.get(resolvedKey);
                 title.textContent = artist ? artist.name : 'Artist';
                 breadcrumb.textContent = 'music';
             }
@@ -3703,8 +3704,22 @@ class ZuneExplorer {
         fileDisplay.appendChild(detail);
     }
 
+    resolveArtistKey(name) {
+        const key = name.toLowerCase();
+        if (this.musicLibrary.artists.has(key)) return key;
+        // albumArtist and artist can differ — find the artist whose albums match
+        for (const [artistKey, artist] of this.musicLibrary.artists) {
+            for (const albumKey of artist.albums) {
+                const album = this.musicLibrary.albums.get(albumKey);
+                if (album && album.artist.toLowerCase() === key) return artistKey;
+            }
+        }
+        return key;
+    }
+
     renderArtistDetail(fileDisplay) {
-        const artist = this.musicLibrary.artists.get(this.musicDrillDown.name);
+        const resolvedKey = this.resolveArtistKey(this.musicDrillDown.name);
+        const artist = this.musicLibrary.artists.get(resolvedKey);
         if (!artist) {
             this.appendEmptyState(fileDisplay, 'artist not found');
             return;
@@ -4013,15 +4028,28 @@ class ZuneExplorer {
     }
 
     applyMetadataToLibrary(artistName, albumName, metadata) {
-        const albumKey = `${albumName.toLowerCase()}||${artistName.toLowerCase()}`;
-        const album = this.musicLibrary.albums.get(albumKey);
+        const albumNorm = albumName.toLowerCase();
+        const artistNorm = artistName.toLowerCase();
+        // Try exact album key first, then fall back to fuzzy match
+        // (albumArtist and artist can differ in ID3 tags)
+        let album = this.musicLibrary.albums.get(`${albumNorm}||${artistNorm}`);
+        if (!album) {
+            for (const a of this.musicLibrary.albums.values()) {
+                if (a.name.toLowerCase() !== albumNorm) continue;
+                const trackArtist = a.tracks.length > 0 ? (a.tracks[0].artist || '').toLowerCase() : '';
+                if (a.artist.toLowerCase() === artistNorm || trackArtist === artistNorm) {
+                    album = a;
+                    break;
+                }
+            }
+        }
         if (album) {
             if (metadata.albumArt) album.albumArt = metadata.albumArt;
             if (metadata.year) album.year = metadata.year;
             if (metadata.genre) album.genre = metadata.genre;
         }
 
-        const artistKey = artistName.toLowerCase();
+        const artistKey = this.resolveArtistKey(artistName);
         const artist = this.musicLibrary.artists.get(artistKey);
         if (artist && metadata.albumArt && !artist.enrichedArt) {
             artist.albumArt = metadata.albumArt;
@@ -4041,7 +4069,10 @@ class ZuneExplorer {
             const [artistNorm, albumNorm] = cacheKey.split('|');
             for (const [albumKey, album] of this.musicLibrary.albums) {
                 const matchesAlbum = album.name.toLowerCase().trim() === albumNorm;
-                const matchesArtist = album.artist.toLowerCase().trim() === artistNorm;
+                // album.artist comes from albumArtist tag, which may differ from track artist
+                const albumArtistNorm = album.artist.toLowerCase().trim();
+                const trackArtistNorm = album.tracks.length > 0 ? (album.tracks[0].artist || '').toLowerCase().trim() : '';
+                const matchesArtist = albumArtistNorm === artistNorm || trackArtistNorm === artistNorm;
                 if (matchesAlbum && matchesArtist) {
                     if (metadata.albumArt) album.albumArt = metadata.albumArt;
                     if (metadata.year) album.year = metadata.year;
