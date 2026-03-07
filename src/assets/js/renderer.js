@@ -2098,6 +2098,8 @@ class ZuneExplorer {
             });
         }
 
+        categoryView.appendChild(content);
+
         if (this.externalVolumes.length > 0) {
             const volumeGrid = document.createElement('div');
             volumeGrid.className = 'category-content root-grid volume-grid';
@@ -2140,7 +2142,6 @@ class ZuneExplorer {
             categoryView.appendChild(volumeGrid);
         }
 
-        categoryView.appendChild(content);
         fileDisplay.appendChild(categoryView);
     }
 
