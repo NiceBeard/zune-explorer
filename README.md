@@ -14,7 +14,15 @@ Built with Electron. Runs on macOS and Windows.
 - **Built-in music player** with album art display
 - Files automatically organized into **music**, **videos**, **pictures**, **documents**, and **applications**
 - Browsable file system in the documents category with smart root directories
+- **External drive discovery** — mounted volumes and drives appear in the documents root view
 - Recently accessed files surfaced via platform-native APIs
+
+### Metadata Enrichment
+- **MusicBrainz lookup** — search for album metadata by artist and album name
+- **Cover Art Archive** integration — fetch album art from the open cover art database
+- **Preview before applying** — review matched results with thumbnails before committing
+- **Persistent metadata cache** — enriched album art, year, and genre survive app restarts
+- **Automatic cache restore** — cached metadata applied to the music library on startup
 
 <img width="1283" height="722" alt="image" src="https://github.com/user-attachments/assets/d0cadec0-f2a5-4305-9aeb-886831145856" />
 <img width="1283" height="722" alt="image" src="https://github.com/user-attachments/assets/01eb0624-7e22-4ab2-a455-03632a22a5dc" />
@@ -28,10 +36,14 @@ Connect a physical Zune to manage your music library — no Zune desktop softwar
 
 - **Pure JavaScript MTP/MTPZ stack** — implements the Zune's encrypted USB protocol from scratch
 - **Two-way sync** — push music to the Zune or pull tracks to your computer
+- **Pull destination picker** — choose where to save pulled tracks, with last-used folder memory
 - **Sync management view** — expanded diff view with grouped selection by album/artist, select-all, and collapsible groups
+- **Album art in sync view** — device-only tracks show cover art from your local library
 - **Smart diff engine** — compares local and device libraries by filename and metadata to show what's missing from each side
+- **ZMDB fast scan** — reads the Zune's internal media database for instant library enumeration with auto-detection of HD vs Classic format
 - **Drag-and-drop transfer** with real-time progress streaming
 - **Automatic format conversion** — WAV/FLAC/OGG/AIFF to MP3 320k on push; WMA to MP3 320k on pull
+- **Extensionless file detection** — identifies audio files pulled without extensions and offers to fix them
 - **ID3v2.3 retagging** — MP3s retagged for Zune compatibility (Zune ignores ID3v2.4)
 - **Full metadata** — title, artist, album, genre, track number, duration
 - **Album art** preserved in both directions
@@ -118,7 +130,12 @@ src/main/zune/
 ├── mtp-constants.js    # Operation codes, response codes, object formats, property codes
 ├── mtpz-auth.js        # MTPZ RSA/AES/CMAC authentication handshake
 ├── zune-manager.js     # High-level orchestrator: connect, sync, browse, delete, eject
+├── zmdb-parser.js      # Zune Media Database binary parser (HD + Classic formats)
 └── device-cache.js     # Per-device scan result caching
+
+src/main/
+├── musicbrainz.js      # MusicBrainz / Cover Art Archive API client
+└── metadata-cache.js   # Persistent metadata cache (album art, year, genre)
 ```
 
 ### Push-to-Device Pipeline
