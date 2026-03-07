@@ -121,6 +121,18 @@ function readNullTerminatedUTF8(buf, offset, maxLen) {
   return buf.slice(offset, i).toString('utf8');
 }
 
+function readNullTerminatedUTF16LE(buf, offset, maxLen) {
+  if (offset >= buf.length) return '';
+  const end = Math.min(offset + (maxLen || 2048), buf.length);
+  let i = offset;
+  while (i + 1 < end) {
+    if (buf[i] === 0 && buf[i + 1] === 0) break;
+    i += 2;
+  }
+  if (i === offset) return '';
+  return buf.slice(offset, i).toString('utf16le');
+}
+
 function utf16LEToUTF8(data, start, end) {
   start = start || 0;
   end = end || data.length;
@@ -442,6 +454,7 @@ class ZMDBParser {
         let start = 0, end = f.data.length;
         if (f.data[0] === 0x00 && f.data[end - 1] === 0x00) { start = 1; end -= 1; }
         artist.filename = utf16LEToUTF8(f.data, start, end);
+        if (!artist.name) artist.name = artist.filename.replace(/\.art$/i, '');
       } else if (f.fieldId === 0x14 && f.fieldSize === 16) {
         // GUID field — format as string for debugging
         const d = f.data;
@@ -483,9 +496,21 @@ class ZMDBParser {
       }
     }
 
-    // Title after fixed fields (20 on HD, 12 on Classic — Classic has no FILETIME)
-    const albumTitleOffset = this.entrySizes[Schema.Album]; // 20 for HD, 12 for Classic
-    if (record.length > albumTitleOffset) album.title = readNullTerminatedUTF8(record, albumTitleOffset);
+    // Title after fixed fields — HD always has FILETIME at 12-19 (title at 20).
+    // Classic may or may not have FILETIME; detect by checking if first byte at offset 12 is non-ASCII.
+    let albumTitleOffset = this.entrySizes[Schema.Album]; // 20 for HD, 12 for Classic
+    let hasFiletime = this.isHD; // HD always has FILETIME
+    if (!this.isHD && record.length > 20) {
+      // Classic: check if bytes at 12 look like binary (FILETIME) rather than UTF-8 text
+      const firstByte = record[albumTitleOffset];
+      if (firstByte > 127 || (firstByte === 0 && record[albumTitleOffset + 1] !== 0)) {
+        hasFiletime = true;
+        albumTitleOffset = 20;
+      }
+    }
+    if (record.length > albumTitleOffset) {
+      album.title = readNullTerminatedUTF8(record, albumTitleOffset);
+    }
 
     // Resolve artist
     if (album.artistRef) {
@@ -493,14 +518,21 @@ class ZMDBParser {
       if (artist) album.artistName = artist.name;
     }
 
-    // Filename from backwards varint 0x44
-    const entrySize = this.entrySizes[Schema.Album] || 20;
+    // Filename from backwards varint 0x44 — use correct entrySize boundary
+    const entrySize = hasFiletime ? 20 : (this.entrySizes[Schema.Album] || 20);
     const fields = parseBackwardsVarints(record, entrySize);
     for (const f of fields) {
       if (f.fieldId === 0x44 && f.fieldSize > 2) {
         let start = 0, end = f.data.length;
         if (f.data[0] === 0x00 && f.data[end - 1] === 0x00) { start = 1; end -= 1; }
         album.filename = utf16LEToUTF8(f.data, start, end);
+        if (!album.title) {
+          // Filename format: "Artist--Album.alb" — extract album part
+          let name = album.filename.replace(/\.alb$/i, '');
+          const sep = name.indexOf('--');
+          if (sep !== -1) name = name.substring(sep + 2);
+          album.title = name;
+        }
         break;
       }
     }
@@ -531,7 +563,7 @@ class ZMDBParser {
 
     const track = {
       atomId,
-      title:       record.length > titleOffset ? readNullTerminatedUTF8(record, titleOffset) : '',
+      title:       '',
       artist:      '',
       album:       '',
       albumArtist: '',
@@ -572,7 +604,9 @@ class ZMDBParser {
       track.genre = this._resolveGenre(genreRef);
     }
     if (filenameRef) {
-      track.filename = this._resolveString(filenameRef);
+      const resolved = this._resolveString(filenameRef);
+      track.filename = resolved;
+      if (!track.title) track.title = resolved;
     }
 
     return track;

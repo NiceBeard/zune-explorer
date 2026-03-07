@@ -26,9 +26,10 @@ let mainWindow;
 function isAllowedPath(filePath) {
   const resolved = path.resolve(filePath);
   const allowedPrefixes = platform.getAllowedPrefixes();
-  return allowedPrefixes.some(prefix =>
-    resolved === prefix || resolved.startsWith(prefix + path.sep)
-  );
+  return allowedPrefixes.some(prefix => {
+    const base = prefix.endsWith(path.sep) ? prefix : prefix + path.sep;
+    return resolved === prefix || resolved.startsWith(base);
+  });
 }
 
 function createWindow() {
@@ -127,20 +128,24 @@ ipcMain.handle('get-directory-contents', async (event, dirPath) => {
 
   try {
     const files = await fs.readdir(dirPath, { withFileTypes: true });
-    const fileData = await Promise.all(
+    const fileData = (await Promise.all(
       files.map(async (file) => {
         const filePath = path.join(dirPath, file.name);
-        const stats = await fs.stat(filePath);
-        return {
-          name: file.name,
-          path: filePath,
-          isDirectory: file.isDirectory(),
-          size: stats.size,
-          modified: stats.mtime,
-          extension: file.isDirectory() ? '' : path.extname(file.name).toLowerCase()
-        };
+        try {
+          const stats = await fs.stat(filePath);
+          return {
+            name: file.name,
+            path: filePath,
+            isDirectory: file.isDirectory(),
+            size: stats.size,
+            modified: stats.mtime,
+            extension: file.isDirectory() ? '' : path.extname(file.name).toLowerCase()
+          };
+        } catch {
+          return null;
+        }
       })
-    );
+    )).filter(Boolean);
     return { success: true, files: fileData };
   } catch (error) {
     return { success: false, error: error.message };
