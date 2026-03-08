@@ -2962,6 +2962,60 @@ class ZuneExplorer {
         await this.saveNowPlaying();
     }
 
+    showMusicItemContextMenu(e, tracks, extraItems = []) {
+        const items = [
+            { label: 'Add to Now Playing', action: () => this.addToNowPlaying(tracks) },
+            { separator: true },
+            ...this.buildPlaylistSubmenuItems(tracks),
+        ];
+        if (extraItems.length > 0) {
+            items.push({ separator: true });
+            items.push(...extraItems);
+        }
+        this.showDynamicContextMenu(e, items);
+    }
+
+    buildPlaylistSubmenuItems(tracks) {
+        const items = [];
+        items.push({
+            label: 'New Playlist...',
+            action: () => this.createNewPlaylist(tracks),
+        });
+
+        if (this.playlists.length > 0) {
+            items.push({ separator: true });
+            [...this.playlists].sort((a, b) => a.name.localeCompare(b.name)).forEach(playlist => {
+                items.push({
+                    label: `Add to "${playlist.name}"`,
+                    action: () => this.addTracksToPlaylist(playlist.id, tracks),
+                });
+            });
+        }
+
+        return items;
+    }
+
+    async addTracksToPlaylist(playlistId, tracks) {
+        const playlist = this.playlists.find(p => p.id === playlistId);
+        if (!playlist) return;
+
+        const newTracks = tracks.map(t => ({
+            path: t.path,
+            title: t.title || t.name,
+            artist: t.artist || '',
+            album: t.album || '',
+            duration: t.duration || 0,
+        }));
+
+        // Avoid duplicates by path
+        const existingPaths = new Set(playlist.tracks.map(t => t.path));
+        const toAdd = newTracks.filter(t => !existingPaths.has(t.path));
+
+        playlist.tracks.push(...toAdd);
+        playlist.modifiedAt = new Date().toISOString();
+        await window.electronAPI.playlistSave(playlist);
+    }
+
     updatePinnedPanel() {
         const section = document.getElementById('pinned-section');
         const container = document.getElementById('pinned-files');
@@ -3887,6 +3941,10 @@ class ZuneExplorer {
                     const allFiles = this.musicLibrary.sortedSongs.map(t => this.getTrackFile(t));
                     this.playWithNowPlaying(file, allFiles);
                 });
+                row.addEventListener('contextmenu', (e) => {
+                    const file = this.getTrackFile(track);
+                    this.showMusicItemContextMenu(e, [file]);
+                });
                 list.appendChild(row);
             }
         }
@@ -3947,12 +4005,20 @@ class ZuneExplorer {
                     this.renderMusicView();
                 });
                 row.addEventListener('contextmenu', (e) => {
-                    e.preventDefault();
+                    const files = [];
+                    for (const albumKey of artist.albums) {
+                        const album = this.musicLibrary.albums.get(albumKey);
+                        if (album) files.push(...album.tracks);
+                    }
+                    const extraItems = [
+                        { label: 'Pin to sidebar', action: () => this.pinMusicItem('artist', { label: artist.name, meta: { artistName: artist.name.toLowerCase(), category: 'music' } }) },
+                    ];
                     const firstAlbumKey = [...artist.albums][0];
                     const firstAlbum = firstAlbumKey ? this.musicLibrary.albums.get(firstAlbumKey) : null;
                     if (firstAlbum) {
-                        this.showMetadataLookup(firstAlbum.name, artist.name);
+                        extraItems.push({ label: 'Look up metadata', action: () => this.showMetadataLookup(firstAlbum.name, artist.name) });
                     }
+                    this.showMusicItemContextMenu(e, files, extraItems);
                 });
                 list.appendChild(row);
             }
@@ -3985,6 +4051,11 @@ class ZuneExplorer {
             row.appendChild(count);
             row.addEventListener('click', () => {
                 this.renderGenreDetail(container, genre);
+            });
+            row.addEventListener('contextmenu', (e) => {
+                this.showMusicItemContextMenu(e, genre.tracks, [
+                    { label: 'Pin to sidebar', action: () => this.pinMusicItem('genre', { label: genre.name, meta: { genreName: genre.name.toLowerCase(), category: 'music' } }) },
+                ]);
             });
             list.appendChild(row);
         }
@@ -4071,6 +4142,10 @@ class ZuneExplorer {
                 const file = this.getTrackFile(track);
                 const allFiles = sortedTracks.map(t => this.getTrackFile(t));
                 this.playWithNowPlaying(file, allFiles);
+            });
+            row.addEventListener('contextmenu', (e) => {
+                const file = this.getTrackFile(track);
+                this.showMusicItemContextMenu(e, [file]);
             });
             list.appendChild(row);
         }
@@ -4282,6 +4357,11 @@ class ZuneExplorer {
         info.appendChild(playAllBtn);
         info.appendChild(lookupLink);
         header.appendChild(info);
+        header.addEventListener('contextmenu', (e) => {
+            this.showMusicItemContextMenu(e, album.tracks, [
+                { label: 'Pin to sidebar', action: () => this.pinMusicItem('album', { label: album.name, meta: { albumKey: album.key, category: 'music' } }) },
+            ]);
+        });
         detail.appendChild(header);
 
         // Track list
@@ -4313,6 +4393,9 @@ class ZuneExplorer {
                 const file = this.getTrackFile(track);
                 const files = album.tracks.map(t => this.getTrackFile(t));
                 this.playWithNowPlaying(file, files);
+            });
+            row.addEventListener('contextmenu', (e) => {
+                this.showMusicItemContextMenu(e, [track]);
             });
             trackList.appendChild(row);
         });
@@ -5012,6 +5095,14 @@ class ZuneExplorer {
         // Zune send option
         if (this.zunePanel && this.zunePanel.state === 'connected') {
             items.push({ label: 'Send to Zune', action: () => this.handleContextMenuAction({ target: { dataset: { action: 'send-to-zune' } } }) });
+        }
+
+        // Music file options
+        const category = this.getFileCategory(file);
+        if (category === 'music') {
+            items.push({ separator: true });
+            items.push({ label: 'Add to Now Playing', action: () => this.addToNowPlaying([file]) });
+            items.push(...this.buildPlaylistSubmenuItems([file]));
         }
 
         items.push({ separator: true });
