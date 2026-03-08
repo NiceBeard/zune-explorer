@@ -1980,10 +1980,7 @@ class ZuneExplorer {
         document.addEventListener('contextmenu', (e) => e.preventDefault());
         document.addEventListener('click', () => this.hideContextMenu());
 
-        // Context menu actions
-        document.querySelectorAll('.context-menu-item').forEach(item => {
-            item.addEventListener('click', (e) => this.handleContextMenuAction(e));
-        });
+        // Context menu actions are now handled dynamically by showDynamicContextMenu()
 
         // Mouse wheel for vertical scrolling in menu
         const menuContainer = document.querySelector('.menu-container');
@@ -3076,9 +3073,11 @@ class ZuneExplorer {
 
     navigateToPin(pin) {
         switch (pin.type) {
-            case 'file':
-                this.handleFileClick({ path: pin.path, name: pin.label });
+            case 'file': {
+                const ext = pin.path ? '.' + pin.path.split('.').pop().toLowerCase() : '';
+                this.handleFileClick({ path: pin.path, name: pin.label, extension: ext });
                 break;
+            }
             case 'folder':
                 this.currentCategory = pin.meta.category || 'documents';
                 this.showContent();
@@ -4725,7 +4724,9 @@ class ZuneExplorer {
                     if (index < this.nowPlaying.currentIndex) {
                         this.nowPlaying.currentIndex--;
                     } else if (index === this.nowPlaying.currentIndex) {
-                        this.nowPlaying.currentIndex = Math.min(this.nowPlaying.currentIndex, this.nowPlaying.tracks.length - 1);
+                        this.nowPlaying.currentIndex = this.nowPlaying.tracks.length === 0
+                            ? 0
+                            : Math.min(this.nowPlaying.currentIndex, this.nowPlaying.tracks.length - 1);
                     }
                     this.audioPlayer.queue = this.nowPlaying.tracks.map(t => ({ path: t.path, name: t.title, title: t.title, artist: t.artist, album: t.album, duration: t.duration }));
                     this.audioPlayer.currentIndex = this.nowPlaying.currentIndex;

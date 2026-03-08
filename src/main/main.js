@@ -568,10 +568,11 @@ ipcMain.handle('playlist-save', async (event, playlist) => {
   try {
     await fs.mkdir(playlistsDir, { recursive: true });
     const filename = playlist.id + '.json';
-    await fs.writeFile(
-      path.join(playlistsDir, filename),
-      JSON.stringify(playlist, null, 2)
-    );
+    const resolved = path.resolve(playlistsDir, filename);
+    if (!resolved.startsWith(playlistsDir)) {
+      return { success: false, error: 'Invalid playlist ID' };
+    }
+    await fs.writeFile(resolved, JSON.stringify(playlist, null, 2));
     return { success: true };
   } catch (error) {
     return { success: false, error: error.message };
@@ -581,7 +582,11 @@ ipcMain.handle('playlist-save', async (event, playlist) => {
 ipcMain.handle('playlist-delete', async (event, playlistId) => {
   try {
     const filename = playlistId + '.json';
-    await fs.unlink(path.join(playlistsDir, filename));
+    const resolved = path.resolve(playlistsDir, filename);
+    if (!resolved.startsWith(playlistsDir)) {
+      return { success: false, error: 'Invalid playlist ID' };
+    }
+    await fs.unlink(resolved);
     return { success: true };
   } catch (error) {
     return { success: false, error: error.message };
