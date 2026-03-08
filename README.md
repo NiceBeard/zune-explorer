@@ -10,13 +10,17 @@ Built with Electron. Runs on macOS and Windows.
 - **Panoramic horizontal scrolling** between categories with momentum and snap
 - **Giant hero headers** (340px, weight 100) that clip off the top edge — just like the Zune HD
 - **Dark theme** with orange-to-magenta accent gradient
-- **Music sub-categories** — albums, artists, songs, and genres with album art grids, letter dividers, and alpha jump overlay
-- **Built-in music player** with album art display
+- **Music sub-categories** — albums, artists, songs, genres, and playlists with album art grids, letter dividers, and alpha jump overlay
+- **Built-in music player** with album art display and unsupported format notifications
+- **Playlists** — create, edit, and reorder playlists from anywhere in the music section. Individual JSON files per playlist with drag-to-reorder and play all
+- **Now Playing** — persistent queue that survives app restarts. Click a song to replace the queue, "Add to Now Playing" to append. Accessible from the Playlists tab
+- **Pins** — pin any navigable item (file, folder, album, artist, genre, playlist) to the left sidebar. Right-click to pin/unpin. Pinned albums and artists show album art
 - **Deep folder scanning** — recurses through your entire music/videos/pictures directory tree, no matter how nested
 - **Symlink support** — follows symlinks to external drives and network volumes
 - Files automatically organized into **music**, **videos**, **pictures**, **documents**, and **applications**
 - Browsable file system in the documents category with smart root directories
 - **External drive discovery** — mounted volumes and drives appear in the documents root view
+- **Left sidebar** with pinned section above recent files, both with muted white Zune HD-style headers
 - Recently accessed files surfaced via platform-native APIs
 
 ### Metadata Enrichment
