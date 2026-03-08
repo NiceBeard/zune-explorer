@@ -3262,6 +3262,94 @@ body.platform-win32 .now-playing-panel {
     color: var(--zune-orange);
 }
 
+/* Zune Prompt / Confirm Modal */
+.zune-prompt-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.zune-prompt-box {
+    background: #111;
+    border: 1px solid rgba(255, 105, 0, 0.3);
+    border-radius: 8px;
+    width: 360px;
+    padding: 24px;
+}
+
+.zune-prompt-title {
+    font-size: 16px;
+    font-weight: 400;
+    color: #fff;
+    margin: 0 0 16px 0;
+}
+
+.zune-prompt-input {
+    width: 100%;
+    background: #000;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 14px;
+    font-family: inherit;
+    padding: 8px 12px;
+    margin-bottom: 16px;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.zune-prompt-input:focus {
+    border-color: var(--zune-orange);
+}
+
+.zune-prompt-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.zune-prompt-btn {
+    background: none;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 13px;
+    font-family: inherit;
+    padding: 6px 16px;
+    cursor: pointer;
+}
+
+.zune-prompt-btn:hover {
+    border-color: #666;
+}
+
+.zune-prompt-btn.primary {
+    background: var(--zune-orange);
+    border-color: var(--zune-orange);
+}
+
+.zune-prompt-btn.primary:hover {
+    background: #e05e00;
+    border-color: #e05e00;
+}
+
+.zune-prompt-btn.danger {
+    background: #c0392b;
+    border-color: #c0392b;
+}
+
+.zune-prompt-btn.danger:hover {
+    background: #a93226;
+    border-color: #a93226;
+}
+
 /* Playlist List View */
 .playlist-list {
     display: flex;
@@ -3332,6 +3420,13 @@ body.platform-win32 .now-playing-panel {
     color: var(--zune-text-dim);
     padding: 8px 0 16px;
     letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.playlist-stats .music-play-all-btn {
+    margin-top: 0;
 }
 
 .playlist-track-list {
@@ -3370,7 +3465,7 @@ body.platform-win32 .now-playing-panel {
 }
 
 .playlist-drag-handle {
-    color: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.4);
     font-size: 18px;
     cursor: grab;
     user-select: none;

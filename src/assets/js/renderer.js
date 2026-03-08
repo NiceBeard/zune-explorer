@@ -1954,6 +1954,11 @@ class ZuneExplorer {
         this.setupKeyboardNavigation();
         this.focusMenu();
         this.setupPlayer();
+
+        // Start music scan early so pinned album/artist art is available
+        if (this.musicLibrary.scanState === 'idle' && this.categorizedFiles.music.length > 0) {
+            this.scanMusicLibrary();
+        }
     }
 
     setupEventListeners() {
@@ -2996,13 +3001,16 @@ class ZuneExplorer {
         const playlist = this.playlists.find(p => p.id === playlistId);
         if (!playlist) return;
 
-        const newTracks = tracks.map(t => ({
-            path: t.path,
-            title: t.title || t.name,
-            artist: t.artist || '',
-            album: t.album || '',
-            duration: t.duration || 0,
-        }));
+        const newTracks = tracks.map(t => {
+            const enriched = this._enrichTrackData(t);
+            return {
+                path: enriched.path,
+                title: enriched.title || t.name || '',
+                artist: enriched.artist,
+                album: enriched.album,
+                duration: enriched.duration,
+            };
+        });
 
         // Avoid duplicates by path
         const existingPaths = new Set(playlist.tracks.map(t => t.path));
@@ -3685,15 +3693,20 @@ class ZuneExplorer {
             lib.scannedCount = data.scanned;
             this.rebuildMusicIndexes();
 
+            // Mark scan complete and refresh dependent views
+            if (data.scanned >= data.total) {
+                lib.scanState = 'complete';
+                this.applyCachedMetadata().then(() => {
+                    this.updatePinnedPanel();
+                });
+                this.promptExtensionlessFix();
+            }
+
             // Update progress UI
             const progressEl = document.getElementById('music-scan-progress');
             if (progressEl) {
                 if (data.scanned >= data.total) {
                     progressEl.style.display = 'none';
-                    lib.scanState = 'complete';
-                    this.applyCachedMetadata();
-                    this.promptExtensionlessFix();
-                    this.updatePinnedPanel();
                 } else {
                     progressEl.style.display = 'block';
                     progressEl.textContent = `scanning ${data.scanned} of ${data.total}...`;
@@ -4245,6 +4258,9 @@ class ZuneExplorer {
         newBtn.addEventListener('click', () => this.createNewPlaylist());
         list.appendChild(newBtn);
 
+        // Enrich stale playlists from music library
+        this.playlists.forEach(p => this._enrichPlaylistTracks(p));
+
         // User playlists sorted alphabetically
         const sorted = [...this.playlists].sort((a, b) => a.name.localeCompare(b.name));
         sorted.forEach(playlist => {
@@ -4294,21 +4310,24 @@ class ZuneExplorer {
     }
 
     async createNewPlaylist(initialTracks = []) {
-        const name = prompt('Playlist name:');
-        if (!name || !name.trim()) return null;
+        const name = await this.showPromptModal('new playlist', 'playlist name');
+        if (!name) return null;
 
         const playlist = {
             id: crypto.randomUUID(),
-            name: name.trim(),
+            name: name,
             createdAt: new Date().toISOString(),
             modifiedAt: new Date().toISOString(),
-            tracks: initialTracks.map(t => ({
-                path: t.path,
-                title: t.title || t.name,
-                artist: t.artist || '',
-                album: t.album || '',
-                duration: t.duration || 0,
-            })),
+            tracks: initialTracks.map(t => {
+                const enriched = this._enrichTrackData(t);
+                return {
+                    path: enriched.path,
+                    title: enriched.title || t.name || '',
+                    artist: enriched.artist,
+                    album: enriched.album,
+                    duration: enriched.duration,
+                };
+            }),
         };
 
         this.playlists.push(playlist);
@@ -4322,7 +4341,9 @@ class ZuneExplorer {
     }
 
     async deletePlaylist(id) {
-        if (!confirm('Delete this playlist?')) return;
+        const playlist = this.playlists.find(p => p.id === id);
+        const confirmed = await this.showConfirmModal('delete playlist?', playlist ? playlist.name : '');
+        if (!confirmed) return;
 
         this.playlists = this.playlists.filter(p => p.id !== id);
         await window.electronAPI.playlistDelete(id);
@@ -4517,20 +4538,63 @@ class ZuneExplorer {
     // Playlist & Now Playing Detail Views
     // ========================================
 
+    _enrichPlaylistTracks(playlist) {
+        let changed = false;
+        for (const track of playlist.tracks) {
+            const enriched = this._enrichTrackData(track);
+            if (enriched.duration && !track.duration) {
+                track.title = enriched.title || track.title;
+                track.artist = enriched.artist || track.artist;
+                track.album = enriched.album || track.album;
+                track.duration = enriched.duration;
+                changed = true;
+            }
+        }
+        if (changed) {
+            playlist.modifiedAt = new Date().toISOString();
+            window.electronAPI.playlistSave(playlist);
+        }
+    }
+
     renderPlaylistDetail(container, playlistId) {
         const playlist = this.playlists.find(p => p.id === playlistId);
         if (!playlist) return;
 
+        // Enrich stale tracks from music library
+        this._enrichPlaylistTracks(playlist);
+
         const wrapper = document.createElement('div');
         wrapper.className = 'playlist-detail';
 
-        // Stats header
-        const stats = document.createElement('div');
-        stats.className = 'playlist-stats';
+        // Stats + play all
+        const statsRow = document.createElement('div');
+        statsRow.className = 'playlist-stats';
         const count = playlist.tracks.length;
         const duration = playlist.tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
-        stats.textContent = `${count} song${count !== 1 ? 's' : ''} \u00b7 ${this.formatPlaylistDuration(duration)}`;
-        wrapper.appendChild(stats);
+
+        const statsText = document.createElement('span');
+        statsText.textContent = `${count} song${count !== 1 ? 's' : ''} \u00b7 ${this.formatPlaylistDuration(duration)}`;
+        statsRow.appendChild(statsText);
+
+        if (count > 0) {
+            const playAllBtn = document.createElement('button');
+            playAllBtn.className = 'music-play-all-btn';
+            playAllBtn.textContent = 'play all';
+            playAllBtn.addEventListener('click', () => {
+                const files = playlist.tracks.map(t => ({
+                    path: t.path,
+                    name: t.title,
+                    title: t.title,
+                    artist: t.artist,
+                    album: t.album,
+                    duration: t.duration,
+                    extension: '.' + (t.path || '').split('.').pop().toLowerCase(),
+                }));
+                this.playWithNowPlaying(files[0], files);
+            });
+            statsRow.appendChild(playAllBtn);
+        }
+        wrapper.appendChild(statsRow);
 
         // Track list
         const list = document.createElement('div');
@@ -4602,6 +4666,7 @@ class ZuneExplorer {
                 artist: t.artist,
                 album: t.album,
                 duration: t.duration,
+                extension: '.' + (t.path || '').split('.').pop().toLowerCase(),
             }));
             this.playWithNowPlaying(files[index], files);
         });
@@ -4686,15 +4751,37 @@ class ZuneExplorer {
         const wrapper = document.createElement('div');
         wrapper.className = 'playlist-detail';
 
-        // Stats
-        const stats = document.createElement('div');
-        stats.className = 'playlist-stats';
+        // Stats + play all
+        const statsRow = document.createElement('div');
+        statsRow.className = 'playlist-stats';
         const count = np.tracks.length;
         const duration = np.tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
-        stats.textContent = count === 0
+
+        const statsText = document.createElement('span');
+        statsText.textContent = count === 0
             ? 'empty'
             : `${count} song${count !== 1 ? 's' : ''} \u00b7 ${this.formatPlaylistDuration(duration)}`;
-        wrapper.appendChild(stats);
+        statsRow.appendChild(statsText);
+
+        if (count > 0) {
+            const playAllBtn = document.createElement('button');
+            playAllBtn.className = 'music-play-all-btn';
+            playAllBtn.textContent = 'play all';
+            playAllBtn.addEventListener('click', () => {
+                const files = np.tracks.map(t => ({
+                    path: t.path,
+                    name: t.title,
+                    title: t.title,
+                    artist: t.artist,
+                    album: t.album,
+                    duration: t.duration,
+                    extension: '.' + (t.path || '').split('.').pop().toLowerCase(),
+                }));
+                this.playWithNowPlaying(files[0], files);
+            });
+            statsRow.appendChild(playAllBtn);
+        }
+        wrapper.appendChild(statsRow);
 
         const list = document.createElement('div');
         list.className = 'playlist-track-list';
@@ -5217,6 +5304,122 @@ class ZuneExplorer {
 
     hideContextMenu() {
         document.getElementById('context-menu').style.display = 'none';
+    }
+
+    showPromptModal(title, placeholder = '') {
+        return new Promise(resolve => {
+            const overlay = document.createElement('div');
+            overlay.className = 'zune-prompt-overlay';
+
+            const box = document.createElement('div');
+            box.className = 'zune-prompt-box';
+
+            const heading = document.createElement('div');
+            heading.className = 'zune-prompt-title';
+            heading.textContent = title;
+
+            const input = document.createElement('input');
+            input.className = 'zune-prompt-input';
+            input.type = 'text';
+            input.placeholder = placeholder;
+
+            const buttons = document.createElement('div');
+            buttons.className = 'zune-prompt-buttons';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'zune-prompt-btn';
+            cancelBtn.textContent = 'cancel';
+
+            const okBtn = document.createElement('button');
+            okBtn.className = 'zune-prompt-btn primary';
+            okBtn.textContent = 'create';
+
+            const dismiss = (value) => {
+                overlay.remove();
+                resolve(value);
+            };
+
+            cancelBtn.addEventListener('click', () => dismiss(null));
+            okBtn.addEventListener('click', () => {
+                const val = input.value.trim();
+                dismiss(val || null);
+            });
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    const val = input.value.trim();
+                    dismiss(val || null);
+                } else if (e.key === 'Escape') {
+                    dismiss(null);
+                }
+            });
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) dismiss(null);
+            });
+
+            buttons.appendChild(cancelBtn);
+            buttons.appendChild(okBtn);
+            box.appendChild(heading);
+            box.appendChild(input);
+            box.appendChild(buttons);
+            overlay.appendChild(box);
+            document.body.appendChild(overlay);
+            input.focus();
+        });
+    }
+
+    showConfirmModal(title, message) {
+        return new Promise(resolve => {
+            const overlay = document.createElement('div');
+            overlay.className = 'zune-prompt-overlay';
+
+            const box = document.createElement('div');
+            box.className = 'zune-prompt-box';
+
+            const heading = document.createElement('div');
+            heading.className = 'zune-prompt-title';
+            heading.textContent = title;
+
+            if (message) {
+                const msg = document.createElement('div');
+                msg.style.color = '#888';
+                msg.style.fontSize = '13px';
+                msg.style.marginBottom = '16px';
+                msg.textContent = message;
+                box.appendChild(heading);
+                box.appendChild(msg);
+            } else {
+                box.appendChild(heading);
+            }
+
+            const buttons = document.createElement('div');
+            buttons.className = 'zune-prompt-buttons';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'zune-prompt-btn';
+            cancelBtn.textContent = 'cancel';
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.className = 'zune-prompt-btn danger';
+            confirmBtn.textContent = 'delete';
+
+            const dismiss = (value) => {
+                overlay.remove();
+                resolve(value);
+            };
+
+            cancelBtn.addEventListener('click', () => dismiss(false));
+            confirmBtn.addEventListener('click', () => dismiss(true));
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) dismiss(false);
+            });
+
+            buttons.appendChild(cancelBtn);
+            buttons.appendChild(confirmBtn);
+            box.appendChild(buttons);
+            overlay.appendChild(box);
+            document.body.appendChild(overlay);
+            confirmBtn.focus();
+        });
     }
 
     async handleContextMenuAction(e) {
