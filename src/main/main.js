@@ -522,6 +522,27 @@ ipcMain.handle('pick-pull-destination', async () => {
   return { success: true, path: chosen };
 });
 
+// --- Pins ---
+const pinsPath = path.join(app.getPath('userData'), 'pins.json');
+
+ipcMain.handle('pins-load', async () => {
+  try {
+    const data = await fs.readFile(pinsPath, 'utf-8');
+    return { success: true, data: JSON.parse(data) };
+  } catch {
+    return { success: true, data: [] };
+  }
+});
+
+ipcMain.handle('pins-save', async (event, pins) => {
+  try {
+    await fs.writeFile(pinsPath, JSON.stringify(pins, null, 2));
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('zune-pull-file', async (event, handle, filename, destDir, metadata) => {
   try {
     const data = await zuneManager.getFile(handle);

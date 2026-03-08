@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   zuneCacheInvalidate: (deviceKey) => ipcRenderer.invoke('zune-cache-invalidate', deviceKey),
   fixExtensionlessFiles: (paths) => ipcRenderer.invoke('fix-extensionless-files', paths),
   pickPullDestination: () => ipcRenderer.invoke('pick-pull-destination'),
+  pinsLoad: () => ipcRenderer.invoke('pins-load'),
+  pinsSave: (pins) => ipcRenderer.invoke('pins-save', pins),
   zunePullFile: (handle, filename, destDir, metadata) => ipcRenderer.invoke('zune-pull-file', handle, filename, destDir, metadata),
   zuneProbeProperties: (handle) => ipcRenderer.invoke('zune-probe-properties', handle),
   zuneProbeWmdrmpd: () => ipcRenderer.invoke('zune-probe-wmdrmpd'),
