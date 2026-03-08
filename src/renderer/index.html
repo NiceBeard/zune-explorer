@@ -296,6 +296,11 @@
         </button>
 
         <div id="zune-diff-view" style="display:none">
+            <div class="zune-diff-category-tabs" id="zune-diff-category-tabs">
+                <button class="zune-diff-category-tab active" data-category="music">MUSIC</button>
+                <button class="zune-diff-category-tab" data-category="videos">VIDEOS</button>
+                <button class="zune-diff-category-tab" data-category="pictures">PHOTOS</button>
+            </div>
             <div class="zune-diff-summary">
                 <span class="zune-diff-stat" id="zune-diff-matched">0 matched</span>
                 <span class="zune-diff-stat zune-diff-stat-push" id="zune-diff-local-only">0 to sync</span>
@@ -324,6 +329,7 @@
             <div class="zune-diff-actions" id="zune-diff-actions" style="display:none">
                 <button class="zune-sync-btn zune-push-btn" id="zune-push-btn">sync to device</button>
                 <button class="zune-sync-btn zune-pull-btn" id="zune-pull-btn">copy to computer</button>
+                <button class="zune-sync-btn zune-diff-delete-btn" id="zune-diff-delete-btn">delete from device</button>
             </div>
         </div>
 

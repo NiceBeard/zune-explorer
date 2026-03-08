@@ -8,6 +8,7 @@ class ZuneSyncPanel {
         this.browseData = null;
         this.selectedHandles = new Set();
         this.deleteConfirmTimer = null;
+        this.diffDeleteConfirmTimer = null;
 
         // Cache + diff state
         this.deviceKey = null;
@@ -15,6 +16,7 @@ class ZuneSyncPanel {
         this.diffResult = null;
         this.diffTab = 'local-only';
         this.diffGroupBy = 'all';            // 'all' | 'album' | 'artist'
+        this.diffCategory = 'music';              // 'music' | 'videos' | 'pictures'
         this.collapsedGroups = new Set();     // keys of collapsed group headers
         this.diffSelectedPaths = new Set();   // local-only selected paths
         this.diffSelectedHandles = new Set(); // device-only selected handles
@@ -170,6 +172,35 @@ class ZuneSyncPanel {
             });
         });
 
+        // Diff category tabs
+        document.querySelectorAll('.zune-diff-category-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                this.diffCategory = tab.dataset.category;
+                document.querySelectorAll('.zune-diff-category-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                this.diffTab = 'local-only';
+                document.querySelectorAll('.zune-diff-tab').forEach(t => t.classList.remove('active'));
+                document.querySelector('.zune-diff-tab[data-diff="local-only"]').classList.add('active');
+                this.diffSelectedPaths.clear();
+                this.diffSelectedHandles.clear();
+                this.diffGroupBy = 'all';
+                document.querySelectorAll('.zune-diff-group-btn').forEach(b => b.classList.remove('active'));
+                document.querySelector('.zune-diff-group-btn[data-group="all"]').classList.add('active');
+                this.collapsedGroups.clear();
+                this.diffFilterQuery = '';
+                document.getElementById('zune-diff-filter-input').value = '';
+                document.getElementById('zune-diff-filter-clear').style.display = 'none';
+                if (this.diffDeleteConfirmTimer) {
+                    clearTimeout(this.diffDeleteConfirmTimer);
+                    this.diffDeleteConfirmTimer = null;
+                }
+                document.getElementById('zune-diff-delete-btn').classList.remove('confirm');
+                this._computeDiff();
+                this._renderDiffSummary();
+                this._renderDiffList();
+            });
+        });
+
         // Group-by buttons
         document.querySelectorAll('.zune-diff-group-btn').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -227,6 +258,11 @@ class ZuneSyncPanel {
         // Pull (copy to computer)
         document.getElementById('zune-pull-btn').addEventListener('click', () => {
             this._pullFromDevice();
+        });
+
+        // Delete from device (diff view)
+        document.getElementById('zune-diff-delete-btn').addEventListener('click', () => {
+            this._deleteFromDevice();
         });
 
         // Rescan device
@@ -674,6 +710,11 @@ class ZuneSyncPanel {
         document.querySelectorAll('.zune-diff-group-btn').forEach(b => b.classList.remove('active'));
         document.querySelector('.zune-diff-group-btn[data-group="all"]').classList.add('active');
 
+        // Reset category tab state
+        this.diffCategory = 'music';
+        document.querySelectorAll('.zune-diff-category-tab').forEach(t => t.classList.remove('active'));
+        document.querySelector('.zune-diff-category-tab[data-category="music"]').classList.add('active');
+
         document.getElementById('zune-sync-idle').style.display = 'none';
         document.getElementById('zune-scan-progress').style.display = 'none';
         document.getElementById('zune-browse-view').style.display = 'none';
@@ -699,6 +740,7 @@ class ZuneSyncPanel {
 
     _enrichDeviceArt() {
         if (!this.diffResult) return;
+        if (this.diffCategory !== 'music') return;
         const albums = this.explorer.musicLibrary.albums;
         // Build a lookup by normalized album name for fuzzy matching
         const artByAlbum = new Map();
@@ -985,6 +1027,14 @@ class ZuneSyncPanel {
 
     // ---- Diff Engine ----
     _computeDiff() {
+        if (this.diffCategory === 'music') {
+            this._computeMusicDiff();
+        } else {
+            this._computeMediaDiff(this.diffCategory);
+        }
+    }
+
+    _computeMusicDiff() {
         const localTracks = this.explorer.musicLibrary.tracks; // Map: path -> trackInfo
         const deviceTracks = (this.browseData && this.browseData.music) || [];
 
@@ -1072,6 +1122,49 @@ class ZuneSyncPanel {
         this.diffResult = { matched, localOnly, deviceOnly };
     }
 
+    _computeMediaDiff(category) {
+        const localFiles = this.explorer.categorizedFiles[category] || [];
+        const deviceFiles = (this.browseData && this.browseData[category]) || [];
+
+        const matched = [];
+        const localOnly = [];
+        const deviceOnly = [];
+
+        // Filename-only matching for videos/pictures
+        const localByFilename = new Map();
+        for (const file of localFiles) {
+            const basename = (file.name || file.path.split(/[/\\]/).pop()).toLowerCase();
+            localByFilename.set(basename, file);
+        }
+
+        const matchedLocalFilenames = new Set();
+        const matchedDeviceFilenames = new Set();
+
+        for (const item of deviceFiles) {
+            const fn = (item.filename || '').toLowerCase();
+            if (localByFilename.has(fn) && !matchedLocalFilenames.has(fn)) {
+                matched.push({ local: localByFilename.get(fn), device: item });
+                matchedLocalFilenames.add(fn);
+                matchedDeviceFilenames.add(fn);
+            }
+        }
+
+        for (const [fn, file] of localByFilename) {
+            if (!matchedLocalFilenames.has(fn)) {
+                localOnly.push(file);
+            }
+        }
+
+        for (const item of deviceFiles) {
+            const fn = (item.filename || '').toLowerCase();
+            if (!matchedDeviceFilenames.has(fn)) {
+                deviceOnly.push(item);
+            }
+        }
+
+        this.diffResult = { matched, localOnly, deviceOnly };
+    }
+
     _renderDiffSummary() {
         if (!this.diffResult) return;
 
@@ -1088,6 +1181,7 @@ class ZuneSyncPanel {
         const actionsEl = document.getElementById('zune-diff-actions');
         const pushBtn = document.getElementById('zune-push-btn');
         const pullBtn = document.getElementById('zune-pull-btn');
+        const deleteBtn = document.getElementById('zune-diff-delete-btn');
 
         listEl.textContent = '';
 
@@ -1109,28 +1203,31 @@ class ZuneSyncPanel {
             showCheckboxes = true;
             pushBtn.style.display = 'block';
             pullBtn.style.display = 'none';
+            deleteBtn.style.display = 'none';
             actionsEl.style.display = items.length > 0 ? 'flex' : 'none';
         } else if (this.diffTab === 'device-only') {
             items = this.diffResult.deviceOnly;
             showCheckboxes = true;
             pushBtn.style.display = 'none';
             pullBtn.style.display = 'block';
+            deleteBtn.style.display = 'block';
             actionsEl.style.display = items.length > 0 ? 'flex' : 'none';
         } else {
             items = this.diffResult.matched;
             showCheckboxes = false;
+            deleteBtn.style.display = 'none';
             actionsEl.style.display = 'none';
         }
 
         // Apply filter
-        const groupBy = showCheckboxes ? (this.diffGroupBy || 'all') : 'all';
+        const groupBy = (showCheckboxes && this.diffCategory === 'music') ? (this.diffGroupBy || 'all') : 'all';
         const filteredItems = this._getFilteredItems(items, groupBy);
 
         // Show/hide select-all and group bar based on checkbox mode
         const selectAllEl = document.getElementById('zune-diff-select-all');
         const groupBar = document.getElementById('zune-diff-group-bar');
         selectAllEl.style.display = showCheckboxes ? 'flex' : 'none';
-        groupBar.style.display = showCheckboxes ? 'flex' : 'none';
+        groupBar.style.display = (showCheckboxes && this.diffCategory === 'music') ? 'flex' : 'none';
         document.getElementById('zune-diff-filter').style.display = 'flex';
 
         if (filteredItems.length === 0) {
@@ -1139,11 +1236,11 @@ class ZuneSyncPanel {
             if (this.diffFilterQuery) {
                 emptyDiv.textContent = 'no matches';
             } else if (this.diffTab === 'local-only') {
-                emptyDiv.textContent = 'all local music is on the device';
+                emptyDiv.textContent = `all local ${this.diffCategory} on the device`;
             } else if (this.diffTab === 'device-only') {
-                emptyDiv.textContent = 'all device music is on the computer';
+                emptyDiv.textContent = `all device ${this.diffCategory} on the computer`;
             } else {
-                emptyDiv.textContent = 'no matched tracks';
+                emptyDiv.textContent = 'no matched files';
             }
             listEl.appendChild(emptyDiv);
             this._updateSelectAllState(filteredItems);
@@ -1343,24 +1440,33 @@ class ZuneSyncPanel {
         const titleSpan = document.createElement('span');
         titleSpan.className = 'zune-diff-title';
         if (this.diffTab === 'matched') {
-            titleSpan.textContent = item.local?.title || item.device?.title || item.device?.filename || '?';
+            titleSpan.textContent = item.local?.title || item.local?.name || item.device?.title || item.device?.filename || '?';
         } else {
-            titleSpan.textContent = item.title || item.filename || '?';
+            titleSpan.textContent = item.title || item.name || item.filename || '?';
         }
         infoDiv.appendChild(titleSpan);
 
         const metaSpan = document.createElement('span');
         metaSpan.className = 'zune-diff-meta';
-        if (this.diffTab === 'matched') {
-            const parts = [];
-            if (item.local?.artist) parts.push(item.local.artist);
-            if (item.local?.album) parts.push(item.local.album);
-            metaSpan.textContent = parts.join(' \u2014 ');
+        if (this.diffCategory === 'music') {
+            if (this.diffTab === 'matched') {
+                const parts = [];
+                if (item.local?.artist) parts.push(item.local.artist);
+                if (item.local?.album) parts.push(item.local.album);
+                metaSpan.textContent = parts.join(' \u2014 ');
+            } else {
+                const parts = [];
+                if (item.artist) parts.push(item.artist);
+                if (item.album) parts.push(item.album);
+                metaSpan.textContent = parts.join(' \u2014 ');
+            }
         } else {
-            const parts = [];
-            if (item.artist) parts.push(item.artist);
-            if (item.album) parts.push(item.album);
-            metaSpan.textContent = parts.join(' \u2014 ');
+            const size = item.size || item.device?.size || item.local?.size || 0;
+            if (size > 0) {
+                metaSpan.textContent = this._formatSize(size);
+            } else {
+                metaSpan.textContent = item.filename || item.device?.filename || '';
+            }
         }
         if (metaSpan.textContent) infoDiv.appendChild(metaSpan);
 
@@ -1380,7 +1486,7 @@ class ZuneSyncPanel {
                 || (loc.album || dev.album || '').toLowerCase().includes(q);
         }
 
-        return (item.title || item.filename || '').toLowerCase().includes(q)
+        return (item.title || item.name || item.filename || '').toLowerCase().includes(q)
             || (item.artist || '').toLowerCase().includes(q)
             || (item.album || '').toLowerCase().includes(q);
     }
@@ -1484,7 +1590,8 @@ class ZuneSyncPanel {
         if (!items || items.length === 0) {
             checkbox.checked = false;
             checkbox.indeterminate = false;
-            label.textContent = 'select all (0 tracks)';
+            const emptyNoun = this.diffCategory === 'music' ? 'tracks' : 'files';
+            label.textContent = `select all (0 ${emptyNoun})`;
             return;
         }
 
@@ -1494,27 +1601,39 @@ class ZuneSyncPanel {
         checkbox.indeterminate = someSelected && !allSelected;
 
         const count = items.length;
+        const noun = this.diffCategory === 'music' ? 'track' : 'file';
         if (allSelected) {
-            label.textContent = `deselect all (${count} track${count !== 1 ? 's' : ''})`;
+            label.textContent = `deselect all (${count} ${noun}${count !== 1 ? 's' : ''})`;
         } else {
-            label.textContent = `select all (${count} track${count !== 1 ? 's' : ''})`;
+            label.textContent = `select all (${count} ${noun}${count !== 1 ? 's' : ''})`;
         }
     }
 
     _updateDiffActionButton() {
         const pushBtn = document.getElementById('zune-push-btn');
         const pullBtn = document.getElementById('zune-pull-btn');
+        const deleteBtn = document.getElementById('zune-diff-delete-btn');
+        const noun = this.diffCategory === 'music' ? 'tracks' : 'files';
 
         if (this.diffTab === 'local-only') {
             pushBtn.textContent = this.diffSelectedPaths.size > 0
                 ? `sync ${this.diffSelectedPaths.size} to device`
-                : 'select tracks to sync';
+                : `select ${noun} to sync`;
             pushBtn.disabled = this.diffSelectedPaths.size === 0;
         } else if (this.diffTab === 'device-only') {
             pullBtn.textContent = this.diffSelectedHandles.size > 0
                 ? `copy ${this.diffSelectedHandles.size} to computer`
-                : 'select tracks to copy';
+                : `select ${noun} to copy`;
             pullBtn.disabled = this.diffSelectedHandles.size === 0;
+            deleteBtn.textContent = this.diffSelectedHandles.size > 0
+                ? `delete ${this.diffSelectedHandles.size} from device`
+                : `select ${noun} to delete`;
+            deleteBtn.disabled = this.diffSelectedHandles.size === 0;
+            deleteBtn.classList.remove('confirm');
+            if (this.diffDeleteConfirmTimer) {
+                clearTimeout(this.diffDeleteConfirmTimer);
+                this.diffDeleteConfirmTimer = null;
+            }
         }
     }
 
@@ -1530,19 +1649,28 @@ class ZuneSyncPanel {
 
         // After transfer, update cache by merging pushed items
         if (this.deviceKey && this.browseData) {
-            // Add pushed tracks to device-side browse data
+            const category = this.diffCategory;
             for (const p of paths) {
-                const track = this.explorer.musicLibrary.tracks.get(p);
-                if (track) {
-                    const filename = p.split(/[/\\]/).pop();
-                    this.browseData.music.push({
-                        handle: 0, // unknown until rescan
+                const filename = p.split(/[/\\]/).pop();
+                if (category === 'music') {
+                    const track = this.explorer.musicLibrary.tracks.get(p);
+                    if (track) {
+                        this.browseData.music.push({
+                            handle: 0,
+                            filename,
+                            title: track.title,
+                            artist: track.artist,
+                            album: track.album,
+                            albumArt: track.albumArt,
+                            size: 0,
+                        });
+                    }
+                } else {
+                    this.browseData[category].push({
+                        handle: 0,
                         filename,
-                        title: track.title,
-                        artist: track.artist,
-                        album: track.album,
-                        albumArt: track.albumArt,
                         size: 0,
+                        format: 0,
                     });
                 }
             }
@@ -1569,13 +1697,13 @@ class ZuneSyncPanel {
     async _pullFromDevice() {
         if (this.diffSelectedHandles.size === 0) return;
 
-        const handles = Array.from(this.diffSelectedHandles);
-        this.diffSelectedHandles.clear();
-
-        // Ask user where to save
+        // Ask user where to save before clearing selection
         const destResult = await window.electronAPI.pickPullDestination();
         if (!destResult.success) return;
-        const musicDir = destResult.path;
+
+        const handles = Array.from(this.diffSelectedHandles);
+        this.diffSelectedHandles.clear();
+        const destDir = destResult.path;
 
         const pullBtn = document.getElementById('zune-pull-btn');
         pullBtn.textContent = `copying 0 of ${handles.length}...`;
@@ -1583,23 +1711,23 @@ class ZuneSyncPanel {
 
         let pulled = 0;
         const pulledFiles = [];
+        const category = this.diffCategory;
+        const deviceItems = (this.browseData && this.browseData[category]) || [];
 
         for (const handle of handles) {
-            // Find the device item for this handle
-            const deviceItem = this.browseData.music.find(i => i.handle === handle);
+            const deviceItem = deviceItems.find(i => i.handle === handle);
             if (!deviceItem) continue;
 
-            const filename = deviceItem.filename || `track_${handle}.mp3`;
-            // Pass device metadata so the main process can embed it during conversion
-            const metadata = {
+            const filename = deviceItem.filename || `file_${handle}`;
+            const metadata = category === 'music' ? {
                 title: deviceItem.title || null,
                 artist: deviceItem.artist || null,
                 album: deviceItem.album || null,
                 genre: deviceItem.genre || null,
                 trackNumber: deviceItem.trackNumber || null,
                 albumArt: deviceItem.albumArt || null,
-            };
-            const result = await window.electronAPI.zunePullFile(handle, filename, musicDir, metadata);
+            } : {};
+            const result = await window.electronAPI.zunePullFile(handle, filename, destDir, metadata);
 
             if (result.success) {
                 pulled++;
@@ -1611,12 +1739,11 @@ class ZuneSyncPanel {
         pullBtn.textContent = `${pulled} files copied`;
         pullBtn.disabled = false;
 
-        // Re-scan pulled files into local music library
+        // Add pulled files to local categorized files
         if (pulledFiles.length > 0) {
-            // Add to categorized files
             for (const fp of pulledFiles) {
                 const ext = fp.split('.').pop().toLowerCase();
-                this.explorer.categorizedFiles.music.push({
+                this.explorer.categorizedFiles[category].push({
                     path: fp,
                     name: fp.split(/[/\\]/).pop(),
                     extension: '.' + ext,
@@ -1625,14 +1752,95 @@ class ZuneSyncPanel {
                     isDirectory: false,
                 });
             }
-            // Trigger metadata scan for pulled files
-            await window.electronAPI.batchScanAudioMetadata(pulledFiles, { includeArt: true });
+            // Trigger metadata scan only for music
+            if (category === 'music') {
+                await window.electronAPI.batchScanAudioMetadata(pulledFiles, { includeArt: true });
+            }
         }
 
         // Re-compute diff
         this._computeDiff();
         this._renderDiffSummary();
         this._renderDiffList();
+    }
+
+    // ---- Delete from device (diff view) ----
+    async _deleteFromDevice() {
+        const deleteBtn = document.getElementById('zune-diff-delete-btn');
+        const count = this.diffSelectedHandles.size;
+
+        if (count === 0) return;
+
+        // Confirm-on-second-click pattern
+        if (!deleteBtn.classList.contains('confirm')) {
+            deleteBtn.classList.add('confirm');
+            deleteBtn.textContent = `confirm: delete ${count} file${count !== 1 ? 's' : ''}?`;
+
+            if (this.diffDeleteConfirmTimer) clearTimeout(this.diffDeleteConfirmTimer);
+            this.diffDeleteConfirmTimer = setTimeout(() => {
+                deleteBtn.classList.remove('confirm');
+                this._updateDiffActionButton();
+                this.diffDeleteConfirmTimer = null;
+            }, 3000);
+            return;
+        }
+
+        // Confirmed — execute delete
+        if (this.diffDeleteConfirmTimer) {
+            clearTimeout(this.diffDeleteConfirmTimer);
+            this.diffDeleteConfirmTimer = null;
+        }
+
+        const handles = Array.from(this.diffSelectedHandles);
+        this.diffSelectedHandles.clear();
+
+        deleteBtn.textContent = 'deleting...';
+        deleteBtn.classList.remove('confirm');
+        deleteBtn.disabled = true;
+
+        try {
+            const result = await window.electronAPI.zuneDeleteObjects(handles);
+
+            if (result.success && result.storage) {
+                this._updateStorage(result.storage);
+            }
+
+            // Remove deleted items from browseData
+            if (result.success && this.browseData) {
+                const deletedSet = new Set(handles);
+                if (result.errors) {
+                    for (const err of result.errors) {
+                        deletedSet.delete(err.handle);
+                    }
+                }
+                for (const cat of ['music', 'videos', 'pictures']) {
+                    this.browseData[cat] = this.browseData[cat].filter(
+                        item => !deletedSet.has(item.handle)
+                    );
+                }
+            }
+
+            // Update cache
+            if (this.deviceKey && this.browseData) {
+                await window.electronAPI.zuneCacheSave(this.deviceKey, {
+                    model: this.cachedData?.model || this.lastStatus?.model || 'Zune',
+                    scanDurationMs: this.cachedData?.scanDurationMs || 0,
+                    counts: {
+                        music: this.browseData.music?.length || 0,
+                        videos: this.browseData.videos?.length || 0,
+                        pictures: this.browseData.pictures?.length || 0,
+                    },
+                    contents: this.browseData,
+                });
+            }
+        } catch (e) {
+            console.error('Delete from device failed:', e);
+        } finally {
+            this._computeDiff();
+            this._computeStorageBreakdown();
+            this._renderDiffSummary();
+            this._renderDiffList();
+        }
     }
 
     _formatSize(bytes) {

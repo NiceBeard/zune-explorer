@@ -1963,6 +1963,38 @@ body.platform-win32 .now-playing-panel {
     color: var(--zune-magenta);
 }
 
+.zune-diff-category-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    margin-bottom: 12px;
+    flex-shrink: 0;
+}
+
+.zune-diff-category-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: rgba(255, 255, 255, 0.25);
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    letter-spacing: 3px;
+    padding: 12px 24px;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+    text-transform: uppercase;
+}
+
+.zune-diff-category-tab:hover {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.zune-diff-category-tab.active {
+    color: var(--zune-text);
+    border-bottom-color: var(--zune-orange);
+}
+
 .zune-diff-tabs {
     display: flex;
     gap: 0;
@@ -2113,6 +2145,19 @@ body.platform-win32 .now-playing-panel {
 
 .zune-pull-btn:hover:not(:disabled) {
     color: #ff3388 !important;
+}
+
+.zune-diff-delete-btn {
+    color: #ff3333 !important;
+}
+
+.zune-diff-delete-btn:hover:not(:disabled) {
+    color: #ff5555 !important;
+}
+
+.zune-diff-delete-btn.confirm {
+    color: #ff3333 !important;
+    background: rgba(255, 51, 51, 0.1);
 }
 
 .zune-diff-footer {
