@@ -3917,8 +3917,11 @@ class ZuneExplorer {
                     this.renderMusicView();
                 });
                 tile.addEventListener('contextmenu', (e) => {
-                    e.preventDefault();
-                    this.showMetadataLookup(album.name, album.artist);
+                    const files = album.tracks.map(t => this.getTrackFile(t));
+                    this.showMusicItemContextMenu(e, files, [
+                        { label: 'Look up metadata', action: () => this.showMetadataLookup(album.name, album.artist) },
+                        { label: 'Pin to sidebar', action: () => this.pinMusicItem('album', { label: album.name, meta: { albumKey: album.key, category: 'music' } }) },
+                    ]);
                 });
                 grid.appendChild(tile);
             }
