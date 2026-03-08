@@ -1867,6 +1867,8 @@ class ZuneExplorer {
         };
         this.recentFiles = [];
         this.pinnedItems = [];
+        this.playlists = [];
+        this.nowPlaying = { tracks: [], currentIndex: 0 };
         this.fileExtensions = {
             music: ['.mp3', '.wav', '.m4a', '.flac', '.aac', '.ogg', '.wma'],
             videos: ['.mp4', '.mov', '.avi', '.mkv', '.wmv', '.flv', '.webm', '.m4v'],
@@ -1900,7 +1902,7 @@ class ZuneExplorer {
             sortedArtists: [],
             sortedGenres: [],
         };
-        this.musicSubView = 'albums';  // 'albums' | 'artists' | 'songs' | 'genres'
+        this.musicSubView = 'albums';  // 'albums' | 'artists' | 'songs' | 'genres' | 'playlists'
         this.musicDrillDown = null;    // null | { type: 'album', key } | { type: 'artist', name }
 
         this.init();
@@ -1946,6 +1948,8 @@ class ZuneExplorer {
         await this.loadRecentFiles();
         this.updateRecentFiles();
         await this.loadPins();
+        await this.loadPlaylists();
+        await this.loadNowPlaying();
         this.setupEventListeners();
         this.setupKeyboardNavigation();
         this.focusMenu();
@@ -2906,6 +2910,22 @@ class ZuneExplorer {
         await window.electronAPI.pinsSave(this.pinnedItems);
     }
 
+    // --- Playlists ---
+
+    async loadPlaylists() {
+        const result = await window.electronAPI.playlistsLoadAll();
+        if (result.success) {
+            this.playlists = result.data;
+        }
+    }
+
+    async loadNowPlaying() {
+        const result = await window.electronAPI.nowPlayingLoad();
+        if (result.success) {
+            this.nowPlaying = result.data;
+        }
+    }
+
     updatePinnedPanel() {
         const section = document.getElementById('pinned-section');
         const container = document.getElementById('pinned-files');
@@ -3639,7 +3659,7 @@ class ZuneExplorer {
         // Sub-tabs
         const tabs = document.createElement('div');
         tabs.className = 'music-sub-tabs';
-        const tabNames = ['albums', 'artists', 'songs', 'genres'];
+        const tabNames = ['albums', 'artists', 'songs', 'genres', 'playlists'];
         tabNames.forEach(name => {
             const tab = document.createElement('button');
             tab.className = 'music-sub-tab' + (this.musicSubView === name ? ' active' : '');
@@ -3690,6 +3710,7 @@ class ZuneExplorer {
             case 'artists': this.renderMusicArtistsView(container); break;
             case 'songs': this.renderMusicSongsView(container); break;
             case 'genres': this.renderMusicGenresView(container); break;
+            case 'playlists': this.renderMusicPlaylistsView(container); break;
         }
     }
 
@@ -4007,6 +4028,14 @@ class ZuneExplorer {
             list.appendChild(row);
         }
         container.appendChild(list);
+    }
+
+    renderMusicPlaylistsView(container) {
+        this.clearElement(container);
+        const msg = document.createElement('div');
+        msg.style.cssText = 'color: var(--zune-text-dim); padding: 20px;';
+        msg.textContent = 'Playlists coming soon';
+        container.appendChild(msg);
     }
 
     // ========================================
