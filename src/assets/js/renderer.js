@@ -3008,9 +3008,62 @@ class ZuneExplorer {
     }
 
     showPinContextMenu(e, pin) {
-        e.preventDefault();
-        e.stopPropagation();
-        // Will be implemented in Task 3 with dynamic context menu
+        this.showDynamicContextMenu(e, [
+            { label: 'Unpin', action: () => {
+                this.pinnedItems = this.pinnedItems.filter(p => p.id !== pin.id);
+                this.savePins();
+                this.updatePinnedPanel();
+            }},
+        ]);
+    }
+
+    async pinItem(file) {
+        const category = this.getFileCategory(file);
+        const pin = {
+            id: crypto.randomUUID(),
+            type: file.isDirectory ? 'folder' : 'file',
+            label: file.name,
+            path: file.path,
+            meta: { category },
+            createdAt: new Date().toISOString(),
+        };
+
+        if (this.pinnedItems.some(p => p.path === pin.path)) return;
+
+        this.pinnedItems.push(pin);
+        await this.savePins();
+        this.updatePinnedPanel();
+    }
+
+    async unpinItem(path) {
+        this.pinnedItems = this.pinnedItems.filter(p => p.path !== path);
+        await this.savePins();
+        this.updatePinnedPanel();
+    }
+
+    async pinMusicItem(type, data) {
+        const pin = {
+            id: crypto.randomUUID(),
+            type,
+            label: data.label,
+            path: null,
+            meta: data.meta,
+            createdAt: new Date().toISOString(),
+        };
+
+        const isDuplicate = this.pinnedItems.some(p => {
+            if (p.type !== type) return false;
+            if (type === 'album') return p.meta.albumKey === data.meta.albumKey;
+            if (type === 'artist') return p.meta.artistName === data.meta.artistName;
+            if (type === 'genre') return p.meta.genreName === data.meta.genreName;
+            if (type === 'playlist') return p.meta.playlistId === data.meta.playlistId;
+            return false;
+        });
+        if (isDuplicate) return;
+
+        this.pinnedItems.push(pin);
+        await this.savePins();
+        this.updatePinnedPanel();
     }
 
     // --- End Pins ---
@@ -4444,31 +4497,65 @@ class ZuneExplorer {
     showContextMenu(e, file) {
         e.preventDefault();
         e.stopPropagation();
-        
         this.selectedFile = file;
-        const contextMenu = document.getElementById('context-menu');
-        
-        // Position the context menu
-        const x = e.clientX;
-        const y = e.clientY;
-        
-        contextMenu.style.left = `${x}px`;
-        contextMenu.style.top = `${y}px`;
-        contextMenu.style.display = 'block';
-        
-        // Adjust position if menu goes off screen
-        const rect = contextMenu.getBoundingClientRect();
-        if (rect.right > window.innerWidth) {
-            contextMenu.style.left = `${x - rect.width}px`;
-        }
-        if (rect.bottom > window.innerHeight) {
-            contextMenu.style.top = `${y - rect.height}px`;
+
+        const items = [
+            { label: 'Open', action: () => this.handleContextMenuAction({ target: { dataset: { action: 'open' } } }) },
+            { label: 'Show in Finder', action: () => this.handleContextMenuAction({ target: { dataset: { action: 'show-in-folder' } } }) },
+        ];
+
+        // Zune send option
+        if (this.zunePanel && this.zunePanel.state === 'connected') {
+            items.push({ label: 'Send to Zune', action: () => this.handleContextMenuAction({ target: { dataset: { action: 'send-to-zune' } } }) });
         }
 
-        const sendToZune = document.getElementById('ctx-send-to-zune');
-        if (sendToZune) {
-            sendToZune.style.display = (this.zunePanel && this.zunePanel.state === 'connected') ? 'block' : 'none';
-        }
+        items.push({ separator: true });
+
+        // Pin/Unpin
+        const isPinned = this.pinnedItems.some(p => p.path === file.path);
+        items.push({
+            label: isPinned ? 'Unpin from sidebar' : 'Pin to sidebar',
+            action: () => isPinned ? this.unpinItem(file.path) : this.pinItem(file),
+        });
+
+        items.push({ separator: true });
+        items.push({ label: 'Delete', action: () => this.handleContextMenuAction({ target: { dataset: { action: 'delete' } } }) });
+
+        this.showDynamicContextMenu(e, items);
+    }
+
+    showDynamicContextMenu(e, items) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const menu = document.getElementById('context-menu');
+        this.clearElement(menu);
+
+        items.forEach(item => {
+            if (item.separator) {
+                const sep = document.createElement('div');
+                sep.className = 'context-menu-separator';
+                menu.appendChild(sep);
+                return;
+            }
+            const btn = document.createElement('button');
+            btn.className = 'context-menu-item';
+            btn.textContent = item.label;
+            btn.addEventListener('click', () => {
+                item.action();
+                this.hideContextMenu();
+            });
+            menu.appendChild(btn);
+        });
+
+        menu.style.left = `${e.clientX}px`;
+        menu.style.top = `${e.clientY}px`;
+        menu.style.display = 'block';
+
+        // Adjust if off-screen
+        const rect = menu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) menu.style.left = `${e.clientX - rect.width}px`;
+        if (rect.bottom > window.innerHeight) menu.style.top = `${e.clientY - rect.height}px`;
     }
 
     hideContextMenu() {
