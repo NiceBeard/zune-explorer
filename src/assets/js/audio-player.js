@@ -64,7 +64,18 @@ class AudioPlayer {
       this.emit('play');
     } catch (error) {
       console.error('Error loading track:', error);
-      this.emit('error', error);
+      const ext = (file.path || '').split('.').pop().toLowerCase();
+      const mediaError = this.audio.error;
+      let message;
+      if (mediaError && mediaError.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+        message = `unable to play .${ext} files on this platform`;
+      } else if (mediaError && mediaError.code === MediaError.MEDIA_ERR_DECODE) {
+        message = `unable to decode .${ext} file`;
+      } else {
+        message = `unable to play: ${file.name || file.title || ext}`;
+      }
+      this.isPlaying = false;
+      this.emit('playbackerror', { file, message });
     }
   }
 

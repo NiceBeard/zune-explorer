@@ -1866,6 +1866,9 @@ class ZuneExplorer {
             applications: []
         };
         this.recentFiles = [];
+        this.pinnedItems = [];
+        this.playlists = [];
+        this.nowPlaying = { tracks: [], currentIndex: 0 };
         this.fileExtensions = {
             music: ['.mp3', '.wav', '.m4a', '.flac', '.aac', '.ogg', '.wma'],
             videos: ['.mp4', '.mov', '.avi', '.mkv', '.wmv', '.flv', '.webm', '.m4v'],
@@ -1899,7 +1902,7 @@ class ZuneExplorer {
             sortedArtists: [],
             sortedGenres: [],
         };
-        this.musicSubView = 'albums';  // 'albums' | 'artists' | 'songs' | 'genres'
+        this.musicSubView = 'albums';  // 'albums' | 'artists' | 'songs' | 'genres' | 'playlists'
         this.musicDrillDown = null;    // null | { type: 'album', key } | { type: 'artist', name }
 
         this.init();
@@ -1944,10 +1947,18 @@ class ZuneExplorer {
         this.updateFileCounts();
         await this.loadRecentFiles();
         this.updateRecentFiles();
+        await this.loadPins();
+        await this.loadPlaylists();
+        await this.loadNowPlaying();
         this.setupEventListeners();
         this.setupKeyboardNavigation();
         this.focusMenu();
         this.setupPlayer();
+
+        // Start music scan early so pinned album/artist art is available
+        if (this.musicLibrary.scanState === 'idle' && this.categorizedFiles.music.length > 0) {
+            this.scanMusicLibrary();
+        }
     }
 
     setupEventListeners() {
@@ -1974,10 +1985,7 @@ class ZuneExplorer {
         document.addEventListener('contextmenu', (e) => e.preventDefault());
         document.addEventListener('click', () => this.hideContextMenu());
 
-        // Context menu actions
-        document.querySelectorAll('.context-menu-item').forEach(item => {
-            item.addEventListener('click', (e) => this.handleContextMenuAction(e));
-        });
+        // Context menu actions are now handled dynamically by showDynamicContextMenu()
 
         // Mouse wheel for vertical scrolling in menu
         const menuContainer = document.querySelector('.menu-container');
@@ -2129,6 +2137,10 @@ class ZuneExplorer {
 
         // Player events
         this.audioPlayer.on('trackchange', (data) => this.onTrackChange(data));
+        this.audioPlayer.on('trackchange', ({ index }) => {
+            this.nowPlaying.currentIndex = index;
+            this.saveNowPlaying();
+        });
         this.audioPlayer.on('play', () => this.onPlayStateChange(true));
         this.audioPlayer.on('pause', () => this.onPlayStateChange(false));
         this.audioPlayer.on('timeupdate', (data) => this.onTimeUpdate(data));
@@ -2141,6 +2153,26 @@ class ZuneExplorer {
             btn.title = mode === 'one' ? 'Repeat One' : mode === 'all' ? 'Repeat All' : 'Repeat';
         });
         this.audioPlayer.on('queueend', () => this.onPlayStateChange(false));
+        this.audioPlayer.on('playbackerror', ({ message }) => this.showToast(message));
+    }
+
+    showToast(message) {
+        const existing = document.querySelector('.zune-toast');
+        if (existing) existing.remove();
+
+        const toast = document.createElement('div');
+        toast.className = 'zune-toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        // Force reflow then animate in
+        toast.offsetHeight;
+        toast.classList.add('visible');
+
+        setTimeout(() => {
+            toast.classList.remove('visible');
+            setTimeout(() => toast.remove(), 300);
+        }, 3500);
     }
 
     handleMenuKeyboard(e) {
@@ -2884,17 +2916,326 @@ class ZuneExplorer {
         div.appendChild(fileName);
         div.appendChild(fileType);
 
-        div.addEventListener('click', () => this.handleFileClick(null, file));
+        div.addEventListener('click', () => this.handleFileClick(file));
         div.addEventListener('contextmenu', (e) => this.showContextMenu(e, file));
 
         return div;
     }
 
+    // --- Pins ---
+
+    async loadPins() {
+        const result = await window.electronAPI.pinsLoad();
+        if (result.success) {
+            this.pinnedItems = result.data;
+        }
+        this.updatePinnedPanel();
+    }
+
+    async savePins() {
+        await window.electronAPI.pinsSave(this.pinnedItems);
+    }
+
+    // --- Playlists ---
+
+    async loadPlaylists() {
+        const result = await window.electronAPI.playlistsLoadAll();
+        if (result.success) {
+            this.playlists = result.data;
+        }
+    }
+
+    async loadNowPlaying() {
+        const result = await window.electronAPI.nowPlayingLoad();
+        if (result.success) {
+            this.nowPlaying = result.data;
+        }
+    }
+
+    async saveNowPlaying() {
+        await window.electronAPI.nowPlayingSave(this.nowPlaying);
+    }
+
+    // Enrich a file/track object with metadata from the music library
+    _enrichTrackData(f) {
+        const libTrack = this.musicLibrary.tracks.get(f.path);
+        return {
+            path: f.path,
+            title: f.title || (libTrack && libTrack.title) || f.name || '',
+            artist: f.artist || (libTrack && libTrack.artist) || '',
+            album: f.album || (libTrack && libTrack.album) || '',
+            duration: f.duration || (libTrack && libTrack.duration) || 0,
+        };
+    }
+
+    async playWithNowPlaying(file, queue) {
+        this.nowPlaying.tracks = queue.map(f => this._enrichTrackData(f));
+        this.nowPlaying.currentIndex = queue.findIndex(f => f.path === file.path);
+        if (this.nowPlaying.currentIndex === -1) this.nowPlaying.currentIndex = 0;
+        await this.saveNowPlaying();
+        await this.audioPlayer.play(file, queue);
+    }
+
+    async addToNowPlaying(tracks) {
+        const newTracks = tracks.map(f => this._enrichTrackData(f));
+        this.nowPlaying.tracks.push(...newTracks);
+        // Also update the audio player's live queue
+        this.audioPlayer.queue.push(...tracks);
+        await this.saveNowPlaying();
+    }
+
+    showMusicItemContextMenu(e, tracks, extraItems = []) {
+        const items = [
+            { label: 'Add to Now Playing', action: () => this.addToNowPlaying(tracks) },
+            { separator: true },
+            ...this.buildPlaylistSubmenuItems(tracks),
+        ];
+        if (extraItems.length > 0) {
+            items.push({ separator: true });
+            items.push(...extraItems);
+        }
+        this.showDynamicContextMenu(e, items);
+    }
+
+    buildPlaylistSubmenuItems(tracks) {
+        const items = [];
+        items.push({
+            label: 'New Playlist...',
+            action: () => this.createNewPlaylist(tracks),
+        });
+
+        if (this.playlists.length > 0) {
+            items.push({ separator: true });
+            [...this.playlists].sort((a, b) => a.name.localeCompare(b.name)).forEach(playlist => {
+                items.push({
+                    label: `Add to "${playlist.name}"`,
+                    action: () => this.addTracksToPlaylist(playlist.id, tracks),
+                });
+            });
+        }
+
+        return items;
+    }
+
+    async addTracksToPlaylist(playlistId, tracks) {
+        const playlist = this.playlists.find(p => p.id === playlistId);
+        if (!playlist) return;
+
+        const newTracks = tracks.map(t => {
+            const enriched = this._enrichTrackData(t);
+            return {
+                path: enriched.path,
+                title: enriched.title || t.name || '',
+                artist: enriched.artist,
+                album: enriched.album,
+                duration: enriched.duration,
+            };
+        });
+
+        // Avoid duplicates by path
+        const existingPaths = new Set(playlist.tracks.map(t => t.path));
+        const toAdd = newTracks.filter(t => !existingPaths.has(t.path));
+
+        playlist.tracks.push(...toAdd);
+        playlist.modifiedAt = new Date().toISOString();
+        await window.electronAPI.playlistSave(playlist);
+    }
+
+    updatePinnedPanel() {
+        const section = document.getElementById('pinned-section');
+        const container = document.getElementById('pinned-files');
+
+        if (this.pinnedItems.length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+
+        section.style.display = 'block';
+        this.clearElement(container);
+
+        this.pinnedItems.forEach(pin => {
+            const el = this.createPinnedElement(pin);
+            container.appendChild(el);
+        });
+    }
+
+    createPinnedElement(pin) {
+        const div = document.createElement('div');
+        div.className = 'recent-file pinned-item';
+        div.dataset.pinId = pin.id;
+
+        // Draggable for file/folder types
+        if (pin.type === 'file' || pin.type === 'folder') {
+            div.draggable = true;
+            div.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('application/x-zune-paths', JSON.stringify([pin.path]));
+                e.dataTransfer.effectAllowed = 'copy';
+            });
+        }
+
+        // Thumbnail for pictures
+        if (pin.type === 'file' && pin.meta && pin.meta.category === 'pictures') {
+            const img = document.createElement('img');
+            img.className = 'recent-file-thumb';
+            img.src = `file://${pin.path}`;
+            img.onerror = () => { img.style.display = 'none'; };
+            div.appendChild(img);
+        }
+
+        // Album art for music items (album, artist)
+        if (pin.type === 'album' && pin.meta && pin.meta.albumKey) {
+            const album = this.musicLibrary.albums.get(pin.meta.albumKey);
+            if (album && album.albumArt) {
+                const img = document.createElement('img');
+                img.className = 'recent-file-thumb';
+                img.src = album.albumArt;
+                div.appendChild(img);
+            }
+        } else if (pin.type === 'artist' && pin.meta && pin.meta.artistName) {
+            const artist = this.musicLibrary.artists.get(pin.meta.artistName);
+            if (artist && artist.albums.length > 0) {
+                // Use first album's art as artist thumbnail
+                for (const albumKey of artist.albums) {
+                    const album = this.musicLibrary.albums.get(albumKey);
+                    if (album && album.albumArt) {
+                        const img = document.createElement('img');
+                        img.className = 'recent-file-thumb';
+                        img.src = album.albumArt;
+                        div.appendChild(img);
+                        break;
+                    }
+                }
+            }
+        }
+
+        const name = document.createElement('div');
+        name.className = 'file-name';
+        name.textContent = pin.label;
+
+        const detail = document.createElement('div');
+        detail.className = 'file-details';
+        detail.textContent = pin.type;
+
+        div.appendChild(name);
+        div.appendChild(detail);
+
+        div.addEventListener('click', () => this.navigateToPin(pin));
+        div.addEventListener('contextmenu', (e) => this.showPinContextMenu(e, pin));
+
+        return div;
+    }
+
+    navigateToPin(pin) {
+        switch (pin.type) {
+            case 'file': {
+                const ext = pin.path ? '.' + pin.path.split('.').pop().toLowerCase() : '';
+                this.handleFileClick({ path: pin.path, name: pin.label, extension: ext });
+                break;
+            }
+            case 'folder':
+                this.currentCategory = pin.meta.category || 'documents';
+                this.showContent();
+                this.browsingMode = true;
+                this.currentPath = pin.path;
+                this.renderDirectoryContents();
+                break;
+            case 'album':
+                this.currentCategory = 'music';
+                this.showContent();
+                this.musicSubView = 'albums';
+                this.musicDrillDown = { type: 'album', key: pin.meta.albumKey };
+                this.renderMusicView();
+                break;
+            case 'artist':
+                this.currentCategory = 'music';
+                this.showContent();
+                this.musicSubView = 'artists';
+                this.musicDrillDown = { type: 'artist', name: pin.meta.artistName };
+                this.renderMusicView();
+                break;
+            case 'genre':
+                this.currentCategory = 'music';
+                this.showContent();
+                this.musicSubView = 'genres';
+                this.musicDrillDown = { type: 'genre', name: pin.meta.genreName };
+                this.renderMusicView();
+                break;
+            case 'playlist':
+                this.currentCategory = 'music';
+                this.showContent();
+                this.musicSubView = 'playlists';
+                this.musicDrillDown = { type: 'playlist', id: pin.meta.playlistId };
+                this.renderMusicView();
+                break;
+        }
+    }
+
+    showPinContextMenu(e, pin) {
+        this.showDynamicContextMenu(e, [
+            { label: 'Unpin', action: () => {
+                this.pinnedItems = this.pinnedItems.filter(p => p.id !== pin.id);
+                this.savePins();
+                this.updatePinnedPanel();
+            }},
+        ]);
+    }
+
+    async pinItem(file) {
+        const category = this.getFileCategory(file);
+        const pin = {
+            id: crypto.randomUUID(),
+            type: file.isDirectory ? 'folder' : 'file',
+            label: file.name,
+            path: file.path,
+            meta: { category },
+            createdAt: new Date().toISOString(),
+        };
+
+        if (this.pinnedItems.some(p => p.path === pin.path)) return;
+
+        this.pinnedItems.push(pin);
+        await this.savePins();
+        this.updatePinnedPanel();
+    }
+
+    async unpinItem(path) {
+        this.pinnedItems = this.pinnedItems.filter(p => p.path !== path);
+        await this.savePins();
+        this.updatePinnedPanel();
+    }
+
+    async pinMusicItem(type, data) {
+        const pin = {
+            id: crypto.randomUUID(),
+            type,
+            label: data.label,
+            path: null,
+            meta: data.meta,
+            createdAt: new Date().toISOString(),
+        };
+
+        const isDuplicate = this.pinnedItems.some(p => {
+            if (p.type !== type) return false;
+            if (type === 'album') return p.meta.albumKey === data.meta.albumKey;
+            if (type === 'artist') return p.meta.artistName === data.meta.artistName;
+            if (type === 'genre') return p.meta.genreName === data.meta.genreName;
+            if (type === 'playlist') return p.meta.playlistId === data.meta.playlistId;
+            return false;
+        });
+        if (isDuplicate) return;
+
+        this.pinnedItems.push(pin);
+        await this.savePins();
+        this.updatePinnedPanel();
+    }
+
+    // --- End Pins ---
+
     getFileCategory(file) {
         if (file.isApplication || file.extension === '.app') {
             return 'applications';
         }
-        
+
         const ext = file.extension.toLowerCase();
         for (const [category, extensions] of Object.entries(this.fileExtensions)) {
             if (extensions.includes(ext)) {
@@ -3029,7 +3370,7 @@ class ZuneExplorer {
         div.appendChild(fileInfo);
         
         // Event listeners
-        div.addEventListener('click', (e) => this.handleFileClick(e, file));
+        div.addEventListener('click', () => this.handleFileClick(file));
         div.addEventListener('contextmenu', (e) => this.showContextMenu(e, file));
         
         return div;
@@ -3372,14 +3713,20 @@ class ZuneExplorer {
             lib.scannedCount = data.scanned;
             this.rebuildMusicIndexes();
 
+            // Mark scan complete and refresh dependent views
+            if (data.scanned >= data.total) {
+                lib.scanState = 'complete';
+                this.applyCachedMetadata().then(() => {
+                    this.updatePinnedPanel();
+                });
+                this.promptExtensionlessFix();
+            }
+
             // Update progress UI
             const progressEl = document.getElementById('music-scan-progress');
             if (progressEl) {
                 if (data.scanned >= data.total) {
                     progressEl.style.display = 'none';
-                    lib.scanState = 'complete';
-                    this.applyCachedMetadata();
-                    this.promptExtensionlessFix();
                 } else {
                     progressEl.style.display = 'block';
                     progressEl.textContent = `scanning ${data.scanned} of ${data.total}...`;
@@ -3439,6 +3786,17 @@ class ZuneExplorer {
                 const artist = this.musicLibrary.artists.get(resolvedKey);
                 title.textContent = artist ? artist.name : 'Artist';
                 breadcrumb.textContent = 'music';
+            } else if (this.musicDrillDown.type === 'playlist') {
+                const playlist = this.playlists.find(p => p.id === this.musicDrillDown.id);
+                title.textContent = playlist ? playlist.name : 'Playlist';
+                breadcrumb.textContent = 'music';
+            } else if (this.musicDrillDown.type === 'genre') {
+                const genre = this.musicLibrary.genres.get(this.musicDrillDown.name);
+                title.textContent = genre ? genre.name : 'Genre';
+                breadcrumb.textContent = 'music';
+            } else if (this.musicDrillDown.type === 'now-playing') {
+                title.textContent = 'now playing';
+                breadcrumb.textContent = 'music';
             }
             this.renderMusicDrillDown();
             return;
@@ -3461,7 +3819,7 @@ class ZuneExplorer {
         // Sub-tabs
         const tabs = document.createElement('div');
         tabs.className = 'music-sub-tabs';
-        const tabNames = ['albums', 'artists', 'songs', 'genres'];
+        const tabNames = ['albums', 'artists', 'songs', 'genres', 'playlists'];
         tabNames.forEach(name => {
             const tab = document.createElement('button');
             tab.className = 'music-sub-tab' + (this.musicSubView === name ? ' active' : '');
@@ -3512,6 +3870,7 @@ class ZuneExplorer {
             case 'artists': this.renderMusicArtistsView(container); break;
             case 'songs': this.renderMusicSongsView(container); break;
             case 'genres': this.renderMusicGenresView(container); break;
+            case 'playlists': this.renderMusicPlaylistsView(container); break;
         }
     }
 
@@ -3529,6 +3888,17 @@ class ZuneExplorer {
             this.renderAlbumDetail(fileDisplay);
         } else if (this.musicDrillDown.type === 'artist') {
             this.renderArtistDetail(fileDisplay);
+        } else if (this.musicDrillDown.type === 'playlist') {
+            this.renderPlaylistDetail(fileDisplay, this.musicDrillDown.id);
+        } else if (this.musicDrillDown.type === 'genre') {
+            const genre = this.musicLibrary.genres.get(this.musicDrillDown.name);
+            if (genre) {
+                this.renderGenreDetail(fileDisplay, genre);
+            } else {
+                this.appendEmptyState(fileDisplay, 'genre not found');
+            }
+        } else if (this.musicDrillDown.type === 'now-playing') {
+            this.renderNowPlayingDetail(fileDisplay);
         }
     }
 
@@ -3580,8 +3950,11 @@ class ZuneExplorer {
                     this.renderMusicView();
                 });
                 tile.addEventListener('contextmenu', (e) => {
-                    e.preventDefault();
-                    this.showMetadataLookup(album.name, album.artist);
+                    const files = album.tracks.map(t => this.getTrackFile(t));
+                    this.showMusicItemContextMenu(e, files, [
+                        { label: 'Look up metadata', action: () => this.showMetadataLookup(album.name, album.artist) },
+                        { label: 'Pin to sidebar', action: () => this.pinMusicItem('album', { label: album.name, meta: { albumKey: album.key, category: 'music' } }) },
+                    ]);
                 });
                 grid.appendChild(tile);
             }
@@ -3639,7 +4012,11 @@ class ZuneExplorer {
                 row.addEventListener('click', () => {
                     const file = this.getTrackFile(track);
                     const allFiles = this.musicLibrary.sortedSongs.map(t => this.getTrackFile(t));
-                    this.audioPlayer.play(file, allFiles);
+                    this.playWithNowPlaying(file, allFiles);
+                });
+                row.addEventListener('contextmenu', (e) => {
+                    const file = this.getTrackFile(track);
+                    this.showMusicItemContextMenu(e, [file]);
                 });
                 list.appendChild(row);
             }
@@ -3701,12 +4078,20 @@ class ZuneExplorer {
                     this.renderMusicView();
                 });
                 row.addEventListener('contextmenu', (e) => {
-                    e.preventDefault();
+                    const files = [];
+                    for (const albumKey of artist.albums) {
+                        const album = this.musicLibrary.albums.get(albumKey);
+                        if (album) files.push(...album.tracks);
+                    }
+                    const extraItems = [
+                        { label: 'Pin to sidebar', action: () => this.pinMusicItem('artist', { label: artist.name, meta: { artistName: artist.name.toLowerCase(), category: 'music' } }) },
+                    ];
                     const firstAlbumKey = [...artist.albums][0];
                     const firstAlbum = firstAlbumKey ? this.musicLibrary.albums.get(firstAlbumKey) : null;
                     if (firstAlbum) {
-                        this.showMetadataLookup(firstAlbum.name, artist.name);
+                        extraItems.push({ label: 'Look up metadata', action: () => this.showMetadataLookup(firstAlbum.name, artist.name) });
                     }
+                    this.showMusicItemContextMenu(e, files, extraItems);
                 });
                 list.appendChild(row);
             }
@@ -3739,6 +4124,11 @@ class ZuneExplorer {
             row.appendChild(count);
             row.addEventListener('click', () => {
                 this.renderGenreDetail(container, genre);
+            });
+            row.addEventListener('contextmenu', (e) => {
+                this.showMusicItemContextMenu(e, genre.tracks, [
+                    { label: 'Pin to sidebar', action: () => this.pinMusicItem('genre', { label: genre.name, meta: { genreName: genre.name.toLowerCase(), category: 'music' } }) },
+                ]);
             });
             list.appendChild(row);
         }
@@ -3784,7 +4174,14 @@ class ZuneExplorer {
         const backLabel = document.createElement('span');
         backLabel.textContent = 'GENRES';
         backBtn.appendChild(backLabel);
-        backBtn.addEventListener('click', () => this.renderMusicGenresView(container));
+        backBtn.addEventListener('click', () => {
+            if (this.musicDrillDown && this.musicDrillDown.type === 'genre') {
+                this.musicDrillDown = null;
+                this.renderMusicView();
+            } else {
+                this.renderMusicGenresView(container);
+            }
+        });
         header.appendChild(backBtn);
         const title = document.createElement('div');
         title.className = 'music-genre-detail-title';
@@ -3824,11 +4221,164 @@ class ZuneExplorer {
             row.addEventListener('click', () => {
                 const file = this.getTrackFile(track);
                 const allFiles = sortedTracks.map(t => this.getTrackFile(t));
-                this.audioPlayer.play(file, allFiles);
+                this.playWithNowPlaying(file, allFiles);
+            });
+            row.addEventListener('contextmenu', (e) => {
+                const file = this.getTrackFile(track);
+                this.showMusicItemContextMenu(e, [file]);
             });
             list.appendChild(row);
         }
         container.appendChild(list);
+    }
+
+    renderMusicPlaylistsView(container) {
+        this.clearElement(container);
+
+        const list = document.createElement('div');
+        list.className = 'playlist-list';
+
+        // Now Playing — special entry at top
+        const npRow = document.createElement('div');
+        npRow.className = 'playlist-row now-playing-row';
+
+        const npInfo = document.createElement('div');
+        npInfo.className = 'playlist-info';
+
+        const npName = document.createElement('div');
+        npName.className = 'playlist-name';
+        npName.textContent = 'now playing';
+
+        const npMeta = document.createElement('div');
+        npMeta.className = 'playlist-meta';
+        const npCount = this.nowPlaying.tracks.length;
+        const npDuration = this.nowPlaying.tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
+        npMeta.textContent = `${npCount} song${npCount !== 1 ? 's' : ''} \u00b7 ${this.formatPlaylistDuration(npDuration)}`;
+
+        npInfo.appendChild(npName);
+        npInfo.appendChild(npMeta);
+        npRow.appendChild(npInfo);
+
+        npRow.addEventListener('click', () => {
+            this.musicDrillDown = { type: 'now-playing' };
+            this.renderMusicView();
+        });
+
+        list.appendChild(npRow);
+
+        // Divider
+        const divider = document.createElement('div');
+        divider.className = 'playlist-divider';
+        list.appendChild(divider);
+
+        // New Playlist button
+        const newBtn = document.createElement('div');
+        newBtn.className = 'playlist-row new-playlist-row';
+        newBtn.textContent = '+ new playlist';
+        newBtn.addEventListener('click', () => this.createNewPlaylist());
+        list.appendChild(newBtn);
+
+        // Enrich stale playlists from music library
+        this.playlists.forEach(p => this._enrichPlaylistTracks(p));
+
+        // User playlists sorted alphabetically
+        const sorted = [...this.playlists].sort((a, b) => a.name.localeCompare(b.name));
+        sorted.forEach(playlist => {
+            const row = document.createElement('div');
+            row.className = 'playlist-row';
+
+            const info = document.createElement('div');
+            info.className = 'playlist-info';
+
+            const name = document.createElement('div');
+            name.className = 'playlist-name';
+            name.textContent = playlist.name;
+
+            const meta = document.createElement('div');
+            meta.className = 'playlist-meta';
+            const count = playlist.tracks.length;
+            const duration = playlist.tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
+            meta.textContent = `${count} song${count !== 1 ? 's' : ''} \u00b7 ${this.formatPlaylistDuration(duration)}`;
+
+            info.appendChild(name);
+            info.appendChild(meta);
+            row.appendChild(info);
+
+            row.addEventListener('click', () => {
+                this.musicDrillDown = { type: 'playlist', id: playlist.id };
+                this.renderMusicView();
+            });
+
+            row.addEventListener('contextmenu', (e) => {
+                this.showDynamicContextMenu(e, [
+                    { label: 'Delete Playlist', action: () => this.deletePlaylist(playlist.id) },
+                ]);
+            });
+
+            list.appendChild(row);
+        });
+
+        container.appendChild(list);
+    }
+
+    formatPlaylistDuration(seconds) {
+        const mins = Math.round(seconds / 60);
+        if (mins < 60) return `${mins} min`;
+        const hrs = Math.floor(mins / 60);
+        const remainMins = mins % 60;
+        return `${hrs} hr ${remainMins} min`;
+    }
+
+    async createNewPlaylist(initialTracks = []) {
+        const name = await this.showPromptModal('new playlist', 'playlist name');
+        if (!name) return null;
+
+        const playlist = {
+            id: crypto.randomUUID(),
+            name: name,
+            createdAt: new Date().toISOString(),
+            modifiedAt: new Date().toISOString(),
+            tracks: initialTracks.map(t => {
+                const enriched = this._enrichTrackData(t);
+                return {
+                    path: enriched.path,
+                    title: enriched.title || t.name || '',
+                    artist: enriched.artist,
+                    album: enriched.album,
+                    duration: enriched.duration,
+                };
+            }),
+        };
+
+        this.playlists.push(playlist);
+        await window.electronAPI.playlistSave(playlist);
+
+        if (this.musicSubView === 'playlists' && !this.musicDrillDown) {
+            this.renderMusicSubContent();
+        }
+
+        return playlist;
+    }
+
+    async deletePlaylist(id) {
+        const playlist = this.playlists.find(p => p.id === id);
+        const confirmed = await this.showConfirmModal('delete playlist?', playlist ? playlist.name : '');
+        if (!confirmed) return;
+
+        this.playlists = this.playlists.filter(p => p.id !== id);
+        await window.electronAPI.playlistDelete(id);
+
+        // Remove any pins pointing to this playlist
+        this.pinnedItems = this.pinnedItems.filter(p => !(p.type === 'playlist' && p.meta.playlistId === id));
+        await this.savePins();
+        this.updatePinnedPanel();
+
+        if (this.musicSubView === 'playlists') {
+            if (this.musicDrillDown && this.musicDrillDown.id === id) {
+                this.musicDrillDown = null;
+            }
+            this.renderMusicView();
+        }
     }
 
     // ========================================
@@ -3880,7 +4430,7 @@ class ZuneExplorer {
         playAllBtn.addEventListener('click', () => {
             if (album.tracks.length > 0) {
                 const files = album.tracks.map(t => this.getTrackFile(t));
-                this.audioPlayer.play(files[0], files);
+                this.playWithNowPlaying(files[0], files);
             }
         });
         const lookupLink = document.createElement('button');
@@ -3895,6 +4445,11 @@ class ZuneExplorer {
         info.appendChild(playAllBtn);
         info.appendChild(lookupLink);
         header.appendChild(info);
+        header.addEventListener('contextmenu', (e) => {
+            this.showMusicItemContextMenu(e, album.tracks, [
+                { label: 'Pin to sidebar', action: () => this.pinMusicItem('album', { label: album.name, meta: { albumKey: album.key, category: 'music' } }) },
+            ]);
+        });
         detail.appendChild(header);
 
         // Track list
@@ -3925,7 +4480,10 @@ class ZuneExplorer {
             row.addEventListener('click', () => {
                 const file = this.getTrackFile(track);
                 const files = album.tracks.map(t => this.getTrackFile(t));
-                this.audioPlayer.play(file, files);
+                this.playWithNowPlaying(file, files);
+            });
+            row.addEventListener('contextmenu', (e) => {
+                this.showMusicItemContextMenu(e, [track]);
             });
             trackList.appendChild(row);
         });
@@ -3997,6 +4555,382 @@ class ZuneExplorer {
     }
 
     // ========================================
+    // Playlist & Now Playing Detail Views
+    // ========================================
+
+    _enrichPlaylistTracks(playlist) {
+        let changed = false;
+        for (const track of playlist.tracks) {
+            const enriched = this._enrichTrackData(track);
+            if (enriched.duration && !track.duration) {
+                track.title = enriched.title || track.title;
+                track.artist = enriched.artist || track.artist;
+                track.album = enriched.album || track.album;
+                track.duration = enriched.duration;
+                changed = true;
+            }
+        }
+        if (changed) {
+            playlist.modifiedAt = new Date().toISOString();
+            window.electronAPI.playlistSave(playlist);
+        }
+    }
+
+    renderPlaylistDetail(container, playlistId) {
+        const playlist = this.playlists.find(p => p.id === playlistId);
+        if (!playlist) return;
+
+        // Enrich stale tracks from music library
+        this._enrichPlaylistTracks(playlist);
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'playlist-detail';
+
+        // Stats + play all
+        const statsRow = document.createElement('div');
+        statsRow.className = 'playlist-stats';
+        const count = playlist.tracks.length;
+        const duration = playlist.tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
+
+        const statsText = document.createElement('span');
+        statsText.textContent = `${count} song${count !== 1 ? 's' : ''} \u00b7 ${this.formatPlaylistDuration(duration)}`;
+        statsRow.appendChild(statsText);
+
+        if (count > 0) {
+            const playAllBtn = document.createElement('button');
+            playAllBtn.className = 'music-play-all-btn';
+            playAllBtn.textContent = 'play all';
+            playAllBtn.addEventListener('click', () => {
+                const files = playlist.tracks.map(t => ({
+                    path: t.path,
+                    name: t.title,
+                    title: t.title,
+                    artist: t.artist,
+                    album: t.album,
+                    duration: t.duration,
+                    extension: '.' + (t.path || '').split('.').pop().toLowerCase(),
+                }));
+                this.playWithNowPlaying(files[0], files);
+            });
+            statsRow.appendChild(playAllBtn);
+        }
+        wrapper.appendChild(statsRow);
+
+        // Track list
+        const list = document.createElement('div');
+        list.className = 'playlist-track-list';
+
+        playlist.tracks.forEach((track, index) => {
+            const row = this.createPlaylistTrackRow(track, index, playlist);
+            list.appendChild(row);
+        });
+
+        wrapper.appendChild(list);
+        container.appendChild(wrapper);
+    }
+
+    createPlaylistTrackRow(track, index, playlist) {
+        const row = document.createElement('div');
+        row.className = 'playlist-track-row';
+        row.draggable = true;
+        row.dataset.index = index;
+
+        // Check if track file exists in music library
+        const trackExists = this.musicLibrary.tracks.has(track.path);
+        if (!trackExists) {
+            row.classList.add('playlist-track-missing');
+        }
+
+        // Drag handle
+        const handle = document.createElement('div');
+        handle.className = 'playlist-drag-handle';
+        handle.textContent = '\u2847';
+        row.appendChild(handle);
+
+        // Album art thumbnail
+        const thumb = document.createElement('div');
+        thumb.className = 'playlist-track-thumb';
+        const albumArt = this.findAlbumArtForTrack(track);
+        if (albumArt) {
+            const img = document.createElement('img');
+            img.src = albumArt;
+            img.alt = '';
+            thumb.appendChild(img);
+        }
+        row.appendChild(thumb);
+
+        // Track info
+        const info = document.createElement('div');
+        info.className = 'playlist-track-info';
+
+        const title = document.createElement('div');
+        title.className = 'playlist-track-title';
+        title.textContent = track.title || track.path.split('/').pop();
+
+        const meta = document.createElement('div');
+        meta.className = 'playlist-track-meta';
+        const parts = [track.artist, track.album].filter(Boolean);
+        meta.textContent = parts.join(' \u2013 ');
+
+        info.appendChild(title);
+        info.appendChild(meta);
+        row.appendChild(info);
+
+        // Click to play
+        row.addEventListener('click', (e) => {
+            if (e.target.closest('.playlist-drag-handle')) return;
+            const files = playlist.tracks.map(t => ({
+                path: t.path,
+                name: t.title,
+                title: t.title,
+                artist: t.artist,
+                album: t.album,
+                duration: t.duration,
+                extension: '.' + (t.path || '').split('.').pop().toLowerCase(),
+            }));
+            this.playWithNowPlaying(files[index], files);
+        });
+
+        // Right-click to remove
+        row.addEventListener('contextmenu', (e) => {
+            this.showDynamicContextMenu(e, [
+                { label: 'Remove from Playlist', action: () => {
+                    playlist.tracks.splice(index, 1);
+                    playlist.modifiedAt = new Date().toISOString();
+                    window.electronAPI.playlistSave(playlist);
+                    // Re-render the drill-down
+                    const fileDisplay = document.getElementById('file-display');
+                    this.clearElement(fileDisplay);
+                    this.renderPlaylistDetail(fileDisplay, playlist.id);
+                }},
+            ]);
+        });
+
+        // Drag-to-reorder
+        row.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', index.toString());
+            e.dataTransfer.effectAllowed = 'move';
+            row.classList.add('dragging');
+        });
+        row.addEventListener('dragend', () => row.classList.remove('dragging'));
+        row.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            row.classList.add('drag-over');
+        });
+        row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+        row.addEventListener('drop', (e) => {
+            e.preventDefault();
+            row.classList.remove('drag-over');
+            const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
+            const toIndex = index;
+            if (fromIndex === toIndex) return;
+
+            const [moved] = playlist.tracks.splice(fromIndex, 1);
+            playlist.tracks.splice(toIndex, 0, moved);
+            playlist.modifiedAt = new Date().toISOString();
+            window.electronAPI.playlistSave(playlist);
+            // Re-render
+            const fileDisplay = document.getElementById('file-display');
+            this.clearElement(fileDisplay);
+            this.renderPlaylistDetail(fileDisplay, playlist.id);
+        });
+
+        return row;
+    }
+
+    findAlbumArtForTrack(track) {
+        // Try enriching from music library if we have a path but no metadata
+        let artist = track.artist || '';
+        let album = track.album || '';
+        if (!artist && !album && track.path) {
+            const libTrack = this.musicLibrary.tracks.get(track.path);
+            if (libTrack) {
+                artist = libTrack.artist || '';
+                album = libTrack.album || '';
+            }
+        }
+        if (!artist && !album) return null;
+        const key = `${album.toLowerCase()}||${artist.toLowerCase()}`;
+        const albumObj = this.musicLibrary.albums.get(key);
+        if (albumObj && albumObj.albumArt) return albumObj.albumArt;
+        // Try matching by album name alone
+        if (album) {
+            for (const [, alb] of this.musicLibrary.albums) {
+                if (alb.name.toLowerCase() === album.toLowerCase()) {
+                    if (alb.albumArt) return alb.albumArt;
+                }
+            }
+        }
+        return null;
+    }
+
+    renderNowPlayingDetail(container) {
+        const np = this.nowPlaying;
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'playlist-detail';
+
+        // Stats + play all
+        const statsRow = document.createElement('div');
+        statsRow.className = 'playlist-stats';
+        const count = np.tracks.length;
+        const duration = np.tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
+
+        const statsText = document.createElement('span');
+        statsText.textContent = count === 0
+            ? 'empty'
+            : `${count} song${count !== 1 ? 's' : ''} \u00b7 ${this.formatPlaylistDuration(duration)}`;
+        statsRow.appendChild(statsText);
+
+        if (count > 0) {
+            const playAllBtn = document.createElement('button');
+            playAllBtn.className = 'music-play-all-btn';
+            playAllBtn.textContent = 'play all';
+            playAllBtn.addEventListener('click', () => {
+                const files = np.tracks.map(t => ({
+                    path: t.path,
+                    name: t.title,
+                    title: t.title,
+                    artist: t.artist,
+                    album: t.album,
+                    duration: t.duration,
+                    extension: '.' + (t.path || '').split('.').pop().toLowerCase(),
+                }));
+                this.playWithNowPlaying(files[0], files);
+            });
+            statsRow.appendChild(playAllBtn);
+        }
+        wrapper.appendChild(statsRow);
+
+        const list = document.createElement('div');
+        list.className = 'playlist-track-list';
+
+        np.tracks.forEach((track, index) => {
+            const row = this.createNowPlayingTrackRow(track, index);
+            list.appendChild(row);
+        });
+
+        wrapper.appendChild(list);
+        container.appendChild(wrapper);
+    }
+
+    createNowPlayingTrackRow(track, index) {
+        const row = document.createElement('div');
+        row.className = 'playlist-track-row';
+        if (index === this.nowPlaying.currentIndex) {
+            row.classList.add('now-playing-active');
+        }
+        row.draggable = true;
+        row.dataset.index = index;
+
+        // Drag handle
+        const handle = document.createElement('div');
+        handle.className = 'playlist-drag-handle';
+        handle.textContent = '\u2847';
+        row.appendChild(handle);
+
+        // Album art
+        const thumb = document.createElement('div');
+        thumb.className = 'playlist-track-thumb';
+        const albumArt = this.findAlbumArtForTrack(track);
+        if (albumArt) {
+            const img = document.createElement('img');
+            img.src = albumArt;
+            img.alt = '';
+            thumb.appendChild(img);
+        }
+        row.appendChild(thumb);
+
+        // Info
+        const info = document.createElement('div');
+        info.className = 'playlist-track-info';
+        const title = document.createElement('div');
+        title.className = 'playlist-track-title';
+        title.textContent = track.title || 'Unknown';
+        const meta = document.createElement('div');
+        meta.className = 'playlist-track-meta';
+        meta.textContent = [track.artist, track.album].filter(Boolean).join(' \u2013 ');
+        info.appendChild(title);
+        info.appendChild(meta);
+        row.appendChild(info);
+
+        // Click to play from this position
+        row.addEventListener('click', (e) => {
+            if (e.target.closest('.playlist-drag-handle')) return;
+            this.nowPlaying.currentIndex = index;
+            this.saveNowPlaying();
+            const file = { path: track.path, name: track.title, title: track.title, artist: track.artist, album: track.album, duration: track.duration };
+            const queue = this.nowPlaying.tracks.map(t => ({ path: t.path, name: t.title, title: t.title, artist: t.artist, album: t.album, duration: t.duration }));
+            this.audioPlayer.play(file, queue);
+        });
+
+        // Right-click
+        row.addEventListener('contextmenu', (e) => {
+            this.showDynamicContextMenu(e, [
+                { label: 'Remove from Now Playing', action: () => {
+                    this.nowPlaying.tracks.splice(index, 1);
+                    if (index < this.nowPlaying.currentIndex) {
+                        this.nowPlaying.currentIndex--;
+                    } else if (index === this.nowPlaying.currentIndex) {
+                        this.nowPlaying.currentIndex = this.nowPlaying.tracks.length === 0
+                            ? 0
+                            : Math.min(this.nowPlaying.currentIndex, this.nowPlaying.tracks.length - 1);
+                    }
+                    this.audioPlayer.queue = this.nowPlaying.tracks.map(t => ({ path: t.path, name: t.title, title: t.title, artist: t.artist, album: t.album, duration: t.duration }));
+                    this.audioPlayer.currentIndex = this.nowPlaying.currentIndex;
+                    this.saveNowPlaying();
+                    // Re-render
+                    const fileDisplay = document.getElementById('file-display');
+                    this.clearElement(fileDisplay);
+                    this.renderNowPlayingDetail(fileDisplay);
+                }},
+            ]);
+        });
+
+        // Drag-to-reorder
+        row.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', index.toString());
+            e.dataTransfer.effectAllowed = 'move';
+            row.classList.add('dragging');
+        });
+        row.addEventListener('dragend', () => row.classList.remove('dragging'));
+        row.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            row.classList.add('drag-over');
+        });
+        row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+        row.addEventListener('drop', (e) => {
+            e.preventDefault();
+            row.classList.remove('drag-over');
+            const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
+            const toIndex = index;
+            if (fromIndex === toIndex) return;
+
+            const [moved] = this.nowPlaying.tracks.splice(fromIndex, 1);
+            this.nowPlaying.tracks.splice(toIndex, 0, moved);
+            // Adjust currentIndex to follow the currently playing track
+            if (fromIndex === this.nowPlaying.currentIndex) {
+                this.nowPlaying.currentIndex = toIndex;
+            } else if (fromIndex < this.nowPlaying.currentIndex && toIndex >= this.nowPlaying.currentIndex) {
+                this.nowPlaying.currentIndex--;
+            } else if (fromIndex > this.nowPlaying.currentIndex && toIndex <= this.nowPlaying.currentIndex) {
+                this.nowPlaying.currentIndex++;
+            }
+            this.audioPlayer.queue = this.nowPlaying.tracks.map(t => ({ path: t.path, name: t.title, title: t.title, artist: t.artist, album: t.album, duration: t.duration }));
+            this.audioPlayer.currentIndex = this.nowPlaying.currentIndex;
+            this.saveNowPlaying();
+            // Re-render
+            const fileDisplay = document.getElementById('file-display');
+            this.clearElement(fileDisplay);
+            this.renderNowPlayingDetail(fileDisplay);
+        });
+
+        return row;
+    }
+
+    // ========================================
     // Alpha Jump
     // ========================================
 
@@ -4043,7 +4977,7 @@ class ZuneExplorer {
         document.getElementById('alpha-jump-overlay').classList.remove('open');
     }
 
-    handleFileClick(e, file) {
+    handleFileClick(file) {
         // Check if this is a music file
         if (this.fileExtensions.music.includes(file.extension)) {
             // Build queue from all music files in current view
@@ -4052,7 +4986,7 @@ class ZuneExplorer {
                 : this.categorizedFiles[this.currentCategory].filter(f =>
                     this.fileExtensions.music.includes(f.extension)
                   );
-            this.audioPlayer.play(file, queue.length > 0 ? queue : [file]);
+            this.playWithNowPlaying(file, queue.length > 0 ? queue : [file]);
         } else {
             // Open non-music files externally
             window.electronAPI.openFile(file.path);
@@ -4319,35 +5253,193 @@ class ZuneExplorer {
     showContextMenu(e, file) {
         e.preventDefault();
         e.stopPropagation();
-        
         this.selectedFile = file;
-        const contextMenu = document.getElementById('context-menu');
-        
-        // Position the context menu
-        const x = e.clientX;
-        const y = e.clientY;
-        
-        contextMenu.style.left = `${x}px`;
-        contextMenu.style.top = `${y}px`;
-        contextMenu.style.display = 'block';
-        
-        // Adjust position if menu goes off screen
-        const rect = contextMenu.getBoundingClientRect();
-        if (rect.right > window.innerWidth) {
-            contextMenu.style.left = `${x - rect.width}px`;
-        }
-        if (rect.bottom > window.innerHeight) {
-            contextMenu.style.top = `${y - rect.height}px`;
+
+        const items = [
+            { label: 'Open', action: () => this.handleContextMenuAction({ target: { dataset: { action: 'open' } } }) },
+            { label: 'Show in Finder', action: () => this.handleContextMenuAction({ target: { dataset: { action: 'show-in-folder' } } }) },
+        ];
+
+        // Zune send option
+        if (this.zunePanel && this.zunePanel.state === 'connected') {
+            items.push({ label: 'Send to Zune', action: () => this.handleContextMenuAction({ target: { dataset: { action: 'send-to-zune' } } }) });
         }
 
-        const sendToZune = document.getElementById('ctx-send-to-zune');
-        if (sendToZune) {
-            sendToZune.style.display = (this.zunePanel && this.zunePanel.state === 'connected') ? 'block' : 'none';
+        // Music file options
+        const category = this.getFileCategory(file);
+        if (category === 'music') {
+            items.push({ separator: true });
+            items.push({ label: 'Add to Now Playing', action: () => this.addToNowPlaying([file]) });
+            items.push(...this.buildPlaylistSubmenuItems([file]));
         }
+
+        items.push({ separator: true });
+
+        // Pin/Unpin
+        const isPinned = this.pinnedItems.some(p => p.path === file.path);
+        items.push({
+            label: isPinned ? 'Unpin from sidebar' : 'Pin to sidebar',
+            action: () => isPinned ? this.unpinItem(file.path) : this.pinItem(file),
+        });
+
+        items.push({ separator: true });
+        items.push({ label: 'Delete', action: () => this.handleContextMenuAction({ target: { dataset: { action: 'delete' } } }) });
+
+        this.showDynamicContextMenu(e, items);
+    }
+
+    showDynamicContextMenu(e, items) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const menu = document.getElementById('context-menu');
+        this.clearElement(menu);
+
+        items.forEach(item => {
+            if (item.separator) {
+                const sep = document.createElement('div');
+                sep.className = 'context-menu-separator';
+                menu.appendChild(sep);
+                return;
+            }
+            const btn = document.createElement('button');
+            btn.className = 'context-menu-item';
+            btn.textContent = item.label;
+            btn.addEventListener('click', () => {
+                item.action();
+                this.hideContextMenu();
+            });
+            menu.appendChild(btn);
+        });
+
+        menu.style.left = `${e.clientX}px`;
+        menu.style.top = `${e.clientY}px`;
+        menu.style.display = 'block';
+
+        // Adjust if off-screen
+        const rect = menu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) menu.style.left = `${e.clientX - rect.width}px`;
+        if (rect.bottom > window.innerHeight) menu.style.top = `${e.clientY - rect.height}px`;
     }
 
     hideContextMenu() {
         document.getElementById('context-menu').style.display = 'none';
+    }
+
+    showPromptModal(title, placeholder = '') {
+        return new Promise(resolve => {
+            const overlay = document.createElement('div');
+            overlay.className = 'zune-prompt-overlay';
+
+            const box = document.createElement('div');
+            box.className = 'zune-prompt-box';
+
+            const heading = document.createElement('div');
+            heading.className = 'zune-prompt-title';
+            heading.textContent = title;
+
+            const input = document.createElement('input');
+            input.className = 'zune-prompt-input';
+            input.type = 'text';
+            input.placeholder = placeholder;
+
+            const buttons = document.createElement('div');
+            buttons.className = 'zune-prompt-buttons';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'zune-prompt-btn';
+            cancelBtn.textContent = 'cancel';
+
+            const okBtn = document.createElement('button');
+            okBtn.className = 'zune-prompt-btn primary';
+            okBtn.textContent = 'create';
+
+            const dismiss = (value) => {
+                overlay.remove();
+                resolve(value);
+            };
+
+            cancelBtn.addEventListener('click', () => dismiss(null));
+            okBtn.addEventListener('click', () => {
+                const val = input.value.trim();
+                dismiss(val || null);
+            });
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    const val = input.value.trim();
+                    dismiss(val || null);
+                } else if (e.key === 'Escape') {
+                    dismiss(null);
+                }
+            });
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) dismiss(null);
+            });
+
+            buttons.appendChild(cancelBtn);
+            buttons.appendChild(okBtn);
+            box.appendChild(heading);
+            box.appendChild(input);
+            box.appendChild(buttons);
+            overlay.appendChild(box);
+            document.body.appendChild(overlay);
+            input.focus();
+        });
+    }
+
+    showConfirmModal(title, message) {
+        return new Promise(resolve => {
+            const overlay = document.createElement('div');
+            overlay.className = 'zune-prompt-overlay';
+
+            const box = document.createElement('div');
+            box.className = 'zune-prompt-box';
+
+            const heading = document.createElement('div');
+            heading.className = 'zune-prompt-title';
+            heading.textContent = title;
+
+            if (message) {
+                const msg = document.createElement('div');
+                msg.style.color = '#888';
+                msg.style.fontSize = '13px';
+                msg.style.marginBottom = '16px';
+                msg.textContent = message;
+                box.appendChild(heading);
+                box.appendChild(msg);
+            } else {
+                box.appendChild(heading);
+            }
+
+            const buttons = document.createElement('div');
+            buttons.className = 'zune-prompt-buttons';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'zune-prompt-btn';
+            cancelBtn.textContent = 'cancel';
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.className = 'zune-prompt-btn danger';
+            confirmBtn.textContent = 'delete';
+
+            const dismiss = (value) => {
+                overlay.remove();
+                resolve(value);
+            };
+
+            cancelBtn.addEventListener('click', () => dismiss(false));
+            confirmBtn.addEventListener('click', () => dismiss(true));
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) dismiss(false);
+            });
+
+            buttons.appendChild(cancelBtn);
+            buttons.appendChild(confirmBtn);
+            box.appendChild(buttons);
+            overlay.appendChild(box);
+            document.body.appendChild(overlay);
+            confirmBtn.focus();
+        });
     }
 
     async handleContextMenuAction(e) {

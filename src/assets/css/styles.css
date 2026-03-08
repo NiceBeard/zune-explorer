@@ -167,15 +167,24 @@ body {
     display: none;
 }
 
-.panel-header {
-    font-size: 48px;
-    font-weight: 300;
-    letter-spacing: -1px;
-    margin-bottom: 30px;
-    background: linear-gradient(135deg, var(--zune-orange) 0%, var(--zune-magenta) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+.panel-subheader {
+    font-size: 42px;
+    font-weight: 100;
+    color: rgba(255, 255, 255, 0.55);
+    padding: 15px 0 10px;
+    margin: 0;
+    text-transform: lowercase;
+    letter-spacing: 1px;
+}
+
+.pinned-section {
+    margin-bottom: 10px;
+}
+
+.pinned-scroll {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
 }
 
 .recent-content {
@@ -3251,4 +3260,289 @@ body.platform-win32 .now-playing-panel {
 
 .music-lookup-btn:hover {
     color: var(--zune-orange);
+}
+
+/* Zune Prompt / Confirm Modal */
+.zune-prompt-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.zune-prompt-box {
+    background: #111;
+    border: 1px solid rgba(255, 105, 0, 0.3);
+    border-radius: 8px;
+    width: 360px;
+    padding: 24px;
+}
+
+.zune-prompt-title {
+    font-size: 16px;
+    font-weight: 400;
+    color: #fff;
+    margin: 0 0 16px 0;
+}
+
+.zune-prompt-input {
+    width: 100%;
+    background: #000;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 14px;
+    font-family: inherit;
+    padding: 8px 12px;
+    margin-bottom: 16px;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.zune-prompt-input:focus {
+    border-color: var(--zune-orange);
+}
+
+.zune-prompt-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.zune-prompt-btn {
+    background: none;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 13px;
+    font-family: inherit;
+    padding: 6px 16px;
+    cursor: pointer;
+}
+
+.zune-prompt-btn:hover {
+    border-color: #666;
+}
+
+.zune-prompt-btn.primary {
+    background: var(--zune-orange);
+    border-color: var(--zune-orange);
+}
+
+.zune-prompt-btn.primary:hover {
+    background: #e05e00;
+    border-color: #e05e00;
+}
+
+.zune-prompt-btn.danger {
+    background: #c0392b;
+    border-color: #c0392b;
+}
+
+.zune-prompt-btn.danger:hover {
+    background: #a93226;
+    border-color: #a93226;
+}
+
+/* Toast Notification */
+.zune-toast {
+    position: fixed;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    background: #1a1a1a;
+    border: 1px solid rgba(255, 105, 0, 0.3);
+    border-radius: 6px;
+    color: #fff;
+    font-size: 13px;
+    padding: 10px 20px;
+    z-index: 3000;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none;
+}
+
+.zune-toast.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* Playlist List View */
+.playlist-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.playlist-row {
+    display: flex;
+    align-items: center;
+    padding: 14px 8px;
+    cursor: pointer;
+    transition: background 0.15s;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.playlist-row:hover {
+    background: rgba(255, 105, 0, 0.08);
+}
+
+.playlist-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.playlist-name {
+    font-size: 18px;
+    font-weight: 400;
+    color: var(--zune-text);
+}
+
+.playlist-meta {
+    font-size: 13px;
+    color: var(--zune-text-dim);
+    margin-top: 2px;
+}
+
+.now-playing-row .playlist-name {
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 22px;
+    font-weight: 100;
+    letter-spacing: 1px;
+}
+
+.playlist-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 8px 0;
+}
+
+.new-playlist-row {
+    color: var(--zune-text-dim);
+    font-size: 15px;
+    font-weight: 400;
+    letter-spacing: 0.5px;
+}
+
+.new-playlist-row:hover {
+    color: var(--zune-text);
+}
+
+/* Playlist Detail View */
+.playlist-detail {
+    padding: 0 8px;
+}
+
+.playlist-stats {
+    font-size: 14px;
+    color: var(--zune-text-dim);
+    padding: 8px 0 16px;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.playlist-stats .music-play-all-btn {
+    margin-top: 0;
+}
+
+.playlist-track-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.playlist-track-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 4px;
+    cursor: pointer;
+    transition: background 0.15s;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.playlist-track-row:hover {
+    background: rgba(255, 105, 0, 0.08);
+}
+
+.playlist-track-row.now-playing-active {
+    background: rgba(255, 105, 0, 0.05);
+}
+
+.playlist-track-row.now-playing-active .playlist-track-title {
+    color: var(--zune-orange);
+}
+
+.playlist-track-row.dragging {
+    opacity: 0.4;
+}
+
+.playlist-track-row.drag-over {
+    border-top: 2px solid var(--zune-orange);
+}
+
+.playlist-drag-handle {
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 18px;
+    cursor: grab;
+    user-select: none;
+    flex-shrink: 0;
+    width: 20px;
+    text-align: center;
+}
+
+.playlist-drag-handle:active {
+    cursor: grabbing;
+}
+
+.playlist-track-thumb {
+    width: 40px;
+    height: 40px;
+    border-radius: 3px;
+    background: #1a1a1a;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.playlist-track-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.playlist-track-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.playlist-track-title {
+    font-size: 16px;
+    font-weight: 400;
+    color: var(--zune-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.playlist-track-meta {
+    font-size: 12px;
+    color: var(--zune-text-dim);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.playlist-track-missing {
+    opacity: 0.4;
+}
+
+.playlist-track-missing .playlist-track-title {
+    text-decoration: line-through;
 }

@@ -522,6 +522,98 @@ ipcMain.handle('pick-pull-destination', async () => {
   return { success: true, path: chosen };
 });
 
+// --- Pins ---
+const pinsPath = path.join(app.getPath('userData'), 'pins.json');
+
+ipcMain.handle('pins-load', async () => {
+  try {
+    const data = await fs.readFile(pinsPath, 'utf-8');
+    return { success: true, data: JSON.parse(data) };
+  } catch {
+    return { success: true, data: [] };
+  }
+});
+
+ipcMain.handle('pins-save', async (event, pins) => {
+  try {
+    await fs.writeFile(pinsPath, JSON.stringify(pins, null, 2));
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// --- Playlists ---
+const playlistsDir = path.join(app.getPath('userData'), 'playlists');
+
+ipcMain.handle('playlists-load-all', async () => {
+  try {
+    await fs.mkdir(playlistsDir, { recursive: true });
+    const files = await fs.readdir(playlistsDir);
+    const playlists = [];
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+      try {
+        const data = await fs.readFile(path.join(playlistsDir, file), 'utf-8');
+        playlists.push(JSON.parse(data));
+      } catch { /* skip corrupt files */ }
+    }
+    return { success: true, data: playlists };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('playlist-save', async (event, playlist) => {
+  try {
+    await fs.mkdir(playlistsDir, { recursive: true });
+    const filename = playlist.id + '.json';
+    const resolved = path.resolve(playlistsDir, filename);
+    if (!resolved.startsWith(playlistsDir)) {
+      return { success: false, error: 'Invalid playlist ID' };
+    }
+    await fs.writeFile(resolved, JSON.stringify(playlist, null, 2));
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('playlist-delete', async (event, playlistId) => {
+  try {
+    const filename = playlistId + '.json';
+    const resolved = path.resolve(playlistsDir, filename);
+    if (!resolved.startsWith(playlistsDir)) {
+      return { success: false, error: 'Invalid playlist ID' };
+    }
+    await fs.unlink(resolved);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// --- Now Playing ---
+const nowPlayingPath = path.join(app.getPath('userData'), 'now-playing.json');
+
+ipcMain.handle('now-playing-load', async () => {
+  try {
+    const data = await fs.readFile(nowPlayingPath, 'utf-8');
+    return { success: true, data: JSON.parse(data) };
+  } catch {
+    return { success: true, data: { tracks: [], currentIndex: 0 } };
+  }
+});
+
+ipcMain.handle('now-playing-save', async (event, nowPlaying) => {
+  try {
+    await fs.writeFile(nowPlayingPath, JSON.stringify(nowPlaying, null, 2));
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('zune-pull-file', async (event, handle, filename, destDir, metadata) => {
   try {
     const data = await zuneManager.getFile(handle);
