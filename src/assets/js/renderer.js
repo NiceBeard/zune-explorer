@@ -1731,7 +1731,7 @@ class ZuneSyncPanel {
 
             if (result.success) {
                 pulled++;
-                pulledFiles.push(result.path);
+                pulledFiles.push({ path: result.path, size: result.size || 0 });
                 pullBtn.textContent = `copying ${pulled} of ${handles.length}...`;
             }
         }
@@ -1741,20 +1741,21 @@ class ZuneSyncPanel {
 
         // Add pulled files to local categorized files
         if (pulledFiles.length > 0) {
-            for (const fp of pulledFiles) {
-                const ext = fp.split('.').pop().toLowerCase();
+            for (const pf of pulledFiles) {
+                const ext = pf.path.split('.').pop().toLowerCase();
                 this.explorer.categorizedFiles[category].push({
-                    path: fp,
-                    name: fp.split(/[/\\]/).pop(),
+                    path: pf.path,
+                    name: pf.path.split(/[/\\]/).pop(),
                     extension: '.' + ext,
-                    size: 0,
+                    size: pf.size,
                     modified: new Date(),
                     isDirectory: false,
                 });
             }
             // Trigger metadata scan only for music
             if (category === 'music') {
-                await window.electronAPI.batchScanAudioMetadata(pulledFiles, { includeArt: true });
+                const paths = pulledFiles.map(pf => pf.path);
+                await window.electronAPI.batchScanAudioMetadata(paths, { includeArt: true });
             }
         }
 

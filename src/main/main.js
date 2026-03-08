@@ -525,6 +525,10 @@ ipcMain.handle('pick-pull-destination', async () => {
 ipcMain.handle('zune-pull-file', async (event, handle, filename, destDir, metadata) => {
   try {
     const data = await zuneManager.getFile(handle);
+    if (!data || data.length === 0) {
+      console.error(`zune-pull-file: handle ${handle} returned empty data (0 bytes)`);
+      return { success: false, error: 'Device returned empty file (0 bytes)' };
+    }
     let ext = path.extname(filename).toLowerCase();
     let baseName = path.basename(filename, ext);
     // Zune filenames sometimes lack an extension — default to .mp3
@@ -607,7 +611,8 @@ ipcMain.handle('zune-pull-file', async (event, handle, filename, destDir, metada
       });
     }
 
-    return { success: true, path: finalPath };
+    const finalStats = await fs.stat(finalPath);
+    return { success: true, path: finalPath, size: finalStats.size };
   } catch (error) {
     return { success: false, error: error.message };
   }

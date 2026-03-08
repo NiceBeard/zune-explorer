@@ -681,6 +681,16 @@ class ZuneManager extends EventEmitter {
         this._zmdbFilenameMap.set(track.handle, track.filename);
       }
     }
+    for (const video of zmdbResult.videos) {
+      if (video.filename) {
+        this._zmdbFilenameMap.set(video.atomId, video.filename);
+      }
+    }
+    for (const pic of zmdbResult.pictures) {
+      if (pic.filename) {
+        this._zmdbFilenameMap.set(pic.atomId, pic.filename);
+      }
+    }
   }
 
   /**

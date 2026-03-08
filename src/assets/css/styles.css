@@ -2101,10 +2101,10 @@ body.platform-win32 .now-playing-panel {
 
 .zune-diff-actions {
     display: flex;
-    gap: 4px;
+    justify-content: space-between;
     padding-top: 8px;
     flex-shrink: 0;
-    flex-direction: column;
+    flex-direction: row;
 }
 
 .zune-diff-actions .zune-sync-btn {
