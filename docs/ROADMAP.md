@@ -39,8 +39,11 @@ Parses the Zune's internal binary media database (ZMDB) in a single vendor bulk 
 ### ~~Sub-Category Navigation (Zune HD Style)~~ (Done)
 Music view with giant hero header, horizontal sub-tabs (ALBUMS, ARTISTS, SONGS, GENRES), album art grid with letter dividers, alpha jump overlay, and drill-down views for albums and artists. Batch metadata scanning with progressive loading. Playback integration from any sub-view.
 
-### Playlists
-Create, edit, and save playlists as JSON files. Add a "playlists" sub-category under Music. Drag-to-reorder, save/load, delete.
+### ~~Playlists~~ (Done)
+Create, edit, and save playlists as individual JSON files. PLAYLISTS sub-tab under Music with drill-down detail view, drag-to-reorder, and context menu integration. "Add to Playlist" and "New Playlist..." available from any song, album, artist, or genre context menu.
+
+### ~~Now Playing~~ (Done)
+Persistent Now Playing queue. Clicking a song/album/artist replaces the queue; "Add to Now Playing" appends without interrupting playback. Queue persists across app restarts (no auto-play on launch). Accessible as a special entry at the top of the Playlists tab with current-track highlighting.
 
 ### Spotify / Streaming Integration
 Connect to Spotify (or other services) via OAuth and browse your library through the Zune UI. Use the Web Playback SDK to play tracks directly in the app. Full Zune HD experience with your actual streaming library.
@@ -56,13 +59,13 @@ Detect mounted volumes (USB drives, external disks) and expose them as browsable
 ### ~~Deep Folder Scanning & Symlink Support~~ (Done)
 Media scanning now recurses to unlimited depth (was capped at 3 levels). Symlinks are followed correctly — a symlink to an external volume is treated as a directory and traversed.
 
-### Pins
-Pin frequently used files or folders to the left sidebar alongside recent files. Persist pins in local storage across sessions.
+### ~~Pins~~ (Done)
+Pin any navigable item (file, folder, album, artist, genre, playlist) to the left sidebar above recent files. Pins persist in JSON across sessions. Right-click "Pin to sidebar" / "Unpin" on any item. Clicking a pin navigates directly to the item.
 
 ## UI / UX
 
-### Left Sidebar Expansion
-Currently the left sidebar only shows recent files. Could expand to include pins, playlists, and quick-access items.
+### ~~Left Sidebar Expansion~~ (Done)
+Left sidebar now has a "pinned" section above "recent", both with muted white Zune HD-style headers. Pinned items support all navigable types. Sidebar scrolls naturally with both sections.
 
 ### ~~USB Hotplug Detection~~ (Done)
 Fixed hotplug by wrapping libusb device directly via WebUSBDevice.createInstance() instead of WebUSB requestDevice(), which can't see devices connected after app start. Retry with escalating delays for device initialization.
