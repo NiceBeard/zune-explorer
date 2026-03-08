@@ -178,6 +178,26 @@ body {
     background-clip: text;
 }
 
+.panel-subheader {
+    font-size: 42px;
+    font-weight: 100;
+    color: rgba(255, 255, 255, 0.55);
+    padding: 15px 0 10px;
+    margin: 0;
+    text-transform: lowercase;
+    letter-spacing: 1px;
+}
+
+.pinned-section {
+    margin-bottom: 10px;
+}
+
+.pinned-scroll {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
 .recent-content {
     height: calc(100% - 100px);
     overflow-y: auto;

@@ -23,7 +23,11 @@
             
             <!-- Recent Files Panel (behind left) -->
             <div class="panel recent-panel">
-                <h1 class="panel-header">recent</h1>
+                <div class="pinned-section" id="pinned-section" style="display:none">
+                    <h2 class="panel-subheader">pinned</h2>
+                    <div class="pinned-scroll" id="pinned-files"></div>
+                </div>
+                <h2 class="panel-subheader" id="recent-header">recent</h2>
                 <div class="recent-content">
                     <div class="recent-scroll" id="recent-files">
                         <div class="empty-state">no recent files</div>

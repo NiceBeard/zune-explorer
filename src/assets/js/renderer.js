@@ -1866,6 +1866,7 @@ class ZuneExplorer {
             applications: []
         };
         this.recentFiles = [];
+        this.pinnedItems = [];
         this.fileExtensions = {
             music: ['.mp3', '.wav', '.m4a', '.flac', '.aac', '.ogg', '.wma'],
             videos: ['.mp4', '.mov', '.avi', '.mkv', '.wmv', '.flv', '.webm', '.m4v'],
@@ -1944,6 +1945,7 @@ class ZuneExplorer {
         this.updateFileCounts();
         await this.loadRecentFiles();
         this.updateRecentFiles();
+        await this.loadPins();
         this.setupEventListeners();
         this.setupKeyboardNavigation();
         this.focusMenu();
@@ -2890,11 +2892,134 @@ class ZuneExplorer {
         return div;
     }
 
+    // --- Pins ---
+
+    async loadPins() {
+        const result = await window.electronAPI.pinsLoad();
+        if (result.success) {
+            this.pinnedItems = result.data;
+        }
+        this.updatePinnedPanel();
+    }
+
+    async savePins() {
+        await window.electronAPI.pinsSave(this.pinnedItems);
+    }
+
+    updatePinnedPanel() {
+        const section = document.getElementById('pinned-section');
+        const container = document.getElementById('pinned-files');
+
+        if (this.pinnedItems.length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+
+        section.style.display = 'block';
+        this.clearElement(container);
+
+        this.pinnedItems.forEach(pin => {
+            const el = this.createPinnedElement(pin);
+            container.appendChild(el);
+        });
+    }
+
+    createPinnedElement(pin) {
+        const div = document.createElement('div');
+        div.className = 'recent-file pinned-item';
+        div.dataset.pinId = pin.id;
+
+        // Draggable for file/folder types
+        if (pin.type === 'file' || pin.type === 'folder') {
+            div.draggable = true;
+            div.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('application/x-zune-paths', JSON.stringify([pin.path]));
+                e.dataTransfer.effectAllowed = 'copy';
+            });
+        }
+
+        // Thumbnail for pictures
+        if (pin.type === 'file' && pin.meta && pin.meta.category === 'pictures') {
+            const img = document.createElement('img');
+            img.className = 'recent-file-thumb';
+            img.src = `file://${pin.path}`;
+            img.onerror = () => { img.style.display = 'none'; };
+            div.appendChild(img);
+        }
+
+        const name = document.createElement('div');
+        name.className = 'file-name';
+        name.textContent = pin.label;
+
+        const detail = document.createElement('div');
+        detail.className = 'file-details';
+        detail.textContent = pin.type;
+
+        div.appendChild(name);
+        div.appendChild(detail);
+
+        div.addEventListener('click', () => this.navigateToPin(pin));
+        div.addEventListener('contextmenu', (e) => this.showPinContextMenu(e, pin));
+
+        return div;
+    }
+
+    navigateToPin(pin) {
+        switch (pin.type) {
+            case 'file':
+                this.handleFileClick(null, { path: pin.path, name: pin.label });
+                break;
+            case 'folder':
+                this.currentCategory = pin.meta.category || 'documents';
+                this.showContent();
+                this.browsingMode = true;
+                this.currentPath = pin.path;
+                this.renderDirectoryContents();
+                break;
+            case 'album':
+                this.currentCategory = 'music';
+                this.showContent();
+                this.musicSubView = 'albums';
+                this.musicDrillDown = { type: 'album', key: pin.meta.albumKey };
+                this.renderMusicView();
+                break;
+            case 'artist':
+                this.currentCategory = 'music';
+                this.showContent();
+                this.musicSubView = 'artists';
+                this.musicDrillDown = { type: 'artist', name: pin.meta.artistName };
+                this.renderMusicView();
+                break;
+            case 'genre':
+                this.currentCategory = 'music';
+                this.showContent();
+                this.musicSubView = 'genres';
+                this.musicDrillDown = { type: 'genre', name: pin.meta.genreName };
+                this.renderMusicView();
+                break;
+            case 'playlist':
+                this.currentCategory = 'music';
+                this.showContent();
+                this.musicSubView = 'playlists';
+                this.musicDrillDown = { type: 'playlist', id: pin.meta.playlistId };
+                this.renderMusicView();
+                break;
+        }
+    }
+
+    showPinContextMenu(e, pin) {
+        e.preventDefault();
+        e.stopPropagation();
+        // Will be implemented in Task 3 with dynamic context menu
+    }
+
+    // --- End Pins ---
+
     getFileCategory(file) {
         if (file.isApplication || file.extension === '.app') {
             return 'applications';
         }
-        
+
         const ext = file.extension.toLowerCase();
         for (const [category, extensions] of Object.entries(this.fileExtensions)) {
             if (extensions.includes(ext)) {
