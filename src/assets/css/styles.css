@@ -3272,3 +3272,63 @@ body.platform-win32 .now-playing-panel {
 .music-lookup-btn:hover {
     color: var(--zune-orange);
 }
+
+/* Playlist List View */
+.playlist-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.playlist-row {
+    display: flex;
+    align-items: center;
+    padding: 14px 8px;
+    cursor: pointer;
+    transition: background 0.15s;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.playlist-row:hover {
+    background: rgba(255, 105, 0, 0.08);
+}
+
+.playlist-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.playlist-name {
+    font-size: 18px;
+    font-weight: 400;
+    color: var(--zune-text);
+}
+
+.playlist-meta {
+    font-size: 13px;
+    color: var(--zune-text-dim);
+    margin-top: 2px;
+}
+
+.now-playing-row .playlist-name {
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 22px;
+    font-weight: 100;
+    letter-spacing: 1px;
+}
+
+.playlist-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 8px 0;
+}
+
+.new-playlist-row {
+    color: var(--zune-text-dim);
+    font-size: 15px;
+    font-weight: 400;
+    letter-spacing: 0.5px;
+}
+
+.new-playlist-row:hover {
+    color: var(--zune-text);
+}

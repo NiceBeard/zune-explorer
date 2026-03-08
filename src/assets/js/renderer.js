@@ -4068,10 +4068,143 @@ class ZuneExplorer {
 
     renderMusicPlaylistsView(container) {
         this.clearElement(container);
-        const msg = document.createElement('div');
-        msg.style.cssText = 'color: var(--zune-text-dim); padding: 20px;';
-        msg.textContent = 'Playlists coming soon';
-        container.appendChild(msg);
+
+        const list = document.createElement('div');
+        list.className = 'playlist-list';
+
+        // Now Playing — special entry at top
+        const npRow = document.createElement('div');
+        npRow.className = 'playlist-row now-playing-row';
+
+        const npInfo = document.createElement('div');
+        npInfo.className = 'playlist-info';
+
+        const npName = document.createElement('div');
+        npName.className = 'playlist-name';
+        npName.textContent = 'now playing';
+
+        const npMeta = document.createElement('div');
+        npMeta.className = 'playlist-meta';
+        const npCount = this.nowPlaying.tracks.length;
+        const npDuration = this.nowPlaying.tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
+        npMeta.textContent = `${npCount} song${npCount !== 1 ? 's' : ''} \u00b7 ${this.formatPlaylistDuration(npDuration)}`;
+
+        npInfo.appendChild(npName);
+        npInfo.appendChild(npMeta);
+        npRow.appendChild(npInfo);
+
+        npRow.addEventListener('click', () => {
+            this.musicDrillDown = { type: 'now-playing' };
+            this.renderMusicView();
+        });
+
+        list.appendChild(npRow);
+
+        // Divider
+        const divider = document.createElement('div');
+        divider.className = 'playlist-divider';
+        list.appendChild(divider);
+
+        // New Playlist button
+        const newBtn = document.createElement('div');
+        newBtn.className = 'playlist-row new-playlist-row';
+        newBtn.textContent = '+ new playlist';
+        newBtn.addEventListener('click', () => this.createNewPlaylist());
+        list.appendChild(newBtn);
+
+        // User playlists sorted alphabetically
+        const sorted = [...this.playlists].sort((a, b) => a.name.localeCompare(b.name));
+        sorted.forEach(playlist => {
+            const row = document.createElement('div');
+            row.className = 'playlist-row';
+
+            const info = document.createElement('div');
+            info.className = 'playlist-info';
+
+            const name = document.createElement('div');
+            name.className = 'playlist-name';
+            name.textContent = playlist.name;
+
+            const meta = document.createElement('div');
+            meta.className = 'playlist-meta';
+            const count = playlist.tracks.length;
+            const duration = playlist.tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
+            meta.textContent = `${count} song${count !== 1 ? 's' : ''} \u00b7 ${this.formatPlaylistDuration(duration)}`;
+
+            info.appendChild(name);
+            info.appendChild(meta);
+            row.appendChild(info);
+
+            row.addEventListener('click', () => {
+                this.musicDrillDown = { type: 'playlist', id: playlist.id };
+                this.renderMusicView();
+            });
+
+            row.addEventListener('contextmenu', (e) => {
+                this.showDynamicContextMenu(e, [
+                    { label: 'Delete Playlist', action: () => this.deletePlaylist(playlist.id) },
+                ]);
+            });
+
+            list.appendChild(row);
+        });
+
+        container.appendChild(list);
+    }
+
+    formatPlaylistDuration(seconds) {
+        const mins = Math.round(seconds / 60);
+        if (mins < 60) return `${mins} min`;
+        const hrs = Math.floor(mins / 60);
+        const remainMins = mins % 60;
+        return `${hrs} hr ${remainMins} min`;
+    }
+
+    async createNewPlaylist(initialTracks = []) {
+        const name = prompt('Playlist name:');
+        if (!name || !name.trim()) return null;
+
+        const playlist = {
+            id: crypto.randomUUID(),
+            name: name.trim(),
+            createdAt: new Date().toISOString(),
+            modifiedAt: new Date().toISOString(),
+            tracks: initialTracks.map(t => ({
+                path: t.path,
+                title: t.title || t.name,
+                artist: t.artist || '',
+                album: t.album || '',
+                duration: t.duration || 0,
+            })),
+        };
+
+        this.playlists.push(playlist);
+        await window.electronAPI.playlistSave(playlist);
+
+        if (this.musicSubView === 'playlists' && !this.musicDrillDown) {
+            this.renderMusicSubContent();
+        }
+
+        return playlist;
+    }
+
+    async deletePlaylist(id) {
+        if (!confirm('Delete this playlist?')) return;
+
+        this.playlists = this.playlists.filter(p => p.id !== id);
+        await window.electronAPI.playlistDelete(id);
+
+        // Remove any pins pointing to this playlist
+        this.pinnedItems = this.pinnedItems.filter(p => !(p.type === 'playlist' && p.meta.playlistId === id));
+        await this.savePins();
+        this.updatePinnedPanel();
+
+        if (this.musicSubView === 'playlists') {
+            if (this.musicDrillDown && this.musicDrillDown.id === id) {
+                this.musicDrillDown = null;
+            }
+            this.renderMusicView();
+        }
     }
 
     // ========================================
