@@ -167,17 +167,6 @@ body {
     display: none;
 }
 
-.panel-header {
-    font-size: 48px;
-    font-weight: 300;
-    letter-spacing: -1px;
-    margin-bottom: 30px;
-    background: linear-gradient(135deg, var(--zune-orange) 0%, var(--zune-magenta) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
-
 .panel-subheader {
     font-size: 42px;
     font-weight: 100;

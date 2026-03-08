@@ -2894,7 +2894,7 @@ class ZuneExplorer {
         div.appendChild(fileName);
         div.appendChild(fileType);
 
-        div.addEventListener('click', () => this.handleFileClick(null, file));
+        div.addEventListener('click', () => this.handleFileClick(file));
         div.addEventListener('contextmenu', (e) => this.showContextMenu(e, file));
 
         return div;
@@ -3077,7 +3077,7 @@ class ZuneExplorer {
     navigateToPin(pin) {
         switch (pin.type) {
             case 'file':
-                this.handleFileClick(null, { path: pin.path, name: pin.label });
+                this.handleFileClick({ path: pin.path, name: pin.label });
                 break;
             case 'folder':
                 this.currentCategory = pin.meta.category || 'documents';
@@ -3317,7 +3317,7 @@ class ZuneExplorer {
         div.appendChild(fileInfo);
         
         // Event listeners
-        div.addEventListener('click', (e) => this.handleFileClick(e, file));
+        div.addEventListener('click', () => this.handleFileClick(file));
         div.addEventListener('contextmenu', (e) => this.showContextMenu(e, file));
         
         return div;
@@ -3731,6 +3731,10 @@ class ZuneExplorer {
                 const playlist = this.playlists.find(p => p.id === this.musicDrillDown.id);
                 title.textContent = playlist ? playlist.name : 'Playlist';
                 breadcrumb.textContent = 'music';
+            } else if (this.musicDrillDown.type === 'genre') {
+                const genre = this.musicLibrary.genres.get(this.musicDrillDown.name);
+                title.textContent = genre ? genre.name : 'Genre';
+                breadcrumb.textContent = 'music';
             } else if (this.musicDrillDown.type === 'now-playing') {
                 title.textContent = 'now playing';
                 breadcrumb.textContent = 'music';
@@ -3827,6 +3831,13 @@ class ZuneExplorer {
             this.renderArtistDetail(fileDisplay);
         } else if (this.musicDrillDown.type === 'playlist') {
             this.renderPlaylistDetail(fileDisplay, this.musicDrillDown.id);
+        } else if (this.musicDrillDown.type === 'genre') {
+            const genre = this.musicLibrary.genres.get(this.musicDrillDown.name);
+            if (genre) {
+                this.renderGenreDetail(fileDisplay, genre);
+            } else {
+                this.appendEmptyState(fileDisplay, 'genre not found');
+            }
         } else if (this.musicDrillDown.type === 'now-playing') {
             this.renderNowPlayingDetail(fileDisplay);
         }
@@ -4101,7 +4112,14 @@ class ZuneExplorer {
         const backLabel = document.createElement('span');
         backLabel.textContent = 'GENRES';
         backBtn.appendChild(backLabel);
-        backBtn.addEventListener('click', () => this.renderMusicGenresView(container));
+        backBtn.addEventListener('click', () => {
+            if (this.musicDrillDown && this.musicDrillDown.type === 'genre') {
+                this.musicDrillDown = null;
+                this.renderMusicView();
+            } else {
+                this.renderMusicGenresView(container);
+            }
+        });
         header.appendChild(backBtn);
         const title = document.createElement('div');
         title.className = 'music-genre-detail-title';
@@ -4809,7 +4827,7 @@ class ZuneExplorer {
         document.getElementById('alpha-jump-overlay').classList.remove('open');
     }
 
-    handleFileClick(e, file) {
+    handleFileClick(file) {
         // Check if this is a music file
         if (this.fileExtensions.music.includes(file.extension)) {
             // Build queue from all music files in current view
