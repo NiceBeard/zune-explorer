@@ -3350,6 +3350,29 @@ body.platform-win32 .now-playing-panel {
     border-color: #a93226;
 }
 
+/* Toast Notification */
+.zune-toast {
+    position: fixed;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    background: #1a1a1a;
+    border: 1px solid rgba(255, 105, 0, 0.3);
+    border-radius: 6px;
+    color: #fff;
+    font-size: 13px;
+    padding: 10px 20px;
+    z-index: 3000;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none;
+}
+
+.zune-toast.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
 /* Playlist List View */
 .playlist-list {
     display: flex;

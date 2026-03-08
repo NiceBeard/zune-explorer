@@ -2153,6 +2153,26 @@ class ZuneExplorer {
             btn.title = mode === 'one' ? 'Repeat One' : mode === 'all' ? 'Repeat All' : 'Repeat';
         });
         this.audioPlayer.on('queueend', () => this.onPlayStateChange(false));
+        this.audioPlayer.on('playbackerror', ({ message }) => this.showToast(message));
+    }
+
+    showToast(message) {
+        const existing = document.querySelector('.zune-toast');
+        if (existing) existing.remove();
+
+        const toast = document.createElement('div');
+        toast.className = 'zune-toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        // Force reflow then animate in
+        toast.offsetHeight;
+        toast.classList.add('visible');
+
+        setTimeout(() => {
+            toast.classList.remove('visible');
+            setTimeout(() => toast.remove(), 300);
+        }, 3500);
     }
 
     handleMenuKeyboard(e) {
