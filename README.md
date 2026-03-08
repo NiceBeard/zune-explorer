@@ -37,11 +37,12 @@ Connect a physical Zune to manage your music library — no Zune desktop softwar
 
 
 - **Pure JavaScript MTP/MTPZ stack** — implements the Zune's encrypted USB protocol from scratch
-- **Two-way sync** — push music to the Zune or pull tracks to your computer
+- **Multi-category sync** — diff and transfer music, videos, and pictures between device and computer
+- **Delete from device** — remove selected files from the Zune directly in the sync diff view
 - **Pull destination picker** — choose where to save pulled tracks, with last-used folder memory
 - **Sync management view** — expanded diff view with grouped selection by album/artist, select-all, and collapsible groups
 - **Album art in sync view** — device-only tracks show cover art from your local library
-- **Smart diff engine** — compares local and device libraries by filename and metadata to show what's missing from each side
+- **Smart diff engine** — compares local and device libraries by filename and metadata (music) or filename (videos/pictures) to show what's missing from each side
 - **ZMDB fast scan** — reads the Zune's internal media database for instant library enumeration with auto-detection of HD vs Classic format
 - **Drag-and-drop transfer** with real-time progress streaming
 - **Automatic format conversion** — WAV/FLAC/OGG/AIFF to MP3 320k on push; WMA to MP3 320k on pull
