@@ -3673,6 +3673,13 @@ class ZuneExplorer {
                 const artist = this.musicLibrary.artists.get(resolvedKey);
                 title.textContent = artist ? artist.name : 'Artist';
                 breadcrumb.textContent = 'music';
+            } else if (this.musicDrillDown.type === 'playlist') {
+                const playlist = this.playlists.find(p => p.id === this.musicDrillDown.id);
+                title.textContent = playlist ? playlist.name : 'Playlist';
+                breadcrumb.textContent = 'music';
+            } else if (this.musicDrillDown.type === 'now-playing') {
+                title.textContent = 'now playing';
+                breadcrumb.textContent = 'music';
             }
             this.renderMusicDrillDown();
             return;
@@ -3764,6 +3771,10 @@ class ZuneExplorer {
             this.renderAlbumDetail(fileDisplay);
         } else if (this.musicDrillDown.type === 'artist') {
             this.renderArtistDetail(fileDisplay);
+        } else if (this.musicDrillDown.type === 'playlist') {
+            this.renderPlaylistDetail(fileDisplay, this.musicDrillDown.id);
+        } else if (this.musicDrillDown.type === 'now-playing') {
+            this.renderNowPlayingDetail(fileDisplay);
         }
     }
 
@@ -4370,6 +4381,302 @@ class ZuneExplorer {
         }
         detail.appendChild(grid);
         fileDisplay.appendChild(detail);
+    }
+
+    // ========================================
+    // Playlist & Now Playing Detail Views
+    // ========================================
+
+    renderPlaylistDetail(container, playlistId) {
+        const playlist = this.playlists.find(p => p.id === playlistId);
+        if (!playlist) return;
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'playlist-detail';
+
+        // Stats header
+        const stats = document.createElement('div');
+        stats.className = 'playlist-stats';
+        const count = playlist.tracks.length;
+        const duration = playlist.tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
+        stats.textContent = `${count} song${count !== 1 ? 's' : ''} \u00b7 ${this.formatPlaylistDuration(duration)}`;
+        wrapper.appendChild(stats);
+
+        // Track list
+        const list = document.createElement('div');
+        list.className = 'playlist-track-list';
+
+        playlist.tracks.forEach((track, index) => {
+            const row = this.createPlaylistTrackRow(track, index, playlist);
+            list.appendChild(row);
+        });
+
+        wrapper.appendChild(list);
+        container.appendChild(wrapper);
+    }
+
+    createPlaylistTrackRow(track, index, playlist) {
+        const row = document.createElement('div');
+        row.className = 'playlist-track-row';
+        row.draggable = true;
+        row.dataset.index = index;
+
+        // Check if track file exists in music library
+        const trackExists = this.musicLibrary.tracks.has(track.path);
+        if (!trackExists) {
+            row.classList.add('playlist-track-missing');
+        }
+
+        // Drag handle
+        const handle = document.createElement('div');
+        handle.className = 'playlist-drag-handle';
+        handle.textContent = '\u2847';
+        row.appendChild(handle);
+
+        // Album art thumbnail
+        const thumb = document.createElement('div');
+        thumb.className = 'playlist-track-thumb';
+        const albumArt = this.findAlbumArtForTrack(track);
+        if (albumArt) {
+            const img = document.createElement('img');
+            img.src = albumArt;
+            img.alt = '';
+            thumb.appendChild(img);
+        }
+        row.appendChild(thumb);
+
+        // Track info
+        const info = document.createElement('div');
+        info.className = 'playlist-track-info';
+
+        const title = document.createElement('div');
+        title.className = 'playlist-track-title';
+        title.textContent = track.title || track.path.split('/').pop();
+
+        const meta = document.createElement('div');
+        meta.className = 'playlist-track-meta';
+        const parts = [track.artist, track.album].filter(Boolean);
+        meta.textContent = parts.join(' \u2013 ');
+
+        info.appendChild(title);
+        info.appendChild(meta);
+        row.appendChild(info);
+
+        // Click to play
+        row.addEventListener('click', (e) => {
+            if (e.target.closest('.playlist-drag-handle')) return;
+            const files = playlist.tracks.map(t => ({
+                path: t.path,
+                name: t.title,
+                title: t.title,
+                artist: t.artist,
+                album: t.album,
+                duration: t.duration,
+            }));
+            this.playWithNowPlaying(files[index], files);
+        });
+
+        // Right-click to remove
+        row.addEventListener('contextmenu', (e) => {
+            this.showDynamicContextMenu(e, [
+                { label: 'Remove from Playlist', action: () => {
+                    playlist.tracks.splice(index, 1);
+                    playlist.modifiedAt = new Date().toISOString();
+                    window.electronAPI.playlistSave(playlist);
+                    // Re-render the drill-down
+                    const fileDisplay = document.getElementById('file-display');
+                    this.clearElement(fileDisplay);
+                    this.renderPlaylistDetail(fileDisplay, playlist.id);
+                }},
+            ]);
+        });
+
+        // Drag-to-reorder
+        row.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', index.toString());
+            e.dataTransfer.effectAllowed = 'move';
+            row.classList.add('dragging');
+        });
+        row.addEventListener('dragend', () => row.classList.remove('dragging'));
+        row.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            row.classList.add('drag-over');
+        });
+        row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+        row.addEventListener('drop', (e) => {
+            e.preventDefault();
+            row.classList.remove('drag-over');
+            const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
+            const toIndex = index;
+            if (fromIndex === toIndex) return;
+
+            const [moved] = playlist.tracks.splice(fromIndex, 1);
+            playlist.tracks.splice(toIndex, 0, moved);
+            playlist.modifiedAt = new Date().toISOString();
+            window.electronAPI.playlistSave(playlist);
+            // Re-render
+            const fileDisplay = document.getElementById('file-display');
+            this.clearElement(fileDisplay);
+            this.renderPlaylistDetail(fileDisplay, playlist.id);
+        });
+
+        return row;
+    }
+
+    findAlbumArtForTrack(track) {
+        if (!track.artist && !track.album) return null;
+        const key = `${(track.album || '').toLowerCase()}||${(track.artist || '').toLowerCase()}`;
+        const album = this.musicLibrary.albums.get(key);
+        if (album && album.albumArt) return album.albumArt;
+        // Try matching by album name alone
+        for (const [, alb] of this.musicLibrary.albums) {
+            if (alb.name.toLowerCase() === (track.album || '').toLowerCase()) {
+                if (alb.albumArt) return alb.albumArt;
+            }
+        }
+        return null;
+    }
+
+    renderNowPlayingDetail(container) {
+        const np = this.nowPlaying;
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'playlist-detail';
+
+        // Stats
+        const stats = document.createElement('div');
+        stats.className = 'playlist-stats';
+        const count = np.tracks.length;
+        const duration = np.tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
+        stats.textContent = count === 0
+            ? 'empty'
+            : `${count} song${count !== 1 ? 's' : ''} \u00b7 ${this.formatPlaylistDuration(duration)}`;
+        wrapper.appendChild(stats);
+
+        const list = document.createElement('div');
+        list.className = 'playlist-track-list';
+
+        np.tracks.forEach((track, index) => {
+            const row = this.createNowPlayingTrackRow(track, index);
+            list.appendChild(row);
+        });
+
+        wrapper.appendChild(list);
+        container.appendChild(wrapper);
+    }
+
+    createNowPlayingTrackRow(track, index) {
+        const row = document.createElement('div');
+        row.className = 'playlist-track-row';
+        if (index === this.nowPlaying.currentIndex) {
+            row.classList.add('now-playing-active');
+        }
+        row.draggable = true;
+        row.dataset.index = index;
+
+        // Drag handle
+        const handle = document.createElement('div');
+        handle.className = 'playlist-drag-handle';
+        handle.textContent = '\u2847';
+        row.appendChild(handle);
+
+        // Album art
+        const thumb = document.createElement('div');
+        thumb.className = 'playlist-track-thumb';
+        const albumArt = this.findAlbumArtForTrack(track);
+        if (albumArt) {
+            const img = document.createElement('img');
+            img.src = albumArt;
+            img.alt = '';
+            thumb.appendChild(img);
+        }
+        row.appendChild(thumb);
+
+        // Info
+        const info = document.createElement('div');
+        info.className = 'playlist-track-info';
+        const title = document.createElement('div');
+        title.className = 'playlist-track-title';
+        title.textContent = track.title || 'Unknown';
+        const meta = document.createElement('div');
+        meta.className = 'playlist-track-meta';
+        meta.textContent = [track.artist, track.album].filter(Boolean).join(' \u2013 ');
+        info.appendChild(title);
+        info.appendChild(meta);
+        row.appendChild(info);
+
+        // Click to play from this position
+        row.addEventListener('click', (e) => {
+            if (e.target.closest('.playlist-drag-handle')) return;
+            this.nowPlaying.currentIndex = index;
+            this.saveNowPlaying();
+            const file = { path: track.path, name: track.title, title: track.title, artist: track.artist, album: track.album, duration: track.duration };
+            const queue = this.nowPlaying.tracks.map(t => ({ path: t.path, name: t.title, title: t.title, artist: t.artist, album: t.album, duration: t.duration }));
+            this.audioPlayer.play(file, queue);
+        });
+
+        // Right-click
+        row.addEventListener('contextmenu', (e) => {
+            this.showDynamicContextMenu(e, [
+                { label: 'Remove from Now Playing', action: () => {
+                    this.nowPlaying.tracks.splice(index, 1);
+                    if (index < this.nowPlaying.currentIndex) {
+                        this.nowPlaying.currentIndex--;
+                    } else if (index === this.nowPlaying.currentIndex) {
+                        this.nowPlaying.currentIndex = Math.min(this.nowPlaying.currentIndex, this.nowPlaying.tracks.length - 1);
+                    }
+                    this.audioPlayer.queue = this.nowPlaying.tracks.map(t => ({ path: t.path, name: t.title, title: t.title, artist: t.artist, album: t.album, duration: t.duration }));
+                    this.audioPlayer.currentIndex = this.nowPlaying.currentIndex;
+                    this.saveNowPlaying();
+                    // Re-render
+                    const fileDisplay = document.getElementById('file-display');
+                    this.clearElement(fileDisplay);
+                    this.renderNowPlayingDetail(fileDisplay);
+                }},
+            ]);
+        });
+
+        // Drag-to-reorder
+        row.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', index.toString());
+            e.dataTransfer.effectAllowed = 'move';
+            row.classList.add('dragging');
+        });
+        row.addEventListener('dragend', () => row.classList.remove('dragging'));
+        row.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            row.classList.add('drag-over');
+        });
+        row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+        row.addEventListener('drop', (e) => {
+            e.preventDefault();
+            row.classList.remove('drag-over');
+            const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
+            const toIndex = index;
+            if (fromIndex === toIndex) return;
+
+            const [moved] = this.nowPlaying.tracks.splice(fromIndex, 1);
+            this.nowPlaying.tracks.splice(toIndex, 0, moved);
+            // Adjust currentIndex to follow the currently playing track
+            if (fromIndex === this.nowPlaying.currentIndex) {
+                this.nowPlaying.currentIndex = toIndex;
+            } else if (fromIndex < this.nowPlaying.currentIndex && toIndex >= this.nowPlaying.currentIndex) {
+                this.nowPlaying.currentIndex--;
+            } else if (fromIndex > this.nowPlaying.currentIndex && toIndex <= this.nowPlaying.currentIndex) {
+                this.nowPlaying.currentIndex++;
+            }
+            this.audioPlayer.queue = this.nowPlaying.tracks.map(t => ({ path: t.path, name: t.title, title: t.title, artist: t.artist, album: t.album, duration: t.duration }));
+            this.audioPlayer.currentIndex = this.nowPlaying.currentIndex;
+            this.saveNowPlaying();
+            // Re-render
+            const fileDisplay = document.getElementById('file-display');
+            this.clearElement(fileDisplay);
+            this.renderNowPlayingDetail(fileDisplay);
+        });
+
+        return row;
     }
 
     // ========================================
