@@ -2135,6 +2135,10 @@ class ZuneExplorer {
 
         // Player events
         this.audioPlayer.on('trackchange', (data) => this.onTrackChange(data));
+        this.audioPlayer.on('trackchange', ({ index }) => {
+            this.nowPlaying.currentIndex = index;
+            this.saveNowPlaying();
+        });
         this.audioPlayer.on('play', () => this.onPlayStateChange(true));
         this.audioPlayer.on('pause', () => this.onPlayStateChange(false));
         this.audioPlayer.on('timeupdate', (data) => this.onTimeUpdate(data));
@@ -2924,6 +2928,38 @@ class ZuneExplorer {
         if (result.success) {
             this.nowPlaying = result.data;
         }
+    }
+
+    async saveNowPlaying() {
+        await window.electronAPI.nowPlayingSave(this.nowPlaying);
+    }
+
+    async playWithNowPlaying(file, queue) {
+        this.nowPlaying.tracks = queue.map(f => ({
+            path: f.path,
+            title: f.title || f.name,
+            artist: f.artist || '',
+            album: f.album || '',
+            duration: f.duration || 0,
+        }));
+        this.nowPlaying.currentIndex = queue.findIndex(f => f.path === file.path);
+        if (this.nowPlaying.currentIndex === -1) this.nowPlaying.currentIndex = 0;
+        await this.saveNowPlaying();
+        await this.audioPlayer.play(file, queue);
+    }
+
+    async addToNowPlaying(tracks) {
+        const newTracks = tracks.map(f => ({
+            path: f.path,
+            title: f.title || f.name,
+            artist: f.artist || '',
+            album: f.album || '',
+            duration: f.duration || 0,
+        }));
+        this.nowPlaying.tracks.push(...newTracks);
+        // Also update the audio player's live queue
+        this.audioPlayer.queue.push(...tracks);
+        await this.saveNowPlaying();
     }
 
     updatePinnedPanel() {
@@ -3838,7 +3874,7 @@ class ZuneExplorer {
                 row.addEventListener('click', () => {
                     const file = this.getTrackFile(track);
                     const allFiles = this.musicLibrary.sortedSongs.map(t => this.getTrackFile(t));
-                    this.audioPlayer.play(file, allFiles);
+                    this.playWithNowPlaying(file, allFiles);
                 });
                 list.appendChild(row);
             }
@@ -4023,7 +4059,7 @@ class ZuneExplorer {
             row.addEventListener('click', () => {
                 const file = this.getTrackFile(track);
                 const allFiles = sortedTracks.map(t => this.getTrackFile(t));
-                this.audioPlayer.play(file, allFiles);
+                this.playWithNowPlaying(file, allFiles);
             });
             list.appendChild(row);
         }
@@ -4087,7 +4123,7 @@ class ZuneExplorer {
         playAllBtn.addEventListener('click', () => {
             if (album.tracks.length > 0) {
                 const files = album.tracks.map(t => this.getTrackFile(t));
-                this.audioPlayer.play(files[0], files);
+                this.playWithNowPlaying(files[0], files);
             }
         });
         const lookupLink = document.createElement('button');
@@ -4132,7 +4168,7 @@ class ZuneExplorer {
             row.addEventListener('click', () => {
                 const file = this.getTrackFile(track);
                 const files = album.tracks.map(t => this.getTrackFile(t));
-                this.audioPlayer.play(file, files);
+                this.playWithNowPlaying(file, files);
             });
             trackList.appendChild(row);
         });
@@ -4259,7 +4295,7 @@ class ZuneExplorer {
                 : this.categorizedFiles[this.currentCategory].filter(f =>
                     this.fileExtensions.music.includes(f.extension)
                   );
-            this.audioPlayer.play(file, queue.length > 0 ? queue : [file]);
+            this.playWithNowPlaying(file, queue.length > 0 ? queue : [file]);
         } else {
             // Open non-music files externally
             window.electronAPI.openFile(file.path);
