@@ -2931,14 +2931,20 @@ class ZuneExplorer {
         await window.electronAPI.nowPlayingSave(this.nowPlaying);
     }
 
-    async playWithNowPlaying(file, queue) {
-        this.nowPlaying.tracks = queue.map(f => ({
+    // Enrich a file/track object with metadata from the music library
+    _enrichTrackData(f) {
+        const libTrack = this.musicLibrary.tracks.get(f.path);
+        return {
             path: f.path,
-            title: f.title || f.name,
-            artist: f.artist || '',
-            album: f.album || '',
-            duration: f.duration || 0,
-        }));
+            title: f.title || (libTrack && libTrack.title) || f.name || '',
+            artist: f.artist || (libTrack && libTrack.artist) || '',
+            album: f.album || (libTrack && libTrack.album) || '',
+            duration: f.duration || (libTrack && libTrack.duration) || 0,
+        };
+    }
+
+    async playWithNowPlaying(file, queue) {
+        this.nowPlaying.tracks = queue.map(f => this._enrichTrackData(f));
         this.nowPlaying.currentIndex = queue.findIndex(f => f.path === file.path);
         if (this.nowPlaying.currentIndex === -1) this.nowPlaying.currentIndex = 0;
         await this.saveNowPlaying();
@@ -2946,13 +2952,7 @@ class ZuneExplorer {
     }
 
     async addToNowPlaying(tracks) {
-        const newTracks = tracks.map(f => ({
-            path: f.path,
-            title: f.title || f.name,
-            artist: f.artist || '',
-            album: f.album || '',
-            duration: f.duration || 0,
-        }));
+        const newTracks = tracks.map(f => this._enrichTrackData(f));
         this.nowPlaying.tracks.push(...newTracks);
         // Also update the audio player's live queue
         this.audioPlayer.queue.push(...tracks);
@@ -3052,6 +3052,32 @@ class ZuneExplorer {
             img.src = `file://${pin.path}`;
             img.onerror = () => { img.style.display = 'none'; };
             div.appendChild(img);
+        }
+
+        // Album art for music items (album, artist)
+        if (pin.type === 'album' && pin.meta && pin.meta.albumKey) {
+            const album = this.musicLibrary.albums.get(pin.meta.albumKey);
+            if (album && album.albumArt) {
+                const img = document.createElement('img');
+                img.className = 'recent-file-thumb';
+                img.src = album.albumArt;
+                div.appendChild(img);
+            }
+        } else if (pin.type === 'artist' && pin.meta && pin.meta.artistName) {
+            const artist = this.musicLibrary.artists.get(pin.meta.artistName);
+            if (artist && artist.albums.length > 0) {
+                // Use first album's art as artist thumbnail
+                for (const albumKey of artist.albums) {
+                    const album = this.musicLibrary.albums.get(albumKey);
+                    if (album && album.albumArt) {
+                        const img = document.createElement('img');
+                        img.className = 'recent-file-thumb';
+                        img.src = album.albumArt;
+                        div.appendChild(img);
+                        break;
+                    }
+                }
+            }
         }
 
         const name = document.createElement('div');
@@ -3667,6 +3693,7 @@ class ZuneExplorer {
                     lib.scanState = 'complete';
                     this.applyCachedMetadata();
                     this.promptExtensionlessFix();
+                    this.updatePinnedPanel();
                 } else {
                     progressEl.style.display = 'block';
                     progressEl.textContent = `scanning ${data.scanned} of ${data.total}...`;
@@ -4625,14 +4652,26 @@ class ZuneExplorer {
     }
 
     findAlbumArtForTrack(track) {
-        if (!track.artist && !track.album) return null;
-        const key = `${(track.album || '').toLowerCase()}||${(track.artist || '').toLowerCase()}`;
-        const album = this.musicLibrary.albums.get(key);
-        if (album && album.albumArt) return album.albumArt;
+        // Try enriching from music library if we have a path but no metadata
+        let artist = track.artist || '';
+        let album = track.album || '';
+        if (!artist && !album && track.path) {
+            const libTrack = this.musicLibrary.tracks.get(track.path);
+            if (libTrack) {
+                artist = libTrack.artist || '';
+                album = libTrack.album || '';
+            }
+        }
+        if (!artist && !album) return null;
+        const key = `${album.toLowerCase()}||${artist.toLowerCase()}`;
+        const albumObj = this.musicLibrary.albums.get(key);
+        if (albumObj && albumObj.albumArt) return albumObj.albumArt;
         // Try matching by album name alone
-        for (const [, alb] of this.musicLibrary.albums) {
-            if (alb.name.toLowerCase() === (track.album || '').toLowerCase()) {
-                if (alb.albumArt) return alb.albumArt;
+        if (album) {
+            for (const [, alb] of this.musicLibrary.albums) {
+                if (alb.name.toLowerCase() === album.toLowerCase()) {
+                    if (alb.albumArt) return alb.albumArt;
+                }
             }
         }
         return null;
