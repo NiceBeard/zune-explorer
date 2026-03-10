@@ -1914,6 +1914,8 @@ class ZuneExplorer {
             document.body.classList.add('platform-win32');
         } else if (this.platform === 'darwin') {
             document.body.classList.add('platform-darwin');
+        } else if (this.platform === 'linux') {
+            document.body.classList.add('platform-linux');
         }
         this.homePath = await window.electronAPI.getHomeDirectory();
         const sf = await window.electronAPI.getSpecialFolders();
@@ -1925,6 +1927,16 @@ class ZuneExplorer {
                 { name: 'Music',     path: sf.music      || `${this.homePath}\\Music` },
                 { name: 'Videos',    path: sf.videos     || `${this.homePath}\\Videos` },
                 { name: 'Pictures',  path: sf.pictures   || `${this.homePath}\\Pictures` },
+                { name: 'Home',      path: sf.home       || this.homePath },
+            ];
+        } else if (this.platform === 'linux') {
+            this.smartRoots = [
+                { name: 'Desktop',   path: sf.desktop   || `${this.homePath}/Desktop` },
+                { name: 'Documents', path: sf.documents  || `${this.homePath}/Documents` },
+                { name: 'Downloads', path: sf.downloads  || `${this.homePath}/Downloads` },
+                { name: 'Music',     path: sf.music      || `${this.homePath}/Music` },
+                { name: 'Videos',    path: sf.videos     || `${this.homePath}/Videos` },
+                { name: 'Pictures',  path: sf.pictures   || `${this.homePath}/Pictures` },
                 { name: 'Home',      path: sf.home       || this.homePath },
             ];
         } else {
@@ -2666,7 +2678,7 @@ class ZuneExplorer {
         const sep = this.platform === 'win32' ? '\\' : '/';
         const categoryDirs = {
             music: [`${this.homePath}${sep}Music`],
-            videos: [this.platform === 'win32' ? `${this.homePath}${sep}Videos` : `${this.homePath}${sep}Movies`],
+            videos: [this.platform === 'darwin' ? `${this.homePath}${sep}Movies` : `${this.homePath}${sep}Videos`],
             pictures: [`${this.homePath}${sep}Pictures`],
         };
 
