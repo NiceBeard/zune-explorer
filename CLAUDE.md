@@ -1,16 +1,17 @@
 # Zune Explorer - Development Guide
 
 ## Project Overview
-A Zune HD-inspired file explorer built with Electron, featuring a panoramic horizontal scrolling interface. Runs on macOS and Windows.
+A Zune HD-inspired file explorer built with Electron, featuring a panoramic horizontal scrolling interface. Runs on macOS, Windows, and Linux.
 
 ## Architecture
 
 ### Platform Modules
-Platform-specific code is isolated in `src/main/platform-darwin.js` and `src/main/platform-win32.js`. Both export the same interface:
+Platform-specific code is isolated in `src/main/platform-darwin.js`, `src/main/platform-win32.js`, and `src/main/platform-linux.js`. All three export the same interface:
 - `getAllowedPrefixes()` — security path validation prefixes
 - `scanApplications(homePath)` — discover installed applications
 - `getRecentFiles(homePath)` — platform-native recent file discovery
 - `getAppIcon(appPath)` — extract application icons
+- `getExternalVolumes()` — discover mounted external drives
 
 `main.js` loads the correct module at startup via `process.platform`.
 
@@ -40,7 +41,7 @@ The app organizes files into 5 main sections:
 2. **videos** - Video files (.mp4, .mov, .avi, .mkv) — auto-scanned
 3. **pictures** - Image files (.jpg, .png, .gif, .svg) — auto-scanned
 4. **documents** - Document files (.pdf, .txt, .doc, .xlsx) — browsable file system
-5. **applications** - Executable files (.app on macOS, .exe on Windows) — auto-scanned
+5. **applications** - Executable files (.app on macOS, .exe on Windows, .desktop on Linux) — auto-scanned
 
 ### Interaction Design
 - Smooth horizontal scrolling via mouse wheel, trackpad, and arrow keys
@@ -66,3 +67,7 @@ npm run build # Build for distribution
 - [ ] Windows: custom title bar shows with working controls
 - [ ] Windows: applications discovered from Start Menu
 - [ ] Windows: recent files populated from Recent folder
+- [ ] Linux: custom title bar shows with working controls
+- [ ] Linux: applications discovered from .desktop files
+- [ ] Linux: recent files populated from recently-used.xbel
+- [ ] Linux: external volumes detected from /proc/mounts
