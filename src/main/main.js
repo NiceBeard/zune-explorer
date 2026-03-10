@@ -4,7 +4,8 @@ const fs = require('fs').promises;
 const os = require('os');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
-const platform = require('./platform-' + (process.platform === 'win32' ? 'win32' : 'darwin') + '.js');
+const platformName = { win32: 'win32', darwin: 'darwin', linux: 'linux' }[process.platform] || 'linux';
+const platform = require('./platform-' + platformName + '.js');
 const { ZuneManager } = require('./zune/zune-manager');
 const { DeviceCache } = require('./zune/device-cache');
 const { MetadataCache } = require('./metadata-cache.js');
@@ -54,7 +55,10 @@ function createWindow() {
     windowOptions.titleBarStyle = 'hiddenInset';
     windowOptions.vibrancy = 'dark';
     windowOptions.visualEffectState = 'active';
+  } else if (process.platform === 'win32') {
+    windowOptions.frame = false;
   } else {
+    // Linux: use frameless window with custom title bar, same as Windows
     windowOptions.frame = false;
   }
 

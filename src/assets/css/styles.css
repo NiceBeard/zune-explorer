@@ -865,7 +865,8 @@ body {
     align-items: center;
 }
 
-body.platform-win32 .title-bar {
+body.platform-win32 .title-bar,
+body.platform-linux .title-bar {
     display: flex;
 }
 
@@ -885,13 +886,16 @@ body.platform-darwin .zune-container::before {
     pointer-events: auto;
 }
 
-body.platform-win32 .zune-container {
+body.platform-win32 .zune-container,
+body.platform-linux .zune-container {
     height: calc(100vh - 32px);
     margin-top: 32px;
 }
 
 body.platform-win32 .zune-panel-edge,
-body.platform-win32 .zune-sync-panel {
+body.platform-win32 .zune-sync-panel,
+body.platform-linux .zune-panel-edge,
+body.platform-linux .zune-sync-panel {
     top: 32px;
     height: calc(100vh - 32px);
 }
@@ -1130,7 +1134,8 @@ body.player-active .recent-panel {
     transform: translateY(0);
 }
 
-body.platform-win32 .now-playing-panel {
+body.platform-win32 .now-playing-panel,
+body.platform-linux .now-playing-panel {
     top: 32px;
 }
 
