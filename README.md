@@ -2,7 +2,7 @@
 
 A desktop app that brings the Zune HD interface to life as a file explorer and music manager. Browse your local files, play music, and sync with physical Zune devices over USB — all through a faithful recreation of the Zune HD's bold typography, panoramic scrolling, and dark aesthetic.
 
-Built with Electron. Runs on macOS and Windows.
+Built with Electron. Runs on macOS, Windows, and Linux.
 
 ## Features
 
@@ -72,6 +72,7 @@ Grab the latest release from the [Releases page](https://github.com/NiceBeard/zu
 | macOS | Apple Silicon (M1/M2/M3/M4) | `Zune Explorer-*-arm64.dmg` |
 | macOS | Intel | `Zune Explorer-*.dmg` |
 | Windows | x64 | `Zune Explorer Setup *.exe` |
+| Linux | x64 | `Zune Explorer-*.AppImage` |
 
 ### macOS Gatekeeper Notice
 
@@ -90,6 +91,22 @@ xattr -cr /Applications/Zune\ Explorer.app
 - A Zune device and USB cable (for sync features)
 - MTPZ key data file at `~/.mtpz-data` (required for Zune authentication — see [MTPZ Keys](#mtpz-keys))
 - USB 2.0 port recommended for Zune 30/classic models
+
+### Linux: USB Permissions
+
+By default, Linux requires root access for USB devices. To allow Zune Explorer to communicate with your Zune as a regular user, create a udev rule:
+
+```bash
+sudo tee /etc/udev/rules.d/69-zune.rules << 'EOF'
+# Zune HD
+SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="063e", MODE="0666"
+# Zune (classic)
+SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="0710", MODE="0666"
+EOF
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+
+Then unplug and replug your Zune.
 
 ### Windows: USB Driver
 
@@ -118,7 +135,7 @@ Build distributable:
 npm run build
 ```
 
-Produces a DMG on macOS (with a custom Zune-themed installer background) and NSIS/portable on Windows. See [BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md) for details.
+Produces a DMG on macOS (with a custom Zune-themed installer background), NSIS/portable on Windows, and AppImage on Linux. See [BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md) for details.
 
 ### MTPZ Keys
 
@@ -164,7 +181,7 @@ src/main/
 
 ### Platform Modules
 
-Platform-specific code is isolated in `src/main/platform-darwin.js` and `src/main/platform-win32.js` — recent files, application discovery, and icon extraction are handled natively per OS.
+Platform-specific code is isolated in `src/main/platform-darwin.js`, `src/main/platform-win32.js`, and `src/main/platform-linux.js` — recent files, application discovery, and icon extraction are handled natively per OS.
 
 ## Platforms
 
@@ -172,6 +189,7 @@ Platform-specific code is isolated in `src/main/platform-darwin.js` and `src/mai
 |----------|--------|
 | macOS    | Full support (Spotlight for recent files, sips for icons, custom DMG installer) |
 | Windows  | Full support (Recent folder, Start Menu discovery, custom title bar) |
+| Linux    | Full support (freedesktop recent files, .desktop app discovery, XDG icon themes, AppImage) |
 
 ## License
 

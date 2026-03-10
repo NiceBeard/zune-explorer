@@ -59,8 +59,32 @@ jobs:
           path: dist/*.exe
           if-no-files-found: error
 
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Linux (x64)
+        run: npx electron-builder --linux --x64 --publish never
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux
+          path: dist/*.AppImage
+          if-no-files-found: error
+
   release:
-    needs: [build-mac, build-win]
+    needs: [build-mac, build-win, build-linux]
     runs-on: ubuntu-latest
 
     steps:
