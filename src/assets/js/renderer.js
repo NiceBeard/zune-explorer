@@ -1993,6 +1993,8 @@ class ZuneExplorer {
         };
         this.musicSubView = 'albums';  // 'albums' | 'artists' | 'songs' | 'genres' | 'playlists'
         this.musicDrillDown = null;    // null | { type: 'album', key } | { type: 'artist', name }
+        this.songsScroller = null;        // VirtualScroller for songs list
+        this.songsLetterMap = null;       // letter -> scroll offset for alpha-jump
 
         this.init();
     }
@@ -3969,6 +3971,15 @@ class ZuneExplorer {
         const container = document.getElementById('music-sub-content');
         if (!container) return;
 
+        // Clean up virtual scroller when leaving songs view
+        if (this.musicSubView !== 'songs') {
+            if (this.songsScroller) {
+                this.songsScroller.destroy();
+                this.songsScroller = null;
+            }
+            this.songsLetterMap = null;
+        }
+
         switch (this.musicSubView) {
             case 'albums': this.renderMusicAlbumsView(container); break;
             case 'artists': this.renderMusicArtistsView(container); break;
@@ -4076,56 +4087,113 @@ class ZuneExplorer {
         }
 
         const grouped = this.buildLetterGroupedList(songs, s => s.title);
-        const list = document.createElement('div');
-        list.className = 'music-songs-list';
 
+        // Convert grouped list to VirtualScroller entries
+        const entries = [];
         for (const entry of grouped) {
             if (entry.type === 'letter') {
-                const row = document.createElement('div');
-                row.className = 'music-letter-row';
-                row.dataset.letter = entry.letter;
-                row.textContent = entry.letter;
-                row.addEventListener('click', () => this.openAlphaJump());
-                list.appendChild(row);
+                entries.push({ type: 'letter', letter: entry.letter, data: null });
             } else {
-                const track = entry.data;
-                const row = document.createElement('div');
-                row.className = 'music-song-row';
-                row.draggable = true;
-                row.addEventListener('dragstart', (e) => {
-                    e.dataTransfer.setData('application/x-zune-paths', JSON.stringify([track.path]));
-                    e.dataTransfer.effectAllowed = 'copy';
-                    row.classList.add('dragging');
-                });
-                row.addEventListener('dragend', () => row.classList.remove('dragging'));
-                const info = document.createElement('div');
-                info.className = 'music-song-info';
-                const titleEl = document.createElement('div');
-                titleEl.className = 'music-song-title';
-                titleEl.textContent = track.title;
-                const meta = document.createElement('div');
-                meta.className = 'music-song-meta';
-                meta.textContent = `${track.artist} — ${track.album}`.toUpperCase();
-                info.appendChild(titleEl);
-                info.appendChild(meta);
-                const dur = document.createElement('div');
-                dur.className = 'music-song-duration';
-                dur.textContent = this.formatDuration(track.duration);
-                row.appendChild(info);
-                row.appendChild(dur);
-                row.addEventListener('click', () => {
-                    const file = this.getTrackFile(track);
-                    const allFiles = this.musicLibrary.sortedSongs.map(t => this.getTrackFile(t));
-                    this.playWithNowPlaying(file, allFiles);
-                });
-                row.addEventListener('contextmenu', (e) => {
-                    const file = this.getTrackFile(track);
-                    this.showMusicItemContextMenu(e, [file]);
-                });
-                list.appendChild(row);
+                entries.push({ type: 'track', data: entry.data });
             }
         }
+
+        const list = document.createElement('div');
+        list.className = 'music-songs-list';
         container.appendChild(list);
+
+        // Destroy previous scroller if it exists
+        if (this.songsScroller) {
+            this.songsScroller.destroy();
+            this.songsScroller = null;
+        }
+
+        // Create new VirtualScroller
+        const self = this;
+        this.songsScroller = new VirtualScroller({
+            container: list,
+            rowTypes: {
+                letter: { height: 64, className: 'music-letter-row' },
+                track: { height: 48, className: 'music-song-row' }
+            },
+            renderRow(el, index, entry) {
+                while (el.firstChild) el.removeChild(el.firstChild);
+
+                if (entry.type === 'letter') {
+                    el.textContent = entry.letter;
+                    el.dataset.letter = entry.letter;
+                    el.draggable = false;
+                } else {
+                    const track = entry.data;
+                    el.draggable = true;
+                    el.dataset.trackPath = track.path;
+
+                    const info = document.createElement('div');
+                    info.className = 'music-song-info';
+                    const titleEl = document.createElement('div');
+                    titleEl.className = 'music-song-title';
+                    titleEl.textContent = track.title;
+                    const meta = document.createElement('div');
+                    meta.className = 'music-song-meta';
+                    meta.textContent = (track.artist + ' \u2014 ' + track.album).toUpperCase();
+                    info.appendChild(titleEl);
+                    info.appendChild(meta);
+
+                    const dur = document.createElement('div');
+                    dur.className = 'music-song-duration';
+                    dur.textContent = self.formatDuration(track.duration);
+
+                    el.appendChild(info);
+                    el.appendChild(dur);
+                }
+            },
+            overscan: 20
+        });
+
+        // Event delegation on the list container
+        list.addEventListener('click', (e) => {
+            const row = e.target.closest('.vs-row');
+            if (!row) return;
+            const index = parseInt(row.dataset.index, 10);
+            const entry = this.songsScroller.getEntryAtIndex(index);
+            if (!entry) return;
+            if (entry.type === 'letter') {
+                this.openAlphaJump();
+            } else {
+                const file = this.getTrackFile(entry.data);
+                const allFiles = this.musicLibrary.sortedSongs.map(t => this.getTrackFile(t));
+                this.playWithNowPlaying(file, allFiles);
+            }
+        });
+
+        list.addEventListener('contextmenu', (e) => {
+            const row = e.target.closest('.vs-row');
+            if (!row) return;
+            const index = parseInt(row.dataset.index, 10);
+            const entry = this.songsScroller.getEntryAtIndex(index);
+            if (!entry || entry.type !== 'track') return;
+            const file = this.getTrackFile(entry.data);
+            this.showMusicItemContextMenu(e, [file]);
+        });
+
+        list.addEventListener('dragstart', (e) => {
+            const row = e.target.closest('.vs-row');
+            if (!row) return;
+            const index = parseInt(row.dataset.index, 10);
+            const entry = this.songsScroller.getEntryAtIndex(index);
+            if (!entry || entry.type !== 'track') return;
+            e.dataTransfer.setData('application/x-zune-paths', JSON.stringify([entry.data.path]));
+            e.dataTransfer.effectAllowed = 'copy';
+            row.classList.add('dragging');
+        });
+
+        list.addEventListener('dragend', (e) => {
+            const row = e.target.closest('.vs-row');
+            if (row) row.classList.remove('dragging');
+        });
+
+        this.songsScroller.setData(entries);
+        this.songsLetterMap = this.songsScroller.buildLetterPositionMap();
     }
 
     renderMusicArtistsView(container) {
@@ -5043,14 +5111,20 @@ class ZuneExplorer {
         const grid = document.getElementById('alpha-jump-grid');
         this.clearElement(grid);
 
-        // Gather available letters from current sub-view
+        // Gather available letters from current sub-view (hybrid: virtual + DOM)
         const availableLetters = new Set();
-        const letterEls = document.querySelectorAll('[data-letter]');
-        letterEls.forEach(el => {
-            if (!el.closest('.alpha-jump-overlay')) {
-                availableLetters.add(el.dataset.letter);
+        if (this.songsLetterMap) {
+            for (const letter of Object.keys(this.songsLetterMap)) {
+                availableLetters.add(letter);
             }
-        });
+        } else {
+            const letterEls = document.querySelectorAll('[data-letter]');
+            letterEls.forEach(el => {
+                if (!el.closest('.alpha-jump-overlay')) {
+                    availableLetters.add(el.dataset.letter);
+                }
+            });
+        }
 
         const allLetters = ['#', ...'abcdefghijklmnopqrstuvwxyz'.split('')];
         for (const letter of allLetters) {
@@ -5060,9 +5134,13 @@ class ZuneExplorer {
             if (availableLetters.has(letter)) {
                 btn.addEventListener('click', () => {
                     this.closeAlphaJump();
-                    const target = document.querySelector(`[data-letter="${letter}"]:not(.alpha-jump-letter)`);
-                    if (target) {
-                        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    if (this.songsScroller && this.songsLetterMap && this.songsLetterMap[letter] !== undefined) {
+                        this.songsScroller.scrollToOffset(this.songsLetterMap[letter]);
+                    } else {
+                        const target = document.querySelector('[data-letter="' + letter + '"]:not(.alpha-jump-letter)');
+                        if (target) {
+                            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
                     }
                 });
             }

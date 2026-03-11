@@ -283,9 +283,14 @@ class VirtualScroller {
         for (let i = 0; i < this._entries.length; i++) {
             const entry = this._entries[i];
             if (entry.type === 'letter') {
-                const letter = typeof entry.data === 'string'
-                    ? entry.data.charAt(0).toLowerCase()
-                    : (entry.data && entry.data.letter ? entry.data.letter.charAt(0).toLowerCase() : null);
+                let letter = null;
+                if (entry.letter) {
+                    letter = entry.letter.charAt(0).toLowerCase();
+                } else if (typeof entry.data === 'string') {
+                    letter = entry.data.charAt(0).toLowerCase();
+                } else if (entry.data && entry.data.letter) {
+                    letter = entry.data.letter.charAt(0).toLowerCase();
+                }
                 if (letter && !map.hasOwnProperty(letter)) {
                     map[letter] = this._positionMap[i].offset;
                 }
