@@ -651,6 +651,290 @@ class PodcastManager {
 
     return processed;
   }
+
+  // --- Download manager ---
+
+  _sanitizeFilename(name) {
+    // Remove filesystem-unsafe characters
+    return name
+      .replace(/[<>:"/\\|?*\x00-\x1f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim() || 'untitled';
+  }
+
+  async pickDownloadDirectory(dialog) {
+    const result = await dialog.showOpenDialog({
+      title: 'Choose Podcast Download Directory',
+      properties: ['openDirectory', 'createDirectory'],
+      defaultPath: this._preferences.downloadDirectory || undefined,
+    });
+
+    if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+      return null;
+    }
+
+    this._preferences.downloadDirectory = result.filePaths[0];
+    this._savePreferences();
+    return result.filePaths[0];
+  }
+
+  async downloadEpisode(subscriptionId, episodeId, webContents) {
+    const sub = this._subscriptions.find(s => s.id === subscriptionId);
+    if (!sub) throw new Error('Subscription not found');
+
+    const episodes = this._loadEpisodes(subscriptionId);
+    const episode = episodes.find(e => e.id === episodeId);
+    if (!episode) throw new Error('Episode not found');
+    if (!episode.enclosureUrl) throw new Error('No download URL for this episode');
+
+    if (!this._preferences.downloadDirectory) {
+      throw new Error('No download directory set');
+    }
+
+    // Build destination path: <downloadDir>/<podcast>/<episode>.<ext>
+    const podcastDir = path.join(
+      this._preferences.downloadDirectory,
+      this._sanitizeFilename(sub.title)
+    );
+    fs.mkdirSync(podcastDir, { recursive: true });
+
+    // Determine file extension from enclosure type or URL
+    let ext = '.mp3';
+    if (episode.enclosureType) {
+      const typeMap = {
+        'audio/mpeg': '.mp3',
+        'audio/mp3': '.mp3',
+        'audio/mp4': '.m4a',
+        'audio/x-m4a': '.m4a',
+        'audio/aac': '.aac',
+        'audio/ogg': '.ogg',
+        'audio/wav': '.wav',
+        'audio/flac': '.flac',
+        'video/mp4': '.mp4',
+        'video/x-m4v': '.m4v',
+        'video/quicktime': '.mov',
+      };
+      ext = typeMap[episode.enclosureType] || ext;
+    } else {
+      // Try to extract from URL path (before query string)
+      try {
+        const urlPath = new URL(episode.enclosureUrl).pathname;
+        const urlExt = path.extname(urlPath);
+        if (urlExt) ext = urlExt;
+      } catch { /* use default */ }
+    }
+
+    const sanitizedTitle = this._sanitizeFilename(episode.title);
+    let filename = `${sanitizedTitle}${ext}`;
+    const finalPath = path.join(podcastDir, filename);
+
+    // Handle filename collision: append publish date
+    if (fs.existsSync(finalPath)) {
+      const dateStr = episode.publishDate
+        ? new Date(episode.publishDate).toISOString().slice(0, 10)
+        : new Date().toISOString().slice(0, 10);
+      filename = `${sanitizedTitle} (${dateStr})${ext}`;
+    }
+
+    const destPath = path.join(podcastDir, filename);
+    const partialPath = `${destPath}.partial`;
+
+    return new Promise((resolve, reject) => {
+      const writeStream = fs.createWriteStream(partialPath);
+      const client = episode.enclosureUrl.startsWith('https') ? https : http;
+
+      const req = client.get(episode.enclosureUrl, {
+        headers: { 'User-Agent': 'ZuneExplorer/1.4.0' },
+      }, (res) => {
+        // Follow redirects
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          writeStream.close();
+          try { fs.unlinkSync(partialPath); } catch { /* ignore */ }
+          // Update enclosure URL and retry
+          const redirectUrl = res.headers.location;
+          episode.enclosureUrl = redirectUrl;
+          this.downloadEpisode(subscriptionId, episodeId, webContents).then(resolve, reject);
+          return;
+        }
+
+        if (res.statusCode !== 200) {
+          writeStream.close();
+          try { fs.unlinkSync(partialPath); } catch { /* ignore */ }
+          const err = new Error(`Download failed: HTTP ${res.statusCode}`);
+          if (webContents && !webContents.isDestroyed()) {
+            webContents.send('podcast-download-error', { episodeId, error: err.message });
+          }
+          reject(err);
+          return;
+        }
+
+        const bytesTotal = parseInt(res.headers['content-length'] || '0', 10);
+        let bytesDownloaded = 0;
+
+        // Store active download for cancellation
+        this._activeDownloads.set(episodeId, { req, writeStream, partialPath });
+
+        res.on('data', (chunk) => {
+          bytesDownloaded += chunk.length;
+          if (webContents && !webContents.isDestroyed()) {
+            const percent = bytesTotal > 0 ? Math.round((bytesDownloaded / bytesTotal) * 100) : 0;
+            webContents.send('podcast-download-progress', {
+              episodeId,
+              percent,
+              bytesDownloaded,
+              bytesTotal,
+            });
+          }
+        });
+
+        res.pipe(writeStream);
+
+        writeStream.on('finish', () => {
+          this._activeDownloads.delete(episodeId);
+
+          // Rename from .partial to final
+          try {
+            fs.renameSync(partialPath, destPath);
+          } catch (err) {
+            try { fs.unlinkSync(partialPath); } catch { /* ignore */ }
+            if (webContents && !webContents.isDestroyed()) {
+              webContents.send('podcast-download-error', { episodeId, error: err.message });
+            }
+            reject(err);
+            return;
+          }
+
+          // Update episode record
+          episode.downloaded = true;
+          episode.localPath = destPath;
+          this._saveEpisodes(subscriptionId, episodes);
+
+          if (webContents && !webContents.isDestroyed()) {
+            webContents.send('podcast-download-complete', { episodeId, localPath: destPath });
+          }
+          resolve(destPath);
+        });
+
+        writeStream.on('error', (err) => {
+          this._activeDownloads.delete(episodeId);
+          try { fs.unlinkSync(partialPath); } catch { /* ignore */ }
+          const message = err.code === 'ENOSPC' ? 'Not enough disk space' : err.message;
+          if (webContents && !webContents.isDestroyed()) {
+            webContents.send('podcast-download-error', { episodeId, error: message });
+          }
+          reject(new Error(message));
+        });
+      });
+
+      req.on('error', (err) => {
+        this._activeDownloads.delete(episodeId);
+        writeStream.close();
+        try { fs.unlinkSync(partialPath); } catch { /* ignore */ }
+        if (webContents && !webContents.isDestroyed()) {
+          webContents.send('podcast-download-error', { episodeId, error: err.message });
+        }
+        reject(err);
+      });
+
+      req.setTimeout(30000, () => {
+        req.destroy();
+        // error handler above will clean up
+      });
+    });
+  }
+
+  cancelDownload(episodeId) {
+    const active = this._activeDownloads.get(episodeId);
+    if (!active) return;
+
+    const { req, writeStream, partialPath } = active;
+    req.destroy();
+    writeStream.close();
+    try { fs.unlinkSync(partialPath); } catch { /* ignore */ }
+    this._activeDownloads.delete(episodeId);
+  }
+
+  deleteDownload(subscriptionId, episodeId) {
+    const episodes = this._loadEpisodes(subscriptionId);
+    const episode = episodes.find(e => e.id === episodeId);
+    if (!episode) return;
+
+    if (episode.localPath) {
+      try { fs.unlinkSync(episode.localPath); } catch { /* ignore */ }
+    }
+
+    episode.downloaded = false;
+    episode.localPath = null;
+    this._saveEpisodes(subscriptionId, episodes);
+  }
+
+  // --- Playback position tracking ---
+
+  savePlaybackPosition(subscriptionId, episodeId, position) {
+    const episodes = this._loadEpisodes(subscriptionId);
+    const episode = episodes.find(e => e.id === episodeId);
+    if (!episode) return;
+
+    episode.playbackPosition = position;
+    this._saveEpisodes(subscriptionId, episodes);
+
+    this._lastPlaybackState = { subscriptionId, episodeId, position };
+  }
+
+  markPlayed(subscriptionId, episodeId, played) {
+    const episodes = this._loadEpisodes(subscriptionId);
+    const episode = episodes.find(e => e.id === episodeId);
+    if (!episode) return;
+
+    episode.played = played;
+    if (played) {
+      episode.playbackPosition = 0;
+    }
+    this._saveEpisodes(subscriptionId, episodes);
+
+    // Update subscription newEpisodeCount
+    const sub = this._subscriptions.find(s => s.id === subscriptionId);
+    if (sub) {
+      sub.newEpisodeCount = episodes.filter(e => !e.played).length;
+      this._saveSubscriptions();
+    }
+  }
+
+  persistLastPlaybackState() {
+    if (!this._lastPlaybackState) return;
+    const { subscriptionId, episodeId, position } = this._lastPlaybackState;
+    this.savePlaybackPosition(subscriptionId, episodeId, position);
+  }
+
+  cleanupPartialDownloads() {
+    const downloadDir = this._preferences.downloadDirectory;
+    if (!downloadDir) return;
+
+    try {
+      if (!fs.existsSync(downloadDir)) return;
+    } catch {
+      return;
+    }
+
+    const walkAndClean = (dir) => {
+      let entries;
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walkAndClean(fullPath);
+        } else if (entry.name.endsWith('.partial')) {
+          try { fs.unlinkSync(fullPath); } catch { /* ignore */ }
+        }
+      }
+    };
+
+    walkAndClean(downloadDir);
+  }
 }
 
 module.exports = PodcastManager;
