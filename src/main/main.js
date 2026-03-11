@@ -10,6 +10,7 @@ const { ZuneManager } = require('./zune/zune-manager');
 const { DeviceCache } = require('./zune/device-cache');
 const { MetadataCache } = require('./metadata-cache.js');
 const musicbrainz = require('./musicbrainz.js');
+const PodcastManager = require('./podcast-manager');
 
 const execFileAsync = promisify(execFile);
 const ffmpegPath = require('ffmpeg-static');
@@ -17,6 +18,7 @@ const ffmpegPath = require('ffmpeg-static');
 const zuneManager = new ZuneManager();
 let deviceCache = null; // initialized after app.whenReady
 let metadataCache;
+let podcastManager = null;
 
 // Simple dev mode detection
 const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev');
@@ -96,6 +98,9 @@ app.whenReady().then(() => {
   metadataCache = new MetadataCache(app.getPath('userData'));
   zuneManager.metadataCache = metadataCache;
 
+  podcastManager = new PodcastManager(app.getPath('userData'));
+  podcastManager.cleanupPartialDownloads();
+
   // Start Zune USB detection
   zuneManager.start();
 
@@ -122,6 +127,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  if (podcastManager) podcastManager.persistLastPlaybackState();
 });
 
 // IPC handlers for file system operations
@@ -892,4 +901,157 @@ ipcMain.handle('window-close', async () => {
   if (mainWindow) {
     mainWindow.close();
   }
+});
+
+// --- Podcasts ---
+
+ipcMain.handle('podcast-search', async (event, query) => {
+  try {
+    const results = await podcastManager.search(query);
+    return { success: true, results };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('podcast-subscribe', async (event, feedUrl) => {
+  try {
+    const subscription = await podcastManager.subscribe(feedUrl);
+    return { success: true, subscription };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('podcast-unsubscribe', async (event, subscriptionId) => {
+  try {
+    podcastManager.unsubscribe(subscriptionId);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('podcast-pick-opml-file', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [{ name: 'OPML Files', extensions: ['opml', 'xml'] }],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { success: false, cancelled: true };
+  }
+  return { success: true, filePath: result.filePaths[0] };
+});
+
+ipcMain.handle('podcast-import-opml', async (event, filePath) => {
+  try {
+    const count = await podcastManager.importOPML(filePath, mainWindow?.webContents);
+    return { success: true, count };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('podcast-refresh', async (event, subscriptionId) => {
+  try {
+    if (subscriptionId) {
+      const result = await podcastManager.refresh(subscriptionId);
+      return { success: true, result };
+    } else {
+      await podcastManager.refreshAll(mainWindow?.webContents);
+      return { success: true };
+    }
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('podcast-get-subscriptions', async () => {
+  try {
+    const subscriptions = podcastManager.getSubscriptions();
+    return { success: true, subscriptions };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('podcast-get-episodes', async (event, subscriptionId) => {
+  try {
+    const episodes = podcastManager.getEpisodes(subscriptionId);
+    return { success: true, episodes };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('podcast-download-episode', async (event, subscriptionId, episodeId) => {
+  try {
+    const localPath = await podcastManager.downloadEpisode(subscriptionId, episodeId, mainWindow?.webContents);
+    return { success: true, localPath };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('podcast-cancel-download', async (event, episodeId) => {
+  try {
+    podcastManager.cancelDownload(episodeId);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('podcast-delete-download', async (event, subscriptionId, episodeId) => {
+  try {
+    podcastManager.deleteDownload(subscriptionId, episodeId);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('podcast-save-playback-position', async (event, subscriptionId, episodeId, position) => {
+  try {
+    podcastManager.savePlaybackPosition(subscriptionId, episodeId, position);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('podcast-mark-played', async (event, subscriptionId, episodeId, played) => {
+  try {
+    podcastManager.markPlayed(subscriptionId, episodeId, played);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('podcast-get-preferences', async () => {
+  try {
+    const preferences = podcastManager.getPreferences();
+    return { success: true, preferences };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('podcast-pick-download-directory', async () => {
+  try {
+    const { dialog } = require('electron');
+    const directory = await podcastManager.pickDownloadDirectory(dialog);
+    if (directory) {
+      return { success: true, directory };
+    }
+    return { success: false, cancelled: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-user-data-path', async () => {
+  return app.getPath('userData');
 });

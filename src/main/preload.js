@@ -77,4 +77,52 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Drag-and-drop path resolution (sandbox-safe)
   getPathForFile: (file) => webUtils.getPathForFile(file),
+
+  // Podcasts
+  podcastSearch: (query) => ipcRenderer.invoke('podcast-search', query),
+  podcastSubscribe: (feedUrl) => ipcRenderer.invoke('podcast-subscribe', feedUrl),
+  podcastUnsubscribe: (id) => ipcRenderer.invoke('podcast-unsubscribe', id),
+  podcastPickOpmlFile: () => ipcRenderer.invoke('podcast-pick-opml-file'),
+  podcastImportOpml: (filePath) => ipcRenderer.invoke('podcast-import-opml', filePath),
+  podcastRefresh: (subscriptionId) => ipcRenderer.invoke('podcast-refresh', subscriptionId),
+  podcastGetSubscriptions: () => ipcRenderer.invoke('podcast-get-subscriptions'),
+  podcastGetEpisodes: (subscriptionId) => ipcRenderer.invoke('podcast-get-episodes', subscriptionId),
+  podcastDownloadEpisode: (subId, epId) => ipcRenderer.invoke('podcast-download-episode', subId, epId),
+  podcastCancelDownload: (epId) => ipcRenderer.invoke('podcast-cancel-download', epId),
+  podcastDeleteDownload: (subId, epId) => ipcRenderer.invoke('podcast-delete-download', subId, epId),
+  podcastSavePlaybackPosition: (subId, epId, pos) => ipcRenderer.invoke('podcast-save-playback-position', subId, epId, pos),
+  podcastMarkPlayed: (subId, epId, played) => ipcRenderer.invoke('podcast-mark-played', subId, epId, played),
+  podcastGetPreferences: () => ipcRenderer.invoke('podcast-get-preferences'),
+  podcastPickDownloadDirectory: () => ipcRenderer.invoke('podcast-pick-download-directory'),
+  getUserDataPath: () => ipcRenderer.invoke('get-user-data-path'),
+  onPodcastDownloadProgress: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('podcast-download-progress', handler);
+    return handler;
+  },
+  offPodcastDownloadProgress: (handler) => ipcRenderer.removeListener('podcast-download-progress', handler),
+  onPodcastDownloadComplete: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('podcast-download-complete', handler);
+    return handler;
+  },
+  offPodcastDownloadComplete: (handler) => ipcRenderer.removeListener('podcast-download-complete', handler),
+  onPodcastDownloadError: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('podcast-download-error', handler);
+    return handler;
+  },
+  offPodcastDownloadError: (handler) => ipcRenderer.removeListener('podcast-download-error', handler),
+  onPodcastRefreshComplete: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('podcast-refresh-complete', handler);
+    return handler;
+  },
+  offPodcastRefreshComplete: (handler) => ipcRenderer.removeListener('podcast-refresh-complete', handler),
+  onPodcastImportProgress: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('podcast-import-progress', handler);
+    return handler;
+  },
+  offPodcastImportProgress: (handler) => ipcRenderer.removeListener('podcast-import-progress', handler),
 });
