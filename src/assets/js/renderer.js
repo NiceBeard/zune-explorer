@@ -811,8 +811,9 @@ class ZuneSyncPanel {
         // Build a lookup by normalized album name for fuzzy matching
         const artByAlbum = new Map();
         for (const [, album] of albums) {
-            if (album.albumArt) {
-                artByAlbum.set(album.name.toLowerCase().trim(), album.albumArt);
+            const art = this.explorer.getAlbumArt(album);
+            if (art) {
+                artByAlbum.set(album.name.toLowerCase().trim(), art);
             }
         }
         for (const item of this.diffResult.deviceOnly) {
@@ -1386,11 +1387,11 @@ class ZuneSyncPanel {
                 if (groupBy === 'album') {
                     name = loc.album || dev.album || 'Unknown Album';
                     artist = loc.artist || dev.artist || '';
-                    albumArt = loc.albumArt || this._getBrowseArt(dev) || null;
+                    albumArt = this.explorer.getAlbumArt(loc) || this._getBrowseArt(dev) || null;
                     key = name.toLowerCase();
                 } else {
                     name = loc.artist || dev.artist || 'Unknown Artist';
-                    albumArt = loc.albumArt || this._getBrowseArt(dev) || null;
+                    albumArt = this.explorer.getAlbumArt(loc) || this._getBrowseArt(dev) || null;
                     key = name.toLowerCase();
                     artist = '';
                 }
@@ -1505,7 +1506,7 @@ class ZuneSyncPanel {
 
                         // Album art
                         var art = panel.diffTab === 'matched'
-                            ? ((item.local ? item.local.albumArt : null) || (item.device ? panel._getBrowseArt(item.device) : null))
+                            ? ((item.local ? panel.explorer.getAlbumArt(item.local) : null) || (item.device ? panel._getBrowseArt(item.device) : null))
                             : (panel._getBrowseArt(item) || null);
                         if (art) {
                             var artImg2 = document.createElement('img');
@@ -1634,11 +1635,11 @@ class ZuneSyncPanel {
                 if (groupBy === 'album') {
                     name = loc.album || dev.album || 'Unknown Album';
                     artist = loc.artist || dev.artist || '';
-                    albumArt = loc.albumArt || this._getBrowseArt(dev) || null;
+                    albumArt = this.explorer.getAlbumArt(loc) || this._getBrowseArt(dev) || null;
                     key = name.toLowerCase();
                 } else {
                     name = loc.artist || dev.artist || 'Unknown Artist';
-                    albumArt = loc.albumArt || this._getBrowseArt(dev) || null;
+                    albumArt = this.explorer.getAlbumArt(loc) || this._getBrowseArt(dev) || null;
                     key = name.toLowerCase();
                     artist = '';
                 }
@@ -1782,7 +1783,7 @@ class ZuneSyncPanel {
 
         // Album art
         const art = this.diffTab === 'matched'
-            ? (item.local?.albumArt || (item.device ? this._getBrowseArt(item.device) : null))
+            ? ((item.local ? this.explorer.getAlbumArt(item.local) : null) || (item.device ? this._getBrowseArt(item.device) : null))
             : (this._getBrowseArt(item) || null);
         if (art) {
             const artImg = document.createElement('img');
@@ -2019,7 +2020,7 @@ class ZuneSyncPanel {
                             title: track.title,
                             artist: track.artist,
                             album: track.album,
-                            albumArt: track.albumArt,
+                            albumArt: this.explorer.getAlbumArt(track),
                             size: 0,
                         });
                     }
@@ -2293,6 +2294,7 @@ class ZuneExplorer {
             albums: new Map(),       // key -> AlbumInfo
             artists: new Map(),      // lowercase name -> ArtistInfo
             genres: new Map(),       // lowercase genre -> { name, tracks[] }
+            albumArtMap: {},         // key: 'artist|album' -> base64 art
             sortedSongs: [],
             sortedAlbums: [],
             sortedArtists: [],
@@ -3495,22 +3497,24 @@ class ZuneExplorer {
         // Album art for music items (album, artist)
         if (pin.type === 'album' && pin.meta && pin.meta.albumKey) {
             const album = this.musicLibrary.albums.get(pin.meta.albumKey);
-            if (album && album.albumArt) {
+            const pinAlbumArt = album ? this.getAlbumArt(album) : null;
+            if (pinAlbumArt) {
                 const img = document.createElement('img');
                 img.className = 'recent-file-thumb';
-                img.src = album.albumArt;
+                img.src = pinAlbumArt;
                 div.appendChild(img);
             }
         } else if (pin.type === 'artist' && pin.meta && pin.meta.artistName) {
             const artist = this.musicLibrary.artists.get(pin.meta.artistName);
-            if (artist && artist.albums.length > 0) {
+            if (artist && artist.albums.size > 0) {
                 // Use first album's art as artist thumbnail
                 for (const albumKey of artist.albums) {
                     const album = this.musicLibrary.albums.get(albumKey);
-                    if (album && album.albumArt) {
+                    const pinArtistArt = album ? this.getAlbumArt(album) : null;
+                    if (pinArtistArt) {
                         const img = document.createElement('img');
                         img.className = 'recent-file-thumb';
-                        img.src = album.albumArt;
+                        img.src = pinArtistArt;
                         div.appendChild(img);
                         break;
                     }
@@ -4040,21 +4044,22 @@ class ZuneExplorer {
         for (const track of lib.tracks.values()) {
             // Albums
             const albumKey = `${(track.album || 'Unknown Album').toLowerCase()}||${(track.albumArtist || track.artist || 'Unknown Artist').toLowerCase()}`;
+            const trackArt = this.getAlbumArt(track);
             if (!lib.albums.has(albumKey)) {
                 lib.albums.set(albumKey, {
                     key: albumKey,
                     name: track.album || 'Unknown Album',
                     artist: track.albumArtist || track.artist || 'Unknown Artist',
                     year: track.year || 0,
-                    albumArt: track.albumArt || null,
+                    albumArtKey: track.albumArtKey || null,
                     tracks: [],
                     sortLetter: this.getSortLetter(track.album || 'Unknown Album'),
                 });
             }
             const album = lib.albums.get(albumKey);
             album.tracks.push(track);
-            if (!album.albumArt && track.albumArt) {
-                album.albumArt = track.albumArt;
+            if (!this.getAlbumArt(album) && trackArt) {
+                album.albumArtKey = track.albumArtKey || null;
             }
 
             // Artists
@@ -4064,15 +4069,15 @@ class ZuneExplorer {
                     name: track.artist || 'Unknown Artist',
                     albums: new Set(),
                     trackCount: 0,
-                    albumArt: track.albumArt || null,
+                    albumArtKey: track.albumArtKey || null,
                     sortLetter: this.getSortLetter(track.artist || 'Unknown Artist'),
                 });
             }
             const artist = lib.artists.get(artistKey);
             artist.trackCount++;
             artist.albums.add(albumKey);
-            if (!artist.albumArt && track.albumArt) {
-                artist.albumArt = track.albumArt;
+            if (!this.getAlbumArt(artist) && trackArt) {
+                artist.albumArtKey = track.albumArtKey || null;
             }
 
             // Genres
@@ -4099,6 +4104,15 @@ class ZuneExplorer {
             a.name.localeCompare(b.name));
     }
 
+    getAlbumArt(item) {
+        if (!item) return null;
+        if (item.albumArt) return item.albumArt;  // direct art (backwards compat)
+        if (item.albumArtKey) {
+            return this.musicLibrary.albumArtMap[item.albumArtKey] || null;
+        }
+        return null;
+    }
+
     async scanMusicLibrary() {
         const lib = this.musicLibrary;
         if (lib.scanState === 'scanning') return;
@@ -4121,6 +4135,14 @@ class ZuneExplorer {
         }
         this._musicScanHandler = window.electronAPI.onMusicScanProgress((data) => {
             for (const result of data.batch) {
+                if (result.albumArt) {
+                    const artKey = (result.artist || '').toLowerCase() + '|' + (result.album || '').toLowerCase();
+                    if (!lib.albumArtMap[artKey]) {
+                        lib.albumArtMap[artKey] = result.albumArt;
+                    }
+                    result.albumArtKey = artKey;
+                    delete result.albumArt;
+                }
                 lib.tracks.set(result.path, result);
             }
             lib.scannedCount = data.scanned;
@@ -4354,8 +4376,9 @@ class ZuneExplorer {
                 const album = entry.data;
                 const tile = document.createElement('div');
                 tile.className = 'music-album-tile';
-                if (album.albumArt) {
-                    tile.style.backgroundImage = `url(${album.albumArt})`;
+                const albumArt = this.getAlbumArt(album);
+                if (albumArt) {
+                    tile.style.backgroundImage = `url(${albumArt})`;
                 }
                 const overlay = document.createElement('div');
                 overlay.className = 'music-album-overlay';
@@ -4532,9 +4555,10 @@ class ZuneExplorer {
 
                 const thumb = document.createElement('div');
                 thumb.className = 'music-artist-thumb';
-                if (artist.albumArt) {
+                const artistArt = this.getAlbumArt(artist);
+                if (artistArt) {
                     const img = document.createElement('img');
-                    img.src = artist.albumArt;
+                    img.src = artistArt;
                     img.alt = artist.name;
                     thumb.appendChild(img);
                 }
@@ -4881,9 +4905,10 @@ class ZuneExplorer {
 
         const art = document.createElement('div');
         art.className = 'music-album-detail-art';
-        if (album.albumArt) {
+        const detailArt = this.getAlbumArt(album);
+        if (detailArt) {
             const img = document.createElement('img');
-            img.src = album.albumArt;
+            img.src = detailArt;
             img.alt = album.name;
             art.appendChild(img);
         }
@@ -5010,8 +5035,9 @@ class ZuneExplorer {
         for (const album of artistAlbums) {
             const tile = document.createElement('div');
             tile.className = 'music-album-tile';
-            if (album.albumArt) {
-                tile.style.backgroundImage = `url(${album.albumArt})`;
+            const artistAlbumArt = this.getAlbumArt(album);
+            if (artistAlbumArt) {
+                tile.style.backgroundImage = `url(${artistAlbumArt})`;
             }
             const overlay = document.createElement('div');
             overlay.className = 'music-album-overlay';
@@ -5233,12 +5259,14 @@ class ZuneExplorer {
         if (!artist && !album) return null;
         const key = `${album.toLowerCase()}||${artist.toLowerCase()}`;
         const albumObj = this.musicLibrary.albums.get(key);
-        if (albumObj && albumObj.albumArt) return albumObj.albumArt;
+        const albumObjArt = this.getAlbumArt(albumObj);
+        if (albumObjArt) return albumObjArt;
         // Try matching by album name alone
         if (album) {
             for (const [, alb] of this.musicLibrary.albums) {
                 if (alb.name.toLowerCase() === album.toLowerCase()) {
-                    if (alb.albumArt) return alb.albumArt;
+                    const albArt = this.getAlbumArt(alb);
+                    if (albArt) return albArt;
                 }
             }
         }
@@ -5697,7 +5725,14 @@ class ZuneExplorer {
             }
         }
         if (album) {
-            if (metadata.albumArt) album.albumArt = metadata.albumArt;
+            if (metadata.albumArt) {
+                const artKey = artistNorm + '|' + albumNorm;
+                if (!this.musicLibrary.albumArtMap[artKey]) {
+                    this.musicLibrary.albumArtMap[artKey] = metadata.albumArt;
+                }
+                album.albumArtKey = artKey;
+                delete album.albumArt;
+            }
             if (metadata.year) album.year = metadata.year;
             if (metadata.genre) album.genre = metadata.genre;
         }
@@ -5705,7 +5740,12 @@ class ZuneExplorer {
         const artistKey = this.resolveArtistKey(artistName);
         const artist = this.musicLibrary.artists.get(artistKey);
         if (artist && metadata.albumArt && !artist.enrichedArt) {
-            artist.albumArt = metadata.albumArt;
+            const artKey = artistNorm + '|' + albumNorm;
+            if (!this.musicLibrary.albumArtMap[artKey]) {
+                this.musicLibrary.albumArtMap[artKey] = metadata.albumArt;
+            }
+            artist.albumArtKey = artKey;
+            delete artist.albumArt;
             artist.enrichedArt = true;
         }
 
@@ -5727,7 +5767,14 @@ class ZuneExplorer {
                 const trackArtistNorm = album.tracks.length > 0 ? (album.tracks[0].artist || '').toLowerCase().trim() : '';
                 const matchesArtist = albumArtistNorm === artistNorm || trackArtistNorm === artistNorm;
                 if (matchesAlbum && matchesArtist) {
-                    if (metadata.albumArt) album.albumArt = metadata.albumArt;
+                    if (metadata.albumArt) {
+                        const artKey = artistNorm + '|' + albumNorm;
+                        if (!this.musicLibrary.albumArtMap[artKey]) {
+                            this.musicLibrary.albumArtMap[artKey] = metadata.albumArt;
+                        }
+                        album.albumArtKey = artKey;
+                        delete album.albumArt;
+                    }
                     if (metadata.year) album.year = metadata.year;
                     if (metadata.genre) album.genre = metadata.genre;
                     break;
