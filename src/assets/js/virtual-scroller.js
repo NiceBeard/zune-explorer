@@ -90,8 +90,9 @@ class VirtualScroller {
             proto.style.top = '-9999px';
             proto.style.left = '-9999px';
             proto.style.visibility = 'hidden';
-            proto.style.height = typeConfig.height + 'px';
             proto.style.width = '100%';
+            // Do NOT set height — let CSS classes determine natural height.
+            // typeConfig.height is only a fallback if measurement returns 0.
             document.body.appendChild(proto);
 
             const rect = proto.getBoundingClientRect();
