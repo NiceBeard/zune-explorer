@@ -6,6 +6,7 @@ class ZuneSyncPanel {
         this.browseActive = false;
         this.browseTab = 'music';
         this.browseData = null;
+        this.browseAlbumArtMap = {};
         this.selectedHandles = new Set();
         this.deleteConfirmTimer = null;
         this.diffDeleteConfirmTimer = null;
@@ -27,6 +28,11 @@ class ZuneSyncPanel {
         this.lastStatus = null;
         this.deviceModel = null;
         this.storageBreakdown = null;
+        this.browseScroller = null;       // VirtualScroller for browse list
+        this._browseChangeHandler = null; // event delegation handler for browse checkboxes
+        this.diffScroller = null;         // VirtualScroller for diff list
+        this._diffChangeHandler = null;   // event delegation handler for diff checkboxes
+        this._diffClickHandler = null;    // event delegation handler for diff header clicks
 
         this.panel = document.getElementById('zune-sync-panel');
         this.toggleBtn = document.getElementById('zune-toggle-btn');
@@ -141,6 +147,8 @@ class ZuneSyncPanel {
         document.querySelectorAll('.zune-browse-tab').forEach(tab => {
             tab.addEventListener('click', () => {
                 this.browseTab = tab.dataset.tab;
+                this.selectedHandles.clear();
+                this._destroyBrowseScroller();
                 document.querySelectorAll('.zune-browse-tab').forEach(t => t.classList.remove('active'));
                 tab.classList.add('active');
                 this._renderBrowseList();
@@ -168,6 +176,7 @@ class ZuneSyncPanel {
                 this.diffFilterQuery = '';
                 document.getElementById('zune-diff-filter-input').value = '';
                 document.getElementById('zune-diff-filter-clear').style.display = 'none';
+                this._destroyDiffScroller();
                 this._renderDiffList();
             });
         });
@@ -197,6 +206,7 @@ class ZuneSyncPanel {
                 document.getElementById('zune-diff-delete-btn').classList.remove('confirm');
                 this._computeDiff();
                 this._renderDiffSummary();
+                this._destroyDiffScroller();
                 this._renderDiffList();
             });
         });
@@ -208,6 +218,7 @@ class ZuneSyncPanel {
                 document.querySelectorAll('.zune-diff-group-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 this.collapsedGroups.clear();
+                this._destroyDiffScroller();
                 this._renderDiffList();
             });
         });
@@ -226,6 +237,7 @@ class ZuneSyncPanel {
             this._diffFilterTimer = setTimeout(() => {
                 this.diffFilterQuery = filterInput.value.trim().toLowerCase();
                 filterClear.style.display = this.diffFilterQuery ? 'block' : 'none';
+                this._destroyDiffScroller();
                 this._renderDiffList();
             }, 150);
         });
@@ -238,6 +250,7 @@ class ZuneSyncPanel {
                 filterInput.value = '';
                 this.diffFilterQuery = '';
                 filterClear.style.display = 'none';
+                this._destroyDiffScroller();
                 this._renderDiffList();
             }
         });
@@ -247,6 +260,7 @@ class ZuneSyncPanel {
             this.diffFilterQuery = '';
             filterClear.style.display = 'none';
             filterInput.focus();
+            this._destroyDiffScroller();
             this._renderDiffList();
         });
 
@@ -277,12 +291,12 @@ class ZuneSyncPanel {
     }
 
     _listenForZune() {
-        window.electronAPI.onZuneStatus((status) => {
+        this._zuneStatusHandler = window.electronAPI.onZuneStatus((status) => {
             this.state = status.state;
             this.lastStatus = status;
             this._updateUI(status);
         });
-        window.electronAPI.onZuneTransferProgress((progress) => {
+        this._transferProgressHandler = window.electronAPI.onZuneTransferProgress((progress) => {
             this._updateProgress(progress);
         });
 
@@ -294,6 +308,25 @@ class ZuneSyncPanel {
                 this._updateUI(status);
             }
         });
+    }
+
+    _cleanup() {
+        // Clean up per-session browse progress listener only
+        // Note: onZuneStatus and onZuneTransferProgress are lifetime listeners
+        // registered once in the constructor — they must persist across disconnect/reconnect.
+        if (this._browseProgressHandler) {
+            window.electronAPI.offZuneBrowseProgress(this._browseProgressHandler);
+            this._browseProgressHandler = null;
+        }
+
+        // Clear timers
+        if (this.deleteConfirmTimer) { clearTimeout(this.deleteConfirmTimer); this.deleteConfirmTimer = null; }
+        if (this.diffDeleteConfirmTimer) { clearTimeout(this.diffDeleteConfirmTimer); this.diffDeleteConfirmTimer = null; }
+        if (this._diffFilterTimer) { clearTimeout(this._diffFilterTimer); this._diffFilterTimer = null; }
+
+        // Destroy virtual scrollers
+        this._destroyBrowseScroller();
+        this._destroyDiffScroller();
     }
 
     toggle() {
@@ -375,6 +408,7 @@ class ZuneSyncPanel {
             case 'disconnected':
                 if (this.browseActive) this._closeBrowse();
                 if (this.diffActive) this._closeDiff();
+                this._cleanup();
                 this.deviceKey = null;
                 this.deviceModel = null;
                 this.storageBreakdown = null;
@@ -535,8 +569,21 @@ class ZuneSyncPanel {
                 completeEl.style.display = 'block';
                 document.getElementById('zune-sync-title').textContent = (this.deviceModel || 'zune').toLowerCase();
                 document.getElementById('zune-sync-subtitle').textContent = 'connected';
-                document.getElementById('zune-complete-text').textContent =
-                    `${progress.completedFiles} files synced`;
+                {
+                    const completeTextEl = document.getElementById('zune-complete-text');
+                    if (progress.failed && progress.failed.length > 0) {
+                        const transferred = progress.succeeded || (progress.completedFiles - progress.failed.length);
+                        completeTextEl.textContent =
+                            `transferred ${transferred} of ${progress.totalFiles} \u2014 ${progress.failed.length} failed`;
+                        completeTextEl.style.color = '#ff6900';
+                        this._lastTransferFailed = progress.failed;
+                    } else {
+                        completeTextEl.textContent =
+                            `${progress.completedFiles} files synced`;
+                        completeTextEl.style.color = '';
+                        this._lastTransferFailed = null;
+                    }
+                }
                 if (progress.storage) this._updateStorage(progress.storage);
                 setTimeout(() => {
                     completeEl.style.display = 'none';
@@ -572,6 +619,11 @@ class ZuneSyncPanel {
             if (cached.success && cached.data) {
                 this.cachedData = cached.data;
                 this.browseData = cached.data.contents;
+                if (cached.data.contents.albumArtMap) {
+                    this.browseAlbumArtMap = cached.data.contents.albumArtMap;
+                } else {
+                    this.browseAlbumArtMap = {};
+                }
                 this._computeStorageBreakdown();
                 this._openDiffView();
                 return;
@@ -599,7 +651,10 @@ class ZuneSyncPanel {
         let scanFileCount = 0; // total files found during folder scan
 
         // Listen for progressive updates during scan
-        window.electronAPI.onZuneBrowseProgress((data) => {
+        if (this._browseProgressHandler) {
+            window.electronAPI.offZuneBrowseProgress(this._browseProgressHandler);
+        }
+        this._browseProgressHandler = window.electronAPI.onZuneBrowseProgress((data) => {
             if (data.phase === 'scanning') {
                 const found = (data.contents.music?.length || 0) +
                               (data.contents.videos?.length || 0) +
@@ -653,6 +708,7 @@ class ZuneSyncPanel {
             }
             // Keep browse data updated for progressive rendering
             this.browseData = data.contents;
+            this.browseAlbumArtMap = data.albumArtMap || this.browseAlbumArtMap || {};
         });
 
         const result = await window.electronAPI.zuneBrowseContents();
@@ -661,6 +717,7 @@ class ZuneSyncPanel {
 
         if (result.success) {
             this.browseData = result.contents;
+            this.browseAlbumArtMap = result.contents.albumArtMap || {};
 
             // Save to cache
             if (this.deviceKey) {
@@ -735,7 +792,16 @@ class ZuneSyncPanel {
         this._computeDiff();
         this._enrichDeviceArt();
         this._renderDiffSummary();
+        this._destroyDiffScroller();
         this._renderDiffList();
+    }
+
+    _getBrowseArt(item) {
+        if (item.albumArt) return item.albumArt;  // backwards compat with old cache
+        if (item.albumArtKey && this.browseAlbumArtMap) {
+            return this.browseAlbumArtMap[item.albumArtKey] || null;
+        }
+        return null;
     }
 
     _enrichDeviceArt() {
@@ -745,15 +811,21 @@ class ZuneSyncPanel {
         // Build a lookup by normalized album name for fuzzy matching
         const artByAlbum = new Map();
         for (const [, album] of albums) {
-            if (album.albumArt) {
-                artByAlbum.set(album.name.toLowerCase().trim(), album.albumArt);
+            const art = this.explorer.getAlbumArt(album);
+            if (art) {
+                artByAlbum.set(album.name.toLowerCase().trim(), art);
             }
         }
         for (const item of this.diffResult.deviceOnly) {
-            if (item.albumArt) continue;
+            if (this._getBrowseArt(item)) continue;
             const albumName = (item.album || '').toLowerCase().trim();
             if (albumName && artByAlbum.has(albumName)) {
-                item.albumArt = artByAlbum.get(albumName);
+                // Write to the dedup map instead of inflating per-item art
+                const artKey = (item.artist || '').toLowerCase() + '|' + albumName;
+                if (!this.browseAlbumArtMap[artKey]) {
+                    this.browseAlbumArtMap[artKey] = artByAlbum.get(albumName);
+                }
+                item.albumArtKey = artKey;
             }
         }
     }
@@ -763,6 +835,7 @@ class ZuneSyncPanel {
         this.diffResult = null;
         this.diffSelectedPaths.clear();
         this.diffSelectedHandles.clear();
+        this._destroyDiffScroller();
 
         document.getElementById('zune-diff-view').style.display = 'none';
         document.getElementById('zune-diff-back').style.display = 'none';
@@ -785,6 +858,7 @@ class ZuneSyncPanel {
         }
         this.cachedData = null;
         this.browseData = null;
+        this.browseAlbumArtMap = {};
         this.diffActive = false;
         document.getElementById('zune-diff-view').style.display = 'none';
         this._startFirstTimeScan();
@@ -824,6 +898,7 @@ class ZuneSyncPanel {
             clearTimeout(this.deleteConfirmTimer);
             this.deleteConfirmTimer = null;
         }
+        this._destroyBrowseScroller();
 
         document.getElementById('zune-browse-view').style.display = 'none';
         if (this.state === 'connected' && !this.diffActive) {
@@ -831,16 +906,44 @@ class ZuneSyncPanel {
         }
     }
 
+    _destroyBrowseScroller() {
+        if (this.browseScroller) {
+            this.browseScroller.destroy();
+            this.browseScroller = null;
+        }
+        const listEl = document.getElementById('zune-browse-list');
+        if (listEl && this._browseChangeHandler) {
+            listEl.removeEventListener('change', this._browseChangeHandler);
+            this._browseChangeHandler = null;
+        }
+    }
+
+    _destroyDiffScroller() {
+        if (this.diffScroller) {
+            this.diffScroller.destroy();
+            this.diffScroller = null;
+        }
+        const listEl = document.getElementById('zune-diff-list');
+        if (listEl) {
+            if (this._diffChangeHandler) {
+                listEl.removeEventListener('change', this._diffChangeHandler);
+                this._diffChangeHandler = null;
+            }
+            if (this._diffClickHandler) {
+                listEl.removeEventListener('click', this._diffClickHandler);
+                this._diffClickHandler = null;
+            }
+        }
+    }
+
     _renderBrowseList() {
         const listEl = document.getElementById('zune-browse-list');
         const actionsEl = document.getElementById('zune-browse-actions');
-
-        // Preserve scroll position across progressive re-renders
-        const savedScroll = listEl.scrollTop;
-
-        listEl.textContent = '';
+        const panel = this;
 
         if (!this.browseData) {
+            this._destroyBrowseScroller();
+            while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
             const emptyDiv = document.createElement('div');
             emptyDiv.className = 'zune-browse-empty';
             emptyDiv.textContent = 'no data';
@@ -852,6 +955,8 @@ class ZuneSyncPanel {
         const items = this.browseData[this.browseTab] || [];
 
         if (items.length === 0) {
+            this._destroyBrowseScroller();
+            while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
             const emptyDiv = document.createElement('div');
             emptyDiv.className = 'zune-browse-empty';
             emptyDiv.textContent = 'no ' + this.browseTab + ' on device';
@@ -860,85 +965,102 @@ class ZuneSyncPanel {
             return;
         }
 
-        for (const item of items) {
-            const label = document.createElement('label');
-            label.className = 'zune-browse-item';
-            label.dataset.handle = String(item.handle);
+        const entries = items.map(item => ({ type: 'browseItem', data: item }));
 
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.className = 'zune-browse-check';
-            checkbox.dataset.handle = String(item.handle);
-            checkbox.checked = this.selectedHandles.has(item.handle);
+        if (!this.browseScroller) {
+            while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
 
-            // Album art thumbnail (if available)
-            if (item.albumArt) {
-                const artImg = document.createElement('img');
-                artImg.className = 'zune-browse-art';
-                artImg.src = item.albumArt;
-                artImg.alt = '';
-                label.appendChild(artImg);
-            }
+            this.browseScroller = new VirtualScroller({
+                container: listEl,
+                rowTypes: { browseItem: { height: 52, className: 'zune-browse-item' } },
+                renderRow(el, index, entry) {
+                    // Clear children before populating (row recycling)
+                    while (el.firstChild) el.removeChild(el.firstChild);
 
-            const infoDiv = document.createElement('div');
-            infoDiv.className = 'zune-browse-info';
+                    const item = entry.data;
 
-            // Show title/artist/album if available, otherwise filename
-            const displayTitle = item.title || item.filename;
-            const titleSpan = document.createElement('span');
-            titleSpan.className = 'zune-browse-filename';
-            titleSpan.title = item.filename;
-            titleSpan.textContent = displayTitle;
-            infoDiv.appendChild(titleSpan);
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.className = 'zune-browse-check';
+                    checkbox.checked = panel.selectedHandles.has(item.handle);
 
-            if (item.artist || item.album) {
-                const metaSpan = document.createElement('span');
-                metaSpan.className = 'zune-browse-meta';
-                const parts = [];
-                if (item.artist) parts.push(item.artist);
-                if (item.album) parts.push(item.album);
-                metaSpan.textContent = parts.join(' \u2014 ');
-                infoDiv.appendChild(metaSpan);
-            }
+                    // Album art thumbnail (if available)
+                    const browseArt = panel._getBrowseArt(item);
+                    var artImg = null;
+                    if (browseArt) {
+                        artImg = document.createElement('img');
+                        artImg.className = 'zune-browse-art';
+                        artImg.src = browseArt;
+                        artImg.alt = '';
+                    }
 
-            const rightDiv = document.createElement('div');
-            rightDiv.className = 'zune-browse-right';
+                    const infoDiv = document.createElement('div');
+                    infoDiv.className = 'zune-browse-info';
 
-            if (item.duration) {
-                const durSpan = document.createElement('span');
-                durSpan.className = 'zune-browse-duration';
-                const secs = Math.floor(item.duration / 1000);
-                const mins = Math.floor(secs / 60);
-                const remSecs = secs % 60;
-                durSpan.textContent = `${mins}:${String(remSecs).padStart(2, '0')}`;
-                rightDiv.appendChild(durSpan);
-            }
+                    const displayTitle = item.title || item.filename;
+                    const titleSpan = document.createElement('span');
+                    titleSpan.className = 'zune-browse-filename';
+                    titleSpan.title = item.filename;
+                    titleSpan.textContent = displayTitle;
+                    infoDiv.appendChild(titleSpan);
 
-            const sizeSpan = document.createElement('span');
-            sizeSpan.className = 'zune-browse-size';
-            sizeSpan.textContent = this._formatSize(item.size);
-            rightDiv.appendChild(sizeSpan);
+                    if (item.artist || item.album) {
+                        const metaSpan = document.createElement('span');
+                        metaSpan.className = 'zune-browse-meta';
+                        const parts = [];
+                        if (item.artist) parts.push(item.artist);
+                        if (item.album) parts.push(item.album);
+                        metaSpan.textContent = parts.join(' \u2014 ');
+                        infoDiv.appendChild(metaSpan);
+                    }
 
-            label.appendChild(checkbox);
-            label.appendChild(infoDiv);
-            label.appendChild(rightDiv);
-            listEl.appendChild(label);
+                    const rightDiv = document.createElement('div');
+                    rightDiv.className = 'zune-browse-right';
 
-            checkbox.addEventListener('change', () => {
-                const handle = item.handle;
-                if (checkbox.checked) {
-                    this.selectedHandles.add(handle);
-                } else {
-                    this.selectedHandles.delete(handle);
-                }
-                this._updateDeleteButton();
+                    if (item.duration) {
+                        const durSpan = document.createElement('span');
+                        durSpan.className = 'zune-browse-duration';
+                        const secs = Math.floor(item.duration / 1000);
+                        const mins = Math.floor(secs / 60);
+                        const remSecs = secs % 60;
+                        durSpan.textContent = mins + ':' + String(remSecs).padStart(2, '0');
+                        rightDiv.appendChild(durSpan);
+                    }
+
+                    const sizeSpan = document.createElement('span');
+                    sizeSpan.className = 'zune-browse-size';
+                    sizeSpan.textContent = panel._formatSize(item.size);
+                    rightDiv.appendChild(sizeSpan);
+
+                    el.appendChild(checkbox);
+                    if (artImg) el.appendChild(artImg);
+                    el.appendChild(infoDiv);
+                    el.appendChild(rightDiv);
+                },
+                overscan: 15,
             });
+
+            // Event delegation for checkbox changes
+            this._browseChangeHandler = (e) => {
+                if (!e.target.classList.contains('zune-browse-check')) return;
+                const row = e.target.closest('.vs-row');
+                if (!row) return;
+                const idx = parseInt(row.dataset.index, 10);
+                const entry = panel.browseScroller.getEntryAtIndex(idx);
+                if (!entry) return;
+                const handle = entry.data.handle;
+                if (e.target.checked) {
+                    panel.selectedHandles.add(handle);
+                } else {
+                    panel.selectedHandles.delete(handle);
+                }
+                panel._updateDeleteButton();
+            };
+            listEl.addEventListener('change', this._browseChangeHandler);
         }
 
+        this.browseScroller.setData(entries, { preserveScroll: true });
         this._updateDeleteButton();
-
-        // Restore scroll position after progressive re-render
-        listEl.scrollTop = savedScroll;
     }
 
     _updateDeleteButton() {
@@ -1183,9 +1305,9 @@ class ZuneSyncPanel {
         const pullBtn = document.getElementById('zune-pull-btn');
         const deleteBtn = document.getElementById('zune-diff-delete-btn');
 
-        listEl.textContent = '';
-
         if (!this.diffResult) {
+            this._destroyDiffScroller();
+            listEl.textContent = '';
             const emptyDiv = document.createElement('div');
             emptyDiv.className = 'zune-diff-empty';
             emptyDiv.textContent = 'no diff data';
@@ -1231,14 +1353,16 @@ class ZuneSyncPanel {
         document.getElementById('zune-diff-filter').style.display = 'flex';
 
         if (filteredItems.length === 0) {
+            this._destroyDiffScroller();
+            listEl.textContent = '';
             const emptyDiv = document.createElement('div');
             emptyDiv.className = 'zune-diff-empty';
             if (this.diffFilterQuery) {
                 emptyDiv.textContent = 'no matches';
             } else if (this.diffTab === 'local-only') {
-                emptyDiv.textContent = `all local ${this.diffCategory} on the device`;
+                emptyDiv.textContent = 'all local ' + this.diffCategory + ' on the device';
             } else if (this.diffTab === 'device-only') {
-                emptyDiv.textContent = `all device ${this.diffCategory} on the computer`;
+                emptyDiv.textContent = 'all device ' + this.diffCategory + ' on the computer';
             } else {
                 emptyDiv.textContent = 'no matched files';
             }
@@ -1248,39 +1372,32 @@ class ZuneSyncPanel {
             return;
         }
 
-        if (groupBy === 'all') {
-            this._renderDiffFlat(listEl, filteredItems, showCheckboxes);
-        } else {
-            this._renderDiffGrouped(listEl, filteredItems, showCheckboxes, groupBy);
-        }
+        this._renderDiffListVirtual(listEl, filteredItems, showCheckboxes, groupBy);
 
         this._updateSelectAllState(filteredItems);
         this._updateDiffActionButton();
     }
 
-    _renderDiffFlat(listEl, items, showCheckboxes) {
-        for (const item of items) {
-            listEl.appendChild(this._createDiffRow(item, showCheckboxes));
+    _buildDiffEntries(items, groupBy) {
+        if (groupBy === 'all') {
+            return items.map(function(item) { return { type: 'diffTrack', data: item }; });
         }
-    }
 
-    _renderDiffGrouped(listEl, items, showCheckboxes, groupBy) {
-        const groups = new Map();
-
-        for (const item of items) {
-            let key, name, artist, albumArt;
-
+        var groups = new Map();
+        for (var i = 0; i < items.length; i++) {
+            var item = items[i];
+            var key, name, artist, albumArt;
             if (this.diffTab === 'matched') {
-                const loc = item.local || {};
-                const dev = item.device || {};
+                var loc = item.local || {};
+                var dev = item.device || {};
                 if (groupBy === 'album') {
                     name = loc.album || dev.album || 'Unknown Album';
                     artist = loc.artist || dev.artist || '';
-                    albumArt = loc.albumArt || dev.albumArt || null;
+                    albumArt = this.explorer.getAlbumArt(loc) || this._getBrowseArt(dev) || null;
                     key = name.toLowerCase();
                 } else {
                     name = loc.artist || dev.artist || 'Unknown Artist';
-                    albumArt = loc.albumArt || dev.albumArt || null;
+                    albumArt = this.explorer.getAlbumArt(loc) || this._getBrowseArt(dev) || null;
                     key = name.toLowerCase();
                     artist = '';
                 }
@@ -1288,191 +1405,224 @@ class ZuneSyncPanel {
                 if (groupBy === 'album') {
                     name = item.album || 'Unknown Album';
                     artist = item.artist || '';
-                    albumArt = item.albumArt || null;
+                    albumArt = this._getBrowseArt(item) || null;
                     key = name.toLowerCase();
                 } else {
                     name = item.artist || 'Unknown Artist';
-                    albumArt = item.albumArt || null;
+                    albumArt = this._getBrowseArt(item) || null;
                     key = name.toLowerCase();
                     artist = '';
                 }
             }
-
             if (!groups.has(key)) {
-                groups.set(key, { name, artist, albumArt, tracks: [] });
+                groups.set(key, { name: name, artist: artist, albumArt: albumArt, tracks: [], key: key });
             }
-            const g = groups.get(key);
+            var g = groups.get(key);
             g.tracks.push(item);
-            // Use first available art
             if (!g.albumArt && albumArt) g.albumArt = albumArt;
         }
 
-        // Sort groups alphabetically
-        const sortedKeys = [...groups.keys()].sort();
-
-        for (const key of sortedKeys) {
-            const group = groups.get(key);
-            const isCollapsed = this.collapsedGroups.has(key);
-
-            // Group header
-            const header = document.createElement('div');
-            header.className = 'zune-diff-group-header';
-
-            const arrow = document.createElement('span');
-            arrow.className = 'zune-diff-group-arrow' + (isCollapsed ? ' collapsed' : '');
-            arrow.textContent = '\u25BE';
-            header.appendChild(arrow);
-
-            if (group.albumArt) {
-                const artImg = document.createElement('img');
-                artImg.className = 'zune-diff-group-art';
-                artImg.src = group.albumArt;
-                artImg.alt = '';
-                header.appendChild(artImg);
-            }
-
-            const info = document.createElement('div');
-            info.className = 'zune-diff-group-info';
-            const nameEl = document.createElement('div');
-            nameEl.className = 'zune-diff-group-name';
-            nameEl.textContent = group.name;
-            info.appendChild(nameEl);
-            const metaEl = document.createElement('div');
-            metaEl.className = 'zune-diff-group-meta';
-            const metaParts = [];
-            if (group.artist) metaParts.push(group.artist);
-            metaParts.push(`${group.tracks.length} track${group.tracks.length !== 1 ? 's' : ''}`);
-            metaEl.textContent = metaParts.join(' \u2014 ');
-            info.appendChild(metaEl);
-            header.appendChild(info);
-
-            if (showCheckboxes) {
-                const groupCheck = document.createElement('input');
-                groupCheck.type = 'checkbox';
-                groupCheck.className = 'zune-diff-group-check';
-                this._updateGroupCheckState(groupCheck, group.tracks);
-
-                groupCheck.addEventListener('change', (e) => {
-                    e.stopPropagation();
-                    this._toggleGroupSelection(group.tracks, groupCheck.checked);
-                    this._renderDiffList();
-                });
-                groupCheck.addEventListener('click', (e) => e.stopPropagation());
-                header.appendChild(groupCheck);
-            }
-
-            header.addEventListener('click', () => {
-                if (this.collapsedGroups.has(key)) {
-                    this.collapsedGroups.delete(key);
-                } else {
-                    this.collapsedGroups.add(key);
+        var sortedKeys = Array.from(groups.keys()).sort();
+        var entries = [];
+        for (var k = 0; k < sortedKeys.length; k++) {
+            var gKey = sortedKeys[k];
+            var group = groups.get(gKey);
+            entries.push({ type: 'diffHeader', data: group });
+            if (!this.collapsedGroups.has(gKey)) {
+                for (var t = 0; t < group.tracks.length; t++) {
+                    entries.push({ type: 'diffTrack', data: group.tracks[t] });
                 }
-                this._renderDiffList();
+            }
+        }
+        return entries;
+    }
+
+    _renderDiffListVirtual(listEl, items, showCheckboxes, groupBy) {
+        var entries = this._buildDiffEntries(items, groupBy);
+        var panel = this;
+
+        if (!this.diffScroller) {
+            listEl.textContent = '';
+
+            this.diffScroller = new VirtualScroller({
+                container: listEl,
+                rowTypes: {
+                    diffHeader: { height: 56, className: 'zune-diff-group-header' },
+                    diffTrack: { height: 44, className: 'zune-diff-item' },
+                },
+                renderRow: function(el, index, entry) {
+                    while (el.firstChild) el.removeChild(el.firstChild);
+
+                    if (entry.type === 'diffHeader') {
+                        var group = entry.data;
+                        var isCollapsed = panel.collapsedGroups.has(group.key);
+
+                        var arrow = document.createElement('span');
+                        arrow.className = 'zune-diff-group-arrow' + (isCollapsed ? ' collapsed' : '');
+                        arrow.textContent = '\u25BE';
+                        el.appendChild(arrow);
+
+                        if (group.albumArt) {
+                            var artImg = document.createElement('img');
+                            artImg.className = 'zune-diff-group-art';
+                            artImg.src = group.albumArt;
+                            artImg.alt = '';
+                            el.appendChild(artImg);
+                        }
+
+                        var info = document.createElement('div');
+                        info.className = 'zune-diff-group-info';
+                        var nameEl = document.createElement('div');
+                        nameEl.className = 'zune-diff-group-name';
+                        nameEl.textContent = group.name;
+                        info.appendChild(nameEl);
+                        var metaEl = document.createElement('div');
+                        metaEl.className = 'zune-diff-group-meta';
+                        var metaParts = [];
+                        if (group.artist) metaParts.push(group.artist);
+                        metaParts.push(group.tracks.length + ' track' + (group.tracks.length !== 1 ? 's' : ''));
+                        metaEl.textContent = metaParts.join(' \u2014 ');
+                        info.appendChild(metaEl);
+                        el.appendChild(info);
+
+                        if (showCheckboxes) {
+                            var groupCheck = document.createElement('input');
+                            groupCheck.type = 'checkbox';
+                            groupCheck.className = 'zune-diff-group-check';
+                            panel._updateGroupCheckState(groupCheck, group.tracks);
+                            el.appendChild(groupCheck);
+                        }
+                        el.dataset.groupKey = group.key;
+
+                    } else {
+                        // diffTrack row
+                        var item = entry.data;
+
+                        if (showCheckboxes) {
+                            var checkbox = document.createElement('input');
+                            checkbox.type = 'checkbox';
+                            checkbox.className = 'zune-diff-check';
+                            if (panel.diffTab === 'local-only') {
+                                checkbox.checked = panel.diffSelectedPaths.has(item.path);
+                            } else if (panel.diffTab === 'device-only') {
+                                checkbox.checked = panel.diffSelectedHandles.has(item.handle);
+                            }
+                            el.appendChild(checkbox);
+                        }
+
+                        // Album art
+                        var art = panel.diffTab === 'matched'
+                            ? ((item.local ? panel.explorer.getAlbumArt(item.local) : null) || (item.device ? panel._getBrowseArt(item.device) : null))
+                            : (panel._getBrowseArt(item) || null);
+                        if (art) {
+                            var artImg2 = document.createElement('img');
+                            artImg2.className = 'zune-diff-art';
+                            artImg2.src = art;
+                            artImg2.alt = '';
+                            el.appendChild(artImg2);
+                        }
+
+                        var infoDiv = document.createElement('div');
+                        infoDiv.className = 'zune-diff-info';
+                        var titleSpan = document.createElement('span');
+                        titleSpan.className = 'zune-diff-title';
+                        if (panel.diffTab === 'matched') {
+                            titleSpan.textContent = (item.local && item.local.title) || (item.local && item.local.name) || (item.device && item.device.title) || (item.device && item.device.filename) || '?';
+                        } else {
+                            titleSpan.textContent = item.title || item.name || item.filename || '?';
+                        }
+                        infoDiv.appendChild(titleSpan);
+
+                        var metaSpan = document.createElement('span');
+                        metaSpan.className = 'zune-diff-meta';
+                        if (panel.diffCategory === 'music') {
+                            if (panel.diffTab === 'matched') {
+                                var parts = [];
+                                if (item.local && item.local.artist) parts.push(item.local.artist);
+                                if (item.local && item.local.album) parts.push(item.local.album);
+                                metaSpan.textContent = parts.join(' \u2014 ');
+                            } else {
+                                var parts2 = [];
+                                if (item.artist) parts2.push(item.artist);
+                                if (item.album) parts2.push(item.album);
+                                metaSpan.textContent = parts2.join(' \u2014 ');
+                            }
+                        } else {
+                            var size = item.size || (item.device && item.device.size) || (item.local && item.local.size) || 0;
+                            if (size > 0) {
+                                metaSpan.textContent = panel._formatSize(size);
+                            } else {
+                                metaSpan.textContent = item.filename || (item.device && item.device.filename) || '';
+                            }
+                        }
+                        if (metaSpan.textContent) infoDiv.appendChild(metaSpan);
+                        el.appendChild(infoDiv);
+                    }
+                },
+                overscan: 15,
             });
 
-            listEl.appendChild(header);
+            // Event delegation: checkbox changes
+            this._diffChangeHandler = function(e) {
+                var checkbox = e.target;
+                if (checkbox.classList.contains('zune-diff-check')) {
+                    var row = checkbox.closest('.vs-row');
+                    if (!row) return;
+                    var idx = parseInt(row.dataset.index, 10);
+                    var entry = panel.diffScroller.getEntryAtIndex(idx);
+                    if (!entry || entry.type !== 'diffTrack') return;
+                    if (panel.diffTab === 'local-only') {
+                        if (checkbox.checked) panel.diffSelectedPaths.add(entry.data.path);
+                        else panel.diffSelectedPaths.delete(entry.data.path);
+                    } else if (panel.diffTab === 'device-only') {
+                        if (checkbox.checked) panel.diffSelectedHandles.add(entry.data.handle);
+                        else panel.diffSelectedHandles.delete(entry.data.handle);
+                    }
+                    panel._updateDiffActionButton();
+                    panel.diffScroller.refresh();
+                    var allItems = panel.diffTab === 'local-only'
+                        ? (panel.diffResult && panel.diffResult.localOnly || [])
+                        : (panel.diffResult && panel.diffResult.deviceOnly || []);
+                    panel._updateSelectAllState(allItems);
+                } else if (checkbox.classList.contains('zune-diff-group-check')) {
+                    var row2 = checkbox.closest('.vs-row');
+                    if (!row2) return;
+                    var idx2 = parseInt(row2.dataset.index, 10);
+                    var entry2 = panel.diffScroller.getEntryAtIndex(idx2);
+                    if (!entry2 || entry2.type !== 'diffHeader') return;
+                    panel._toggleGroupSelection(entry2.data.tracks, checkbox.checked);
+                    panel.diffScroller.refresh();
+                    panel._updateDiffActionButton();
+                    var allItems2 = panel.diffTab === 'local-only'
+                        ? (panel.diffResult && panel.diffResult.localOnly || [])
+                        : (panel.diffResult && panel.diffResult.deviceOnly || []);
+                    panel._updateSelectAllState(allItems2);
+                }
+            };
+            listEl.addEventListener('change', this._diffChangeHandler);
 
-            // Group tracks container
-            const tracksDiv = document.createElement('div');
-            tracksDiv.className = 'zune-diff-group-tracks' + (isCollapsed ? ' collapsed' : '');
-
-            for (const item of group.tracks) {
-                tracksDiv.appendChild(this._createDiffRow(item, showCheckboxes));
-            }
-
-            listEl.appendChild(tracksDiv);
+            // Event delegation: header click to collapse/expand
+            this._diffClickHandler = function(e) {
+                if (e.target.closest('input')) return;
+                var row = e.target.closest('.zune-diff-group-header.vs-row');
+                if (!row) return;
+                var idx = parseInt(row.dataset.index, 10);
+                var entry = panel.diffScroller.getEntryAtIndex(idx);
+                if (!entry || entry.type !== 'diffHeader') return;
+                var key = entry.data.key;
+                if (panel.collapsedGroups.has(key)) {
+                    panel.collapsedGroups.delete(key);
+                } else {
+                    panel.collapsedGroups.add(key);
+                }
+                panel._renderDiffList();
+            };
+            listEl.addEventListener('click', this._diffClickHandler);
         }
+
+        this.diffScroller.setData(entries, { preserveScroll: true });
     }
 
-    _createDiffRow(item, showCheckboxes) {
-        const row = document.createElement('div');
-        row.className = 'zune-diff-item';
-
-        if (showCheckboxes) {
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.className = 'zune-diff-check';
-
-            if (this.diffTab === 'local-only') {
-                const trackPath = item.path;
-                checkbox.checked = this.diffSelectedPaths.has(trackPath);
-                checkbox.addEventListener('change', () => {
-                    if (checkbox.checked) {
-                        this.diffSelectedPaths.add(trackPath);
-                    } else {
-                        this.diffSelectedPaths.delete(trackPath);
-                    }
-                    this._updateDiffActionButton();
-                    this._updateSelectAllState(this.diffResult?.localOnly || []);
-                });
-            } else if (this.diffTab === 'device-only') {
-                const handle = item.handle;
-                checkbox.checked = this.diffSelectedHandles.has(handle);
-                checkbox.addEventListener('change', () => {
-                    if (checkbox.checked) {
-                        this.diffSelectedHandles.add(handle);
-                    } else {
-                        this.diffSelectedHandles.delete(handle);
-                    }
-                    this._updateDiffActionButton();
-                    this._updateSelectAllState(this.diffResult?.deviceOnly || []);
-                });
-            }
-
-            row.appendChild(checkbox);
-        }
-
-        // Album art
-        const art = this.diffTab === 'matched'
-            ? (item.local?.albumArt || item.device?.albumArt)
-            : (item.albumArt || null);
-        if (art) {
-            const artImg = document.createElement('img');
-            artImg.className = 'zune-diff-art';
-            artImg.src = art;
-            artImg.alt = '';
-            row.appendChild(artImg);
-        }
-
-        const infoDiv = document.createElement('div');
-        infoDiv.className = 'zune-diff-info';
-
-        const titleSpan = document.createElement('span');
-        titleSpan.className = 'zune-diff-title';
-        if (this.diffTab === 'matched') {
-            titleSpan.textContent = item.local?.title || item.local?.name || item.device?.title || item.device?.filename || '?';
-        } else {
-            titleSpan.textContent = item.title || item.name || item.filename || '?';
-        }
-        infoDiv.appendChild(titleSpan);
-
-        const metaSpan = document.createElement('span');
-        metaSpan.className = 'zune-diff-meta';
-        if (this.diffCategory === 'music') {
-            if (this.diffTab === 'matched') {
-                const parts = [];
-                if (item.local?.artist) parts.push(item.local.artist);
-                if (item.local?.album) parts.push(item.local.album);
-                metaSpan.textContent = parts.join(' \u2014 ');
-            } else {
-                const parts = [];
-                if (item.artist) parts.push(item.artist);
-                if (item.album) parts.push(item.album);
-                metaSpan.textContent = parts.join(' \u2014 ');
-            }
-        } else {
-            const size = item.size || item.device?.size || item.local?.size || 0;
-            if (size > 0) {
-                metaSpan.textContent = this._formatSize(size);
-            } else {
-                metaSpan.textContent = item.filename || item.device?.filename || '';
-            }
-        }
-        if (metaSpan.textContent) infoDiv.appendChild(metaSpan);
-
-        row.appendChild(infoDiv);
-        return row;
-    }
 
     _matchesFilter(item) {
         if (!this.diffFilterQuery) return true;
@@ -1661,7 +1811,7 @@ class ZuneSyncPanel {
                             title: track.title,
                             artist: track.artist,
                             album: track.album,
-                            albumArt: track.albumArt,
+                            albumArt: this.explorer.getAlbumArt(track),
                             size: 0,
                         });
                     }
@@ -1690,6 +1840,7 @@ class ZuneSyncPanel {
         // Re-compute diff
         this._computeDiff();
         this._renderDiffSummary();
+        this._destroyDiffScroller();
         this._renderDiffList();
     }
 
@@ -1697,7 +1848,6 @@ class ZuneSyncPanel {
     async _pullFromDevice() {
         if (this.diffSelectedHandles.size === 0) return;
 
-        // Ask user where to save before clearing selection
         const destResult = await window.electronAPI.pickPullDestination();
         if (!destResult.success) return;
 
@@ -1706,40 +1856,80 @@ class ZuneSyncPanel {
         const destDir = destResult.path;
 
         const pullBtn = document.getElementById('zune-pull-btn');
-        pullBtn.textContent = `copying 0 of ${handles.length}...`;
         pullBtn.disabled = true;
 
+        const BATCH_SIZE = 8;
+        const MAX_RETRIES = 3;
         let pulled = 0;
+        let failedCount = 0;
         const pulledFiles = [];
+        const failedFiles = [];
         const category = this.diffCategory;
         const deviceItems = (this.browseData && this.browseData[category]) || [];
 
-        for (const handle of handles) {
-            const deviceItem = deviceItems.find(i => i.handle === handle);
-            if (!deviceItem) continue;
+        for (let batchStart = 0; batchStart < handles.length; batchStart += BATCH_SIZE) {
+            const batchEnd = Math.min(batchStart + BATCH_SIZE, handles.length);
 
-            const filename = deviceItem.filename || `file_${handle}`;
-            const metadata = category === 'music' ? {
-                title: deviceItem.title || null,
-                artist: deviceItem.artist || null,
-                album: deviceItem.album || null,
-                genre: deviceItem.genre || null,
-                trackNumber: deviceItem.trackNumber || null,
-                albumArt: deviceItem.albumArt || null,
-            } : {};
-            const result = await window.electronAPI.zunePullFile(handle, filename, destDir, metadata);
+            for (let hi = batchStart; hi < batchEnd; hi++) {
+                const handle = handles[hi];
+                const deviceItem = deviceItems.find(i => i.handle === handle);
+                if (!deviceItem) continue;
 
-            if (result.success) {
-                pulled++;
-                pulledFiles.push({ path: result.path, size: result.size || 0 });
-                pullBtn.textContent = `copying ${pulled} of ${handles.length}...`;
+                const filename = deviceItem.filename || ('file_' + handle);
+                const metadata = category === 'music' ? {
+                    title: deviceItem.title || null,
+                    artist: deviceItem.artist || null,
+                    album: deviceItem.album || null,
+                    genre: deviceItem.genre || null,
+                    trackNumber: deviceItem.trackNumber || null,
+                    albumArt: this._getBrowseArt(deviceItem),
+                } : {};
+
+                let fileSuccess = false;
+                for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                    try {
+                        const result = await window.electronAPI.zunePullFile(handle, filename, destDir, metadata);
+                        if (result.success) {
+                            pulled++;
+                            pulledFiles.push({ path: result.path, size: result.size || 0 });
+                            fileSuccess = true;
+                            break;
+                        } else {
+                            throw new Error(result.error || 'Pull failed');
+                        }
+                    } catch (err) {
+                        console.log('Pull ' + filename + ' attempt ' + attempt + '/' + MAX_RETRIES + ' failed: ' + err.message);
+                        if (attempt < MAX_RETRIES) {
+                            await new Promise(r => setTimeout(r, 500));
+                        }
+                    }
+                }
+
+                if (!fileSuccess) {
+                    failedCount++;
+                    failedFiles.push(filename);
+                }
+
+                pullBtn.textContent = 'copying ' + (pulled + failedCount) + ' of ' + handles.length + ' \u2014 ' + filename;
             }
+
+            // Yield between batches
+            await new Promise(r => setTimeout(r, 0));
         }
 
-        pullBtn.textContent = `${pulled} files copied`;
+        if (failedCount > 0) {
+            pullBtn.textContent = pulled + ' copied, ' + failedCount + ' failed';
+            pullBtn.style.color = '#ff6900';
+            if (typeof showToast === 'function') {
+                showToast(failedCount + ' file(s) failed to copy: ' + failedFiles.slice(0, 3).join(', ') + (failedCount > 3 ? '...' : ''));
+            }
+        } else {
+            pullBtn.textContent = pulled + ' files copied';
+            pullBtn.style.color = '';
+        }
         pullBtn.disabled = false;
 
-        // Add pulled files to local categorized files
+        // Keep the existing post-pull logic for adding to local files and triggering scan
         if (pulledFiles.length > 0) {
             for (const pf of pulledFiles) {
                 const ext = pf.path.split('.').pop().toLowerCase();
@@ -1752,16 +1942,15 @@ class ZuneSyncPanel {
                     isDirectory: false,
                 });
             }
-            // Trigger metadata scan only for music
             if (category === 'music') {
                 const paths = pulledFiles.map(pf => pf.path);
                 await window.electronAPI.batchScanAudioMetadata(paths, { includeArt: true });
             }
         }
 
-        // Re-compute diff
         this._computeDiff();
         this._renderDiffSummary();
+        this._destroyDiffScroller();
         this._renderDiffList();
     }
 
@@ -1840,6 +2029,7 @@ class ZuneSyncPanel {
             this._computeDiff();
             this._computeStorageBreakdown();
             this._renderDiffSummary();
+            this._destroyDiffScroller();
             this._renderDiffList();
         }
     }
@@ -1897,6 +2087,7 @@ class ZuneExplorer {
             albums: new Map(),       // key -> AlbumInfo
             artists: new Map(),      // lowercase name -> ArtistInfo
             genres: new Map(),       // lowercase genre -> { name, tracks[] }
+            albumArtMap: {},         // key: 'artist|album' -> base64 art
             sortedSongs: [],
             sortedAlbums: [],
             sortedArtists: [],
@@ -1904,6 +2095,8 @@ class ZuneExplorer {
         };
         this.musicSubView = 'albums';  // 'albums' | 'artists' | 'songs' | 'genres' | 'playlists'
         this.musicDrillDown = null;    // null | { type: 'album', key } | { type: 'artist', name }
+        this.songsScroller = null;        // VirtualScroller for songs list
+        this.songsLetterMap = null;       // letter -> scroll offset for alpha-jump
 
         this.init();
     }
@@ -3097,22 +3290,24 @@ class ZuneExplorer {
         // Album art for music items (album, artist)
         if (pin.type === 'album' && pin.meta && pin.meta.albumKey) {
             const album = this.musicLibrary.albums.get(pin.meta.albumKey);
-            if (album && album.albumArt) {
+            const pinAlbumArt = album ? this.getAlbumArt(album) : null;
+            if (pinAlbumArt) {
                 const img = document.createElement('img');
                 img.className = 'recent-file-thumb';
-                img.src = album.albumArt;
+                img.src = pinAlbumArt;
                 div.appendChild(img);
             }
         } else if (pin.type === 'artist' && pin.meta && pin.meta.artistName) {
             const artist = this.musicLibrary.artists.get(pin.meta.artistName);
-            if (artist && artist.albums.length > 0) {
+            if (artist && artist.albums.size > 0) {
                 // Use first album's art as artist thumbnail
                 for (const albumKey of artist.albums) {
                     const album = this.musicLibrary.albums.get(albumKey);
-                    if (album && album.albumArt) {
+                    const pinArtistArt = album ? this.getAlbumArt(album) : null;
+                    if (pinArtistArt) {
                         const img = document.createElement('img');
                         img.className = 'recent-file-thumb';
-                        img.src = album.albumArt;
+                        img.src = pinArtistArt;
                         div.appendChild(img);
                         break;
                     }
@@ -3642,21 +3837,22 @@ class ZuneExplorer {
         for (const track of lib.tracks.values()) {
             // Albums
             const albumKey = `${(track.album || 'Unknown Album').toLowerCase()}||${(track.albumArtist || track.artist || 'Unknown Artist').toLowerCase()}`;
+            const trackArt = this.getAlbumArt(track);
             if (!lib.albums.has(albumKey)) {
                 lib.albums.set(albumKey, {
                     key: albumKey,
                     name: track.album || 'Unknown Album',
                     artist: track.albumArtist || track.artist || 'Unknown Artist',
                     year: track.year || 0,
-                    albumArt: track.albumArt || null,
+                    albumArtKey: track.albumArtKey || null,
                     tracks: [],
                     sortLetter: this.getSortLetter(track.album || 'Unknown Album'),
                 });
             }
             const album = lib.albums.get(albumKey);
             album.tracks.push(track);
-            if (!album.albumArt && track.albumArt) {
-                album.albumArt = track.albumArt;
+            if (!this.getAlbumArt(album) && trackArt) {
+                album.albumArtKey = track.albumArtKey || null;
             }
 
             // Artists
@@ -3666,15 +3862,15 @@ class ZuneExplorer {
                     name: track.artist || 'Unknown Artist',
                     albums: new Set(),
                     trackCount: 0,
-                    albumArt: track.albumArt || null,
+                    albumArtKey: track.albumArtKey || null,
                     sortLetter: this.getSortLetter(track.artist || 'Unknown Artist'),
                 });
             }
             const artist = lib.artists.get(artistKey);
             artist.trackCount++;
             artist.albums.add(albumKey);
-            if (!artist.albumArt && track.albumArt) {
-                artist.albumArt = track.albumArt;
+            if (!this.getAlbumArt(artist) && trackArt) {
+                artist.albumArtKey = track.albumArtKey || null;
             }
 
             // Genres
@@ -3701,6 +3897,15 @@ class ZuneExplorer {
             a.name.localeCompare(b.name));
     }
 
+    getAlbumArt(item) {
+        if (!item) return null;
+        if (item.albumArt) return item.albumArt;  // direct art (backwards compat)
+        if (item.albumArtKey) {
+            return this.musicLibrary.albumArtMap[item.albumArtKey] || null;
+        }
+        return null;
+    }
+
     async scanMusicLibrary() {
         const lib = this.musicLibrary;
         if (lib.scanState === 'scanning') return;
@@ -3717,9 +3922,20 @@ class ZuneExplorer {
 
         const paths = musicFiles.map(f => f.path);
 
-        // Listen for progress
-        window.electronAPI.onMusicScanProgress((data) => {
+        // Listen for progress (remove previous handler to prevent leaks on re-scan)
+        if (this._musicScanHandler) {
+            window.electronAPI.offMusicScanProgress(this._musicScanHandler);
+        }
+        this._musicScanHandler = window.electronAPI.onMusicScanProgress((data) => {
             for (const result of data.batch) {
+                if (result.albumArt) {
+                    const artKey = (result.artist || '').toLowerCase() + '|' + (result.album || '').toLowerCase();
+                    if (!lib.albumArtMap[artKey]) {
+                        lib.albumArtMap[artKey] = result.albumArt;
+                    }
+                    result.albumArtKey = artKey;
+                    delete result.albumArt;
+                }
                 lib.tracks.set(result.path, result);
             }
             lib.scannedCount = data.scanned;
@@ -3755,6 +3971,7 @@ class ZuneExplorer {
                 this.zunePanel._computeDiff();
                 this.zunePanel._enrichDeviceArt();
                 this.zunePanel._renderDiffSummary();
+                this.zunePanel._destroyDiffScroller();
                 this.zunePanel._renderDiffList();
             }
         });
@@ -3877,6 +4094,15 @@ class ZuneExplorer {
         const container = document.getElementById('music-sub-content');
         if (!container) return;
 
+        // Clean up virtual scroller when leaving songs view
+        if (this.musicSubView !== 'songs') {
+            if (this.songsScroller) {
+                this.songsScroller.destroy();
+                this.songsScroller = null;
+            }
+            this.songsLetterMap = null;
+        }
+
         switch (this.musicSubView) {
             case 'albums': this.renderMusicAlbumsView(container); break;
             case 'artists': this.renderMusicArtistsView(container); break;
@@ -3943,8 +4169,9 @@ class ZuneExplorer {
                 const album = entry.data;
                 const tile = document.createElement('div');
                 tile.className = 'music-album-tile';
-                if (album.albumArt) {
-                    tile.style.backgroundImage = `url(${album.albumArt})`;
+                const albumArt = this.getAlbumArt(album);
+                if (albumArt) {
+                    tile.style.backgroundImage = `url(${albumArt})`;
                 }
                 const overlay = document.createElement('div');
                 overlay.className = 'music-album-overlay';
@@ -3975,65 +4202,128 @@ class ZuneExplorer {
     }
 
     renderMusicSongsView(container) {
-        this.clearElement(container);
         const songs = this.musicLibrary.sortedSongs;
 
         if (songs.length === 0 && this.musicLibrary.scanState !== 'scanning') {
+            if (this.songsScroller) { this.songsScroller.destroy(); this.songsScroller = null; }
+            this.songsLetterMap = null;
+            this.clearElement(container);
             this.appendEmptyState(container, 'no songs found');
             return;
         }
 
         const grouped = this.buildLetterGroupedList(songs, s => s.title);
-        const list = document.createElement('div');
-        list.className = 'music-songs-list';
 
+        // Convert grouped list to VirtualScroller entries
+        const entries = [];
         for (const entry of grouped) {
             if (entry.type === 'letter') {
-                const row = document.createElement('div');
-                row.className = 'music-letter-row';
-                row.dataset.letter = entry.letter;
-                row.textContent = entry.letter;
-                row.addEventListener('click', () => this.openAlphaJump());
-                list.appendChild(row);
+                entries.push({ type: 'letter', letter: entry.letter, data: null });
             } else {
-                const track = entry.data;
-                const row = document.createElement('div');
-                row.className = 'music-song-row';
-                row.draggable = true;
-                row.addEventListener('dragstart', (e) => {
-                    e.dataTransfer.setData('application/x-zune-paths', JSON.stringify([track.path]));
-                    e.dataTransfer.effectAllowed = 'copy';
-                    row.classList.add('dragging');
-                });
-                row.addEventListener('dragend', () => row.classList.remove('dragging'));
-                const info = document.createElement('div');
-                info.className = 'music-song-info';
-                const titleEl = document.createElement('div');
-                titleEl.className = 'music-song-title';
-                titleEl.textContent = track.title;
-                const meta = document.createElement('div');
-                meta.className = 'music-song-meta';
-                meta.textContent = `${track.artist} — ${track.album}`.toUpperCase();
-                info.appendChild(titleEl);
-                info.appendChild(meta);
-                const dur = document.createElement('div');
-                dur.className = 'music-song-duration';
-                dur.textContent = this.formatDuration(track.duration);
-                row.appendChild(info);
-                row.appendChild(dur);
-                row.addEventListener('click', () => {
-                    const file = this.getTrackFile(track);
-                    const allFiles = this.musicLibrary.sortedSongs.map(t => this.getTrackFile(t));
-                    this.playWithNowPlaying(file, allFiles);
-                });
-                row.addEventListener('contextmenu', (e) => {
-                    const file = this.getTrackFile(track);
-                    this.showMusicItemContextMenu(e, [file]);
-                });
-                list.appendChild(row);
+                entries.push({ type: 'track', data: entry.data });
             }
         }
+
+        // Reuse existing scroller if its container is still in the DOM
+        if (this.songsScroller && container.querySelector('.music-songs-list')) {
+            this.songsScroller.setData(entries, { preserveScroll: true });
+            this.songsLetterMap = this.songsScroller.buildLetterPositionMap();
+            return;
+        }
+
+        // Fresh creation: clear container and build scroller + listeners
+        this.clearElement(container);
+        if (this.songsScroller) { this.songsScroller.destroy(); this.songsScroller = null; }
+
+        const list = document.createElement('div');
+        list.className = 'music-songs-list';
         container.appendChild(list);
+
+        const self = this;
+        this.songsScroller = new VirtualScroller({
+            container: list,
+            rowTypes: {
+                letter: { height: 64, className: 'music-letter-row' },
+                track: { height: 48, className: 'music-song-row' }
+            },
+            renderRow(el, index, entry) {
+                while (el.firstChild) el.removeChild(el.firstChild);
+
+                if (entry.type === 'letter') {
+                    el.textContent = entry.letter;
+                    el.dataset.letter = entry.letter;
+                    el.draggable = false;
+                } else {
+                    const track = entry.data;
+                    el.draggable = true;
+                    el.dataset.trackPath = track.path;
+
+                    const info = document.createElement('div');
+                    info.className = 'music-song-info';
+                    const titleEl = document.createElement('div');
+                    titleEl.className = 'music-song-title';
+                    titleEl.textContent = track.title;
+                    const meta = document.createElement('div');
+                    meta.className = 'music-song-meta';
+                    meta.textContent = (track.artist + ' \u2014 ' + track.album).toUpperCase();
+                    info.appendChild(titleEl);
+                    info.appendChild(meta);
+
+                    const dur = document.createElement('div');
+                    dur.className = 'music-song-duration';
+                    dur.textContent = self.formatDuration(track.duration);
+
+                    el.appendChild(info);
+                    el.appendChild(dur);
+                }
+            },
+            overscan: 20
+        });
+
+        // Event delegation on the list container
+        list.addEventListener('click', (e) => {
+            const row = e.target.closest('.vs-row');
+            if (!row) return;
+            const index = parseInt(row.dataset.index, 10);
+            const entry = this.songsScroller.getEntryAtIndex(index);
+            if (!entry) return;
+            if (entry.type === 'letter') {
+                this.openAlphaJump();
+            } else {
+                const file = this.getTrackFile(entry.data);
+                const allFiles = this.musicLibrary.sortedSongs.map(t => this.getTrackFile(t));
+                this.playWithNowPlaying(file, allFiles);
+            }
+        });
+
+        list.addEventListener('contextmenu', (e) => {
+            const row = e.target.closest('.vs-row');
+            if (!row) return;
+            const index = parseInt(row.dataset.index, 10);
+            const entry = this.songsScroller.getEntryAtIndex(index);
+            if (!entry || entry.type !== 'track') return;
+            const file = this.getTrackFile(entry.data);
+            this.showMusicItemContextMenu(e, [file]);
+        });
+
+        list.addEventListener('dragstart', (e) => {
+            const row = e.target.closest('.vs-row');
+            if (!row) return;
+            const index = parseInt(row.dataset.index, 10);
+            const entry = this.songsScroller.getEntryAtIndex(index);
+            if (!entry || entry.type !== 'track') return;
+            e.dataTransfer.setData('application/x-zune-paths', JSON.stringify([entry.data.path]));
+            e.dataTransfer.effectAllowed = 'copy';
+            row.classList.add('dragging');
+        });
+
+        list.addEventListener('dragend', (e) => {
+            const row = e.target.closest('.vs-row');
+            if (row) row.classList.remove('dragging');
+        });
+
+        this.songsScroller.setData(entries);
+        this.songsLetterMap = this.songsScroller.buildLetterPositionMap();
     }
 
     renderMusicArtistsView(container) {
@@ -4064,9 +4354,10 @@ class ZuneExplorer {
 
                 const thumb = document.createElement('div');
                 thumb.className = 'music-artist-thumb';
-                if (artist.albumArt) {
+                const artistArt = this.getAlbumArt(artist);
+                if (artistArt) {
                     const img = document.createElement('img');
-                    img.src = artist.albumArt;
+                    img.src = artistArt;
                     img.alt = artist.name;
                     thumb.appendChild(img);
                 }
@@ -4413,9 +4704,10 @@ class ZuneExplorer {
 
         const art = document.createElement('div');
         art.className = 'music-album-detail-art';
-        if (album.albumArt) {
+        const detailArt = this.getAlbumArt(album);
+        if (detailArt) {
             const img = document.createElement('img');
-            img.src = album.albumArt;
+            img.src = detailArt;
             img.alt = album.name;
             art.appendChild(img);
         }
@@ -4542,8 +4834,9 @@ class ZuneExplorer {
         for (const album of artistAlbums) {
             const tile = document.createElement('div');
             tile.className = 'music-album-tile';
-            if (album.albumArt) {
-                tile.style.backgroundImage = `url(${album.albumArt})`;
+            const artistAlbumArt = this.getAlbumArt(album);
+            if (artistAlbumArt) {
+                tile.style.backgroundImage = `url(${artistAlbumArt})`;
             }
             const overlay = document.createElement('div');
             overlay.className = 'music-album-overlay';
@@ -4765,12 +5058,14 @@ class ZuneExplorer {
         if (!artist && !album) return null;
         const key = `${album.toLowerCase()}||${artist.toLowerCase()}`;
         const albumObj = this.musicLibrary.albums.get(key);
-        if (albumObj && albumObj.albumArt) return albumObj.albumArt;
+        const albumObjArt = this.getAlbumArt(albumObj);
+        if (albumObjArt) return albumObjArt;
         // Try matching by album name alone
         if (album) {
             for (const [, alb] of this.musicLibrary.albums) {
                 if (alb.name.toLowerCase() === album.toLowerCase()) {
-                    if (alb.albumArt) return alb.albumArt;
+                    const albArt = this.getAlbumArt(alb);
+                    if (albArt) return albArt;
                 }
             }
         }
@@ -4951,14 +5246,20 @@ class ZuneExplorer {
         const grid = document.getElementById('alpha-jump-grid');
         this.clearElement(grid);
 
-        // Gather available letters from current sub-view
+        // Gather available letters from current sub-view (hybrid: virtual + DOM)
         const availableLetters = new Set();
-        const letterEls = document.querySelectorAll('[data-letter]');
-        letterEls.forEach(el => {
-            if (!el.closest('.alpha-jump-overlay')) {
-                availableLetters.add(el.dataset.letter);
+        if (this.songsLetterMap) {
+            for (const letter of Object.keys(this.songsLetterMap)) {
+                availableLetters.add(letter);
             }
-        });
+        } else {
+            const letterEls = document.querySelectorAll('[data-letter]');
+            letterEls.forEach(el => {
+                if (!el.closest('.alpha-jump-overlay')) {
+                    availableLetters.add(el.dataset.letter);
+                }
+            });
+        }
 
         const allLetters = ['#', ...'abcdefghijklmnopqrstuvwxyz'.split('')];
         for (const letter of allLetters) {
@@ -4968,9 +5269,13 @@ class ZuneExplorer {
             if (availableLetters.has(letter)) {
                 btn.addEventListener('click', () => {
                     this.closeAlphaJump();
-                    const target = document.querySelector(`[data-letter="${letter}"]:not(.alpha-jump-letter)`);
-                    if (target) {
-                        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    if (this.songsScroller && this.songsLetterMap && this.songsLetterMap[letter] !== undefined) {
+                        this.songsScroller.scrollToOffset(this.songsLetterMap[letter]);
+                    } else {
+                        const target = document.querySelector('[data-letter="' + letter + '"]:not(.alpha-jump-letter)');
+                        if (target) {
+                            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
                     }
                 });
             }
@@ -5219,7 +5524,14 @@ class ZuneExplorer {
             }
         }
         if (album) {
-            if (metadata.albumArt) album.albumArt = metadata.albumArt;
+            if (metadata.albumArt) {
+                const artKey = artistNorm + '|' + albumNorm;
+                if (!this.musicLibrary.albumArtMap[artKey]) {
+                    this.musicLibrary.albumArtMap[artKey] = metadata.albumArt;
+                }
+                album.albumArtKey = artKey;
+                delete album.albumArt;
+            }
             if (metadata.year) album.year = metadata.year;
             if (metadata.genre) album.genre = metadata.genre;
         }
@@ -5227,7 +5539,12 @@ class ZuneExplorer {
         const artistKey = this.resolveArtistKey(artistName);
         const artist = this.musicLibrary.artists.get(artistKey);
         if (artist && metadata.albumArt && !artist.enrichedArt) {
-            artist.albumArt = metadata.albumArt;
+            const artKey = artistNorm + '|' + albumNorm;
+            if (!this.musicLibrary.albumArtMap[artKey]) {
+                this.musicLibrary.albumArtMap[artKey] = metadata.albumArt;
+            }
+            artist.albumArtKey = artKey;
+            delete artist.albumArt;
             artist.enrichedArt = true;
         }
 
@@ -5249,7 +5566,14 @@ class ZuneExplorer {
                 const trackArtistNorm = album.tracks.length > 0 ? (album.tracks[0].artist || '').toLowerCase().trim() : '';
                 const matchesArtist = albumArtistNorm === artistNorm || trackArtistNorm === artistNorm;
                 if (matchesAlbum && matchesArtist) {
-                    if (metadata.albumArt) album.albumArt = metadata.albumArt;
+                    if (metadata.albumArt) {
+                        const artKey = artistNorm + '|' + albumNorm;
+                        if (!this.musicLibrary.albumArtMap[artKey]) {
+                            this.musicLibrary.albumArtMap[artKey] = metadata.albumArt;
+                        }
+                        album.albumArtKey = artKey;
+                        delete album.albumArt;
+                    }
                     if (metadata.year) album.year = metadata.year;
                     if (metadata.genre) album.genre = metadata.genre;
                     break;

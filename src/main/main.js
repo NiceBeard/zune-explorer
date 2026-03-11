@@ -619,6 +619,7 @@ ipcMain.handle('now-playing-save', async (event, nowPlaying) => {
 });
 
 ipcMain.handle('zune-pull-file', async (event, handle, filename, destDir, metadata) => {
+  const tempFiles = [];
   try {
     const data = await zuneManager.getFile(handle);
     if (!data || data.length === 0) {
@@ -639,6 +640,7 @@ ipcMain.handle('zune-pull-file', async (event, handle, filename, destDir, metada
     // Save raw file to temp location first
     const tempRaw = path.join(os.tmpdir(), `zune-pull-${Date.now()}-${baseName}${ext}`);
     await fs.writeFile(tempRaw, data);
+    tempFiles.push(tempRaw);
 
     let finalPath;
 
@@ -659,6 +661,7 @@ ipcMain.handle('zune-pull-file', async (event, handle, filename, destDir, metada
             const artExt = match[1] === 'jpeg' ? 'jpg' : match[1];
             tempArt = path.join(os.tmpdir(), `zune-art-${Date.now()}.${artExt}`);
             await fs.writeFile(tempArt, Buffer.from(match[2], 'base64'));
+            tempFiles.push(tempArt);
             ffArgs.push('-i', tempArt);
           }
         } catch (_) { /* art embedding is best-effort */ }
@@ -693,17 +696,12 @@ ipcMain.handle('zune-pull-file', async (event, handle, filename, destDir, metada
       ffArgs.push('-y', finalPath);
 
       await execFileAsync(ffmpegPath, ffArgs);
-
-      // Clean up temp files
-      await fs.unlink(tempRaw).catch(() => {});
-      if (tempArt) await fs.unlink(tempArt).catch(() => {});
     } else {
       // MP3/AAC — just move to destination (already playable)
       finalPath = path.join(destDir, baseName + ext);
       await fs.rename(tempRaw, finalPath).catch(async () => {
         // rename fails across filesystems, fall back to copy+delete
         await fs.copyFile(tempRaw, finalPath);
-        await fs.unlink(tempRaw).catch(() => {});
       });
     }
 
@@ -711,6 +709,10 @@ ipcMain.handle('zune-pull-file', async (event, handle, filename, destDir, metada
     return { success: true, path: finalPath, size: finalStats.size };
   } catch (error) {
     return { success: false, error: error.message };
+  } finally {
+    for (const tmp of tempFiles) {
+      try { await fs.unlink(tmp); } catch (_) { /* already cleaned or never created */ }
+    }
   }
 });
 

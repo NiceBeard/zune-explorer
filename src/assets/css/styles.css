@@ -2662,6 +2662,25 @@ body.platform-linux .now-playing-panel {
 .music-songs-list {
     display: flex;
     flex-direction: column;
+    overflow-y: auto;
+    flex: 1;
+    position: relative;
+}
+
+.music-song-row.vs-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 8px;
+    cursor: pointer;
+}
+
+.music-letter-row.vs-row {
+    font-size: 32px;
+    font-weight: 200;
+    color: var(--zune-text-dim);
+    padding: 16px 4px 8px;
+    cursor: pointer;
 }
 
 .music-song-row {
@@ -3550,4 +3569,15 @@ body.platform-linux .now-playing-panel {
 
 .playlist-track-missing .playlist-track-title {
     text-decoration: line-through;
+}
+
+/* ==============================
+   Virtual Scroller
+   ============================== */
+.vs-spacer {
+    width: 100%;
+}
+.vs-row {
+    box-sizing: border-box;
+    overflow: hidden;
 }
