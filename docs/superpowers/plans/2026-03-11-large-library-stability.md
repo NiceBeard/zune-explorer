@@ -711,8 +711,8 @@ _renderBrowseList() {
             overscan: 15,
         });
 
-        // Event delegation for checkbox changes
-        listEl.addEventListener('change', (e) => {
+        // Event delegation for checkbox changes — store reference for removal
+        this._browseChangeHandler = (e) => {
             if (!e.target.classList.contains('zune-browse-check')) return;
             const row = e.target.closest('.vs-row');
             if (!row) return;
@@ -726,7 +726,8 @@ _renderBrowseList() {
                 panel.selectedHandles.delete(handle);
             }
             panel._updateDeleteButton();
-        });
+        };
+        listEl.addEventListener('change', this._browseChangeHandler);
     }
 
     this.browseScroller.setData(entries, { preserveScroll: true });
@@ -738,7 +739,16 @@ _renderBrowseList() {
 
 In `_updateUI` where disconnect is handled, and in tab switch handlers, add:
 ```javascript
-if (this.browseScroller) { this.browseScroller.destroy(); this.browseScroller = null; }
+if (this.browseScroller) {
+    this.browseScroller.destroy();
+    this.browseScroller = null;
+    // Remove delegation listener to prevent accumulation
+    const listEl = document.getElementById('zune-browse-list');
+    if (listEl && this._browseChangeHandler) {
+        listEl.removeEventListener('change', this._browseChangeHandler);
+        this._browseChangeHandler = null;
+    }
+}
 ```
 
 - [ ] **Step 4: Verify manually**
@@ -962,8 +972,8 @@ _renderDiffListVirtual(listEl, items, showCheckboxes, groupBy) {
             overscan: 15,
         });
 
-        // Event delegation: checkbox changes
-        listEl.addEventListener('change', (e) => {
+        // Event delegation: checkbox changes — store reference for removal
+        this._diffChangeHandler = (e) => {
             const checkbox = e.target;
             if (checkbox.classList.contains('zune-diff-check')) {
                 const row = checkbox.closest('.vs-row');
@@ -992,10 +1002,11 @@ _renderDiffListVirtual(listEl, items, showCheckboxes, groupBy) {
                 panel.diffScroller.refresh();
                 panel._updateDiffActionButton();
             }
-        });
+        };
+        listEl.addEventListener('change', this._diffChangeHandler);
 
-        // Event delegation: header click to collapse/expand
-        listEl.addEventListener('click', (e) => {
+        // Event delegation: header click to collapse/expand — store reference
+        this._diffClickHandler = (e) => {
             if (e.target.closest('input')) return;
             const row = e.target.closest('.zune-diff-group-header.vs-row');
             if (!row) return;
@@ -1009,7 +1020,8 @@ _renderDiffListVirtual(listEl, items, showCheckboxes, groupBy) {
                 panel.collapsedGroups.add(key);
             }
             panel._renderDiffList();
-        });
+        };
+        listEl.addEventListener('click', this._diffClickHandler);
     }
 
     this.diffScroller.setData(entries, { preserveScroll: true });
@@ -1025,11 +1037,19 @@ this._renderDiffListVirtual(listEl, filtered, showCheckboxes, this.diffGroupBy);
 
 Keep the old methods as dead code for now.
 
-- [ ] **Step 5: Destroy diffScroller on tab/group/filter changes**
+- [ ] **Step 5: Destroy diffScroller and remove delegation listeners on tab/group/filter changes**
 
-When `diffTab`, `diffGroupBy`, or `diffCategory` changes, destroy the scroller so a fresh one is created. In the handlers for these changes (in `_bindEvents`), add before `_renderDiffList()`:
+When `diffTab`, `diffGroupBy`, or `diffCategory` changes, destroy the scroller AND remove delegation listeners. In the handlers for these changes (in `_bindEvents`), add before `_renderDiffList()`:
 ```javascript
-if (this.diffScroller) { this.diffScroller.destroy(); this.diffScroller = null; }
+if (this.diffScroller) {
+    this.diffScroller.destroy();
+    this.diffScroller = null;
+    const listEl = document.getElementById('zune-diff-list');
+    if (listEl) {
+        if (this._diffChangeHandler) { listEl.removeEventListener('change', this._diffChangeHandler); this._diffChangeHandler = null; }
+        if (this._diffClickHandler) { listEl.removeEventListener('click', this._diffClickHandler); this._diffClickHandler = null; }
+    }
+}
 ```
 
 - [ ] **Step 6: Verify manually**
@@ -1060,28 +1080,40 @@ git commit -m "feat: virtualize sync diff list with grouped mode support"
 - Modify: `src/assets/js/renderer.js` (browseData consumers)
 - Modify: `src/main/main.js:429-445` (cache load/save)
 
-- [ ] **Step 1: Modify `browseContents` in zune-manager.js to build albumArtMap**
+- [ ] **Step 1: Create a `_deduplicateArt` helper in zune-manager.js and call it from both code paths**
 
-After the existing code builds the `result.music`, `result.videos`, `result.pictures` arrays, add a deduplication pass before returning:
+There are two code paths in `browseContents`: the ZMDB fast path (line ~780, returns `zmdbResult` early) and the MTP enumeration path (builds `result`). **Both must be deduplicated.** Extract the dedup logic into a helper method, and call it before each return:
 
 ```javascript
-// Deduplicate album art: extract into albumArtMap keyed by artist|album
-const albumArtMap = {};
-for (const category of ['music', 'videos', 'pictures']) {
-    const items = result[category] || [];
-    for (const item of items) {
-        if (item.albumArt) {
-            const artKey = (item.artist || '').toLowerCase() + '|' + (item.album || '').toLowerCase();
-            if (!albumArtMap[artKey]) {
-                albumArtMap[artKey] = item.albumArt;
+// Add this method to ZuneManager:
+_deduplicateArt(contents) {
+    const albumArtMap = {};
+    for (const category of ['music', 'videos', 'pictures']) {
+        const items = contents[category] || [];
+        for (const item of items) {
+            if (item.albumArt) {
+                // Use handle as fallback key for items without artist/album (videos, pictures)
+                const artKey = (item.artist && item.album)
+                    ? (item.artist.toLowerCase() + '|' + item.album.toLowerCase())
+                    : ('_handle_' + item.handle);
+                if (!albumArtMap[artKey]) {
+                    albumArtMap[artKey] = item.albumArt;
+                }
+                item.albumArtKey = artKey;
+                delete item.albumArt;
             }
-            item.albumArtKey = artKey;
-            delete item.albumArt;
         }
     }
+    contents.albumArtMap = albumArtMap;
+    return contents;
 }
-result.albumArtMap = albumArtMap;
 ```
+
+Then in `browseContents`:
+- **ZMDB fast path** (~line 780): Before `return zmdbResult;`, add `this._deduplicateArt(zmdbResult);`
+- **MTP enumeration path**: Before `return result;`, add `this._deduplicateArt(result);`
+
+Note: For items without both artist and album (videos, pictures), the key uses `_handle_` + handle to avoid all art-less items colliding on a single `|` key.
 
 - [ ] **Step 2: Update renderer to store and use albumArtMap from browseData**
 
@@ -1090,6 +1122,17 @@ In `ZuneSyncPanel`, where `browseData` is set from the IPC result (in `_startFir
 ```javascript
 this.browseAlbumArtMap = result.albumArtMap || {};
 ```
+
+**Also update the progressive browse handler** (inside the `onZuneBrowseProgress` callback in `_startFirstTimeScan`). Progressive updates send partial `data.contents` as the scan progresses. Each progressive update must also carry the art map:
+
+```javascript
+// Inside the onZuneBrowseProgress handler, alongside the existing:
+//   this.browseData = data.contents;
+// Add:
+this.browseAlbumArtMap = data.albumArtMap || this.browseAlbumArtMap || {};
+```
+
+The `_deduplicateArt` helper in zune-manager.js must also be called before emitting progressive browse events, not just on the final return.
 
 Add a helper method to ZuneSyncPanel:
 ```javascript
@@ -1237,7 +1280,7 @@ Replace the inner loop (lines 275-398) and outer try-catch (lines 274-430) with 
 4. albumMap accumulation unchanged — stays in scope across all batches
 5. Transfer result includes succeeded/failed lists
 
-Replace the `try` block (lines 274-430):
+Replace the inner `try { ... } catch` block (lines 274-425). **IMPORTANT: Preserve the existing `finally` block (lines 425-430) that sets `this.transferring = false` and cleans temp files.** The new code replaces only the try-catch content; the finally block wrapping it must remain unchanged:
 
 ```javascript
 try {
@@ -1663,25 +1706,40 @@ this._browseProgressHandler = window.electronAPI.onZuneBrowseProgress((data) => 
 
 ```javascript
 _cleanup() {
-    if (this._zuneStatusHandler) {
-        window.electronAPI.offZuneStatus(this._zuneStatusHandler);
-        this._zuneStatusHandler = null;
-    }
-    if (this._transferProgressHandler) {
-        window.electronAPI.offZuneTransferProgress(this._transferProgressHandler);
-        this._transferProgressHandler = null;
-    }
+    // Clean up per-session listeners (browse progress only — status and transfer
+    // are lifetime listeners registered once in _listenForZune and must NOT be
+    // removed on disconnect, or the device reconnect will stop receiving events)
     if (this._browseProgressHandler) {
         window.electronAPI.offZuneBrowseProgress(this._browseProgressHandler);
         this._browseProgressHandler = null;
     }
+
+    // Clear timers
     if (this.deleteConfirmTimer) { clearTimeout(this.deleteConfirmTimer); this.deleteConfirmTimer = null; }
     if (this.diffDeleteConfirmTimer) { clearTimeout(this.diffDeleteConfirmTimer); this.diffDeleteConfirmTimer = null; }
     if (this._diffFilterTimer) { clearTimeout(this._diffFilterTimer); this._diffFilterTimer = null; }
-    if (this.browseScroller) { this.browseScroller.destroy(); this.browseScroller = null; }
-    if (this.diffScroller) { this.diffScroller.destroy(); this.diffScroller = null; }
+
+    // Destroy virtual scrollers and remove their delegation listeners
+    if (this.browseScroller) {
+        this.browseScroller.destroy(); this.browseScroller = null;
+        const browseListEl = document.getElementById('zune-browse-list');
+        if (browseListEl && this._browseChangeHandler) {
+            browseListEl.removeEventListener('change', this._browseChangeHandler);
+            this._browseChangeHandler = null;
+        }
+    }
+    if (this.diffScroller) {
+        this.diffScroller.destroy(); this.diffScroller = null;
+        const diffListEl = document.getElementById('zune-diff-list');
+        if (diffListEl) {
+            if (this._diffChangeHandler) { diffListEl.removeEventListener('change', this._diffChangeHandler); this._diffChangeHandler = null; }
+            if (this._diffClickHandler) { diffListEl.removeEventListener('click', this._diffClickHandler); this._diffClickHandler = null; }
+        }
+    }
 }
 ```
+
+**Lifecycle note:** `onZuneStatus` and `onZuneTransferProgress` are registered once in `_listenForZune` (called from the constructor) and persist for the panel's lifetime. They must NOT be removed on disconnect — only the per-session `onZuneBrowseProgress` is cleaned up, since a new one is registered each time `_startFirstTimeScan` runs.
 
 Call `_cleanup()` on device disconnect (in `_updateUI` when state becomes `'disconnected'`) and on panel close.
 
@@ -1742,7 +1800,11 @@ ipcMain.handle('zune-pull-file', async (event, handle, filename, destDir, metada
 });
 ```
 
-Review the handler carefully and identify all points where temp files are created (ffmpeg conversion output, writeFile intermediaries). Ensure each is pushed to `tempFiles`.
+Specifically, the handler creates these temp files:
+- `tempRaw` (line ~640): the raw file pulled from the device via `fs.writeFile`  — add `tempFiles.push(tempRaw)` right after creation
+- `tempArt` (line ~661): temporary album art file for ffmpeg embedding — add `tempFiles.push(tempArt)` right after creation
+
+The existing inline `.unlink` calls (line ~698, ~699) become redundant once the `finally` block handles cleanup, but leaving them is harmless.
 
 - [ ] **Step 2: Commit**
 
