@@ -14,8 +14,9 @@ Podcasts sits between pictures and documents in the main navigation:
 
 Adding the new category requires updates to:
 - `this.categories` array in renderer.js — insert `'podcasts'` at index 3
-- New `<button class="menu-item">` in `index.html` between pictures and documents
-- `selectCategory()` — add `else if (this.currentCategory === 'podcasts')` branch delegating to PodcastPanel (matching existing if/else chain pattern)
+- Add `podcasts: []` to `this.categorizedFiles` initialization (even though podcasts don't use file scanning, this prevents `undefined` when code accesses `categorizedFiles[currentCategory]`)
+- New `<button class="menu-item">` in `index.html` between pictures and documents, including `<span class="menu-count" id="podcasts-count">0</span>` (shows total subscription count)
+- `selectCategory()` — add `else if (this.currentCategory === 'podcasts')` branch delegating to PodcastPanel. Must appear before the final `else` block (between existing category checks and the fallback `renderCategoryContent()`)
 - Verify any code using hardcoded category indices is updated (documents shifts from 3→4, applications from 4→5)
 - `<script>` tag in index.html for `podcast-renderer.js`
 
@@ -63,11 +64,12 @@ Episodes play through the existing AudioPlayer class and now playing bar, with m
   - Podcast episodes are identified by an `isPodcast: true` property on the queue entry
   - When `isPodcast` is true: skip `getAudioMetadata()` IPC call (metadata already inline), set `audio.src` to `localPath` (if downloaded) or `enclosureUrl` (if streaming) — no `file://` prefix needed for remote URLs
   - Emit `trackchange` with podcast-specific metadata: episode title as track title, podcast name as artist, podcast artwork path
-  - Queue identity matching: use `episode.id` instead of `file.path` for podcast entries (add `id` check before `path` check in queue matching)
+  - Queue identity matching: use `episode.id` instead of `file.path` for podcast entries. Both `play(file, queue)` and `loadAndPlay(file)` must check `id` before `path`: `this.queue.findIndex(f => (f.id && f.id === file.id) || f.path === file.path)`
 - **Mixed queues**: Podcast episodes and music tracks can coexist in the Now Playing queue. `next()` and `previous()` call `loadAndPlay()` which handles both types via the `isPodcast` branch.
 - **Podcast queue entry shape**: `{ isPodcast: true, id, title, podcastName, artworkPath, duration, enclosureUrl, localPath, subscriptionId, playbackPosition }`
 - **Now playing bar**: Displays podcast episode info naturally — episode title, podcast name, artwork. No UI changes needed beyond what `trackchange` already provides.
-- **Playback position**: Saved per-episode on `pause` and `timeupdate` (throttled to every 15 seconds). On app quit, the main process `before-quit` event triggers a final position save for any active podcast episode (avoids unreliable `beforeunload` async IPC in Electron).
+- **Playback position**: Saved per-episode on `pause` and `timeupdate`. PodcastPanel's `timeupdate` listener implements its own 15-second throttle (timestamp check) — AudioPlayer's emission frequency is unchanged so the existing progress bar UI is unaffected. Each position save via IPC also updates the main process's "last known" podcast playback state, so on `before-quit` the main process already has a recent position and can persist it without needing to query the renderer.
+- **Episode ended**: When a podcast episode reaches the `ended` event, PodcastPanel marks it as played via `podcast-mark-played` IPC and resets `playbackPosition` to 0. AudioPlayer's existing `next()` behavior advances to the next queue item.
 - **Episode object for playback** includes `subscriptionId` so position saves can locate the correct episode file.
 - Podcast episodes can be added to Now Playing queue via context menu.
 
@@ -87,7 +89,7 @@ Handles all network I/O, disk I/O, and data persistence. Exposed to renderer via
 
 **Responsibilities:**
 - **RSS feed parsing**: Fetch and parse RSS/Atom feeds using `fast-xml-parser` (lightweight, no native deps). Extract: title, author, description, artwork URL, episode list with enclosure URLs, durations, publish dates.
-- **Podcast search**: Query iTunes Search API (`https://itunes.apple.com/search?media=podcast&term=...`). Returns podcast metadata including feed URLs.
+- **Podcast search**: Query iTunes Search API (`https://itunes.apple.com/search?media=podcast&term=...`). Returns podcast metadata including feed URLs. Search result artwork uses the 100px variant (`artworkUrl100`) for thumbnails to keep IPC payloads small; full-size artwork is fetched only on subscribe.
 - **OPML parsing**: Parse OPML XML to extract feed URLs and titles.
 - **Download manager**: Queue-based download system with configurable concurrency (default 2 simultaneous). Emits progress events via `webContents.send()`. Downloads saved to user-chosen directory.
 - **Feed refresh**: Fetch a single feed or all feeds. Compare with stored episodes by stable ID (see Episode Identity below), flag new ones.
@@ -238,7 +240,7 @@ Currently contains only `downloadDirectory`; extensible for future preferences (
     Episode 571 — The Accidental Room.mp3
 ```
 
-Filenames sanitized to remove filesystem-unsafe characters. In-progress downloads write to a `.partial` temp file (e.g., `episode.mp3.partial`) and are renamed to the final filename on completion.
+Filenames sanitized to remove filesystem-unsafe characters. If two episodes have the same sanitized title within a podcast, append the publish date (e.g., `Part 1 (2026-03-08).mp3`) to avoid collisions. In-progress downloads write to a `.partial` temp file (e.g., `episode.mp3.partial`) and are renamed to the final filename on completion.
 
 ## Error Handling
 
@@ -256,6 +258,9 @@ Filenames sanitized to remove filesystem-unsafe characters. In-progress download
 ### Streaming Errors
 - **Unreachable enclosure URL**: Delegate to existing AudioPlayer `playbackerror` flow — emits event, shows toast ("Couldn't play episode — check your connection").
 - **Unsupported format**: Same `playbackerror` flow. Toast with format-specific message.
+
+### Download Directory Errors
+- **Directory moved/deleted**: On category navigate, verify `downloadDirectory` exists. If missing, show toast ("Download folder not found") and clear `downloaded`/`localPath` for episodes whose files are no longer present. Next download will re-prompt for a directory.
 
 ### Artwork Errors
 - **Fetch failure**: Use generic podcast placeholder icon. Retry on next feed refresh.
