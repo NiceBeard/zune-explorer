@@ -271,130 +271,191 @@ class ZuneManager extends EventEmitter {
     // Key: "artist|||album", Value: { artist, albumArtist, album, genre, trackHandles[] }
     const albumMap = new Map();
 
+    const BATCH_SIZE = 8;
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 500;
+    const succeeded = [];
+    const failed = [];
+
     try {
-      for (const filePath of filePaths) {
-        if (this.cancelRequested) {
-          this.emit('transfer-progress', {
-            state: 'cancelled',
-            completedFiles,
-            totalFiles,
-          });
-          break;
-        }
+      // Process files in batches to yield to the event loop between batches
+      for (let batchStart = 0; batchStart < filePaths.length; batchStart += BATCH_SIZE) {
+        const batch = filePaths.slice(batchStart, batchStart + BATCH_SIZE);
 
-        const ext = path.extname(filePath).toLowerCase();
-        let sendPath = filePath;
-        let needsConvert = CONVERTIBLE_AUDIO.has(ext);
+        for (const filePath of batch) {
+          if (this.cancelRequested) {
+            this.emit('transfer-progress', {
+              state: 'cancelled',
+              completedFiles,
+              totalFiles,
+            });
+            break;
+          }
 
-        // Read metadata from the original file before any conversion
-        const metadata = await this._readMetadata(filePath);
+          let fileSucceeded = false;
+          let lastError = null;
 
-        // Enrich with cached MusicBrainz metadata
-        if (this.metadataCache && metadata.artist && metadata.album) {
-          const cached = await this.metadataCache.get(metadata.artist, metadata.album);
-          if (cached) {
-            if (cached.genre && !metadata.genre) metadata.genre = cached.genre;
-            if (cached.year && !metadata.year) metadata.year = String(cached.year);
-            if (cached.albumArt && !metadata.albumArt) {
-              const base64Match = cached.albumArt.match(/^data:([^;]+);base64,(.+)$/);
-              if (base64Match) {
-                metadata.albumArt = {
-                  data: Buffer.from(base64Match[2], 'base64'),
-                  format: base64Match[1],
-                };
+          for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            let objectHandle = null;
+            let dataPhaseFailed = false;
+
+            try {
+              const ext = path.extname(filePath).toLowerCase();
+              let sendPath = filePath;
+              let needsConvert = CONVERTIBLE_AUDIO.has(ext);
+
+              // Read metadata from the original file before any conversion
+              const metadata = await this._readMetadata(filePath);
+
+              // Enrich with cached MusicBrainz metadata
+              if (this.metadataCache && metadata.artist && metadata.album) {
+                const cached = await this.metadataCache.get(metadata.artist, metadata.album);
+                if (cached) {
+                  if (cached.genre && !metadata.genre) metadata.genre = cached.genre;
+                  if (cached.year && !metadata.year) metadata.year = String(cached.year);
+                  if (cached.albumArt && !metadata.albumArt) {
+                    const base64Match = cached.albumArt.match(/^data:([^;]+);base64,(.+)$/);
+                    if (base64Match) {
+                      metadata.albumArt = {
+                        data: Buffer.from(base64Match[2], 'base64'),
+                        format: base64Match[1],
+                      };
+                    }
+                  }
+                }
+              }
+
+              if (needsConvert) {
+                const fileName = path.basename(filePath);
+                this.emit('transfer-progress', {
+                  state: 'converting',
+                  fileName,
+                  fileIndex: completedFiles,
+                  totalFiles,
+                });
+
+                console.log(`ZuneManager: converting ${fileName} to MP3 320k`);
+                sendPath = await this._convertForZune(filePath);
+                tempFiles.push(sendPath);
+              } else if (ext === '.mp3') {
+                // Retag MP3s to ID3v2.3 — the Zune can't read ID3v2.4 tags
+                // and will show "Unknown Artist" / "Unknown Album" otherwise.
+                // This is a stream copy (no re-encoding), so it's fast.
+                try {
+                  console.log(`ZuneManager: retagging ${path.basename(filePath)} to ID3v2.3`);
+                  const retagged = await this._retagToId3v23(filePath);
+                  sendPath = retagged;
+                  tempFiles.push(retagged);
+                } catch (err) {
+                  console.log(`ZuneManager: retag failed, sending original: ${err.message}`);
+                }
+              }
+
+              const sendExt = path.extname(sendPath).toLowerCase();
+              const objectFormat = ExtensionToFormat[sendExt] || ObjectFormat.Undefined;
+              const sendName = path.basename(filePath, ext) + (needsConvert ? '.mp3' : path.extname(filePath));
+              const fileData = await fs.readFile(sendPath);
+              const totalBytes = fileData.length;
+
+              this.emit('transfer-progress', {
+                state: 'sending',
+                fileName: sendName,
+                fileIndex: completedFiles,
+                totalFiles,
+                bytesTransferred: 0,
+                totalBytes,
+              });
+
+              const info = await this.mtp.sendObjectInfo(this.storageId, 0, {
+                objectFormat,
+                compressedSize: totalBytes,
+                filename: sendName,
+              });
+              objectHandle = info.objectHandle;
+
+              try {
+                await this.mtp.sendObject(fileData, (sent, total) => {
+                  this.emit('transfer-progress', {
+                    state: 'sending',
+                    fileName: sendName,
+                    fileIndex: completedFiles,
+                    totalFiles,
+                    bytesTransferred: sent,
+                    totalBytes: total,
+                  });
+                });
+              } catch (sendErr) {
+                dataPhaseFailed = true;
+                throw sendErr;
+              }
+
+              // Set metadata via MTP object properties
+              if (objectHandle) {
+                console.log(`ZuneManager: setting metadata for handle ${objectHandle}`);
+                await this._setObjectMetadata(objectHandle, metadata);
+
+                // Group this track by album for abstract album creation
+                const isAudio = ZUNE_NATIVE_AUDIO.has(ext) || CONVERTIBLE_AUDIO.has(ext);
+                if (isAudio && metadata.album) {
+                  const artist = metadata.artist || 'Unknown Artist';
+                  const key = `${artist}|||${metadata.album}`;
+                  if (!albumMap.has(key)) {
+                    albumMap.set(key, {
+                      artist,
+                      albumArtist: metadata.albumArtist || artist,
+                      album: metadata.album,
+                      genre: metadata.genre || null,
+                      albumArt: metadata.albumArt || null,
+                      trackHandles: [],
+                    });
+                  }
+                  const entry = albumMap.get(key);
+                  entry.trackHandles.push(objectHandle);
+                  // Use the first available album art we find
+                  if (!entry.albumArt && metadata.albumArt) {
+                    entry.albumArt = metadata.albumArt;
+                  }
+                }
+              }
+
+              fileSucceeded = true;
+              break; // Success — exit retry loop
+            } catch (err) {
+              lastError = err;
+              console.log(`ZuneManager: file failed (attempt ${attempt}/${MAX_RETRIES}): ${path.basename(filePath)} — ${err.message}`);
+
+              // Clean up orphan handle if data-phase failed
+              if (dataPhaseFailed && objectHandle) {
+                try {
+                  console.log(`ZuneManager: cleaning up orphan handle ${objectHandle}`);
+                  await this.mtp.deleteObject(objectHandle);
+                } catch (cleanupErr) {
+                  console.log(`ZuneManager: orphan cleanup failed: ${cleanupErr.message}`);
+                }
+              }
+
+              if (attempt < MAX_RETRIES) {
+                await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
               }
             }
           }
-        }
 
-        if (needsConvert) {
-          const fileName = path.basename(filePath);
-          this.emit('transfer-progress', {
-            state: 'converting',
-            fileName,
-            fileIndex: completedFiles,
-            totalFiles,
-          });
-
-          console.log(`ZuneManager: converting ${fileName} to MP3 320k`);
-          sendPath = await this._convertForZune(filePath);
-          tempFiles.push(sendPath);
-        } else if (ext === '.mp3') {
-          // Retag MP3s to ID3v2.3 — the Zune can't read ID3v2.4 tags
-          // and will show "Unknown Artist" / "Unknown Album" otherwise.
-          // This is a stream copy (no re-encoding), so it's fast.
-          try {
-            console.log(`ZuneManager: retagging ${path.basename(filePath)} to ID3v2.3`);
-            const retagged = await this._retagToId3v23(filePath);
-            sendPath = retagged;
-            tempFiles.push(retagged);
-          } catch (err) {
-            console.log(`ZuneManager: retag failed, sending original: ${err.message}`);
+          if (fileSucceeded) {
+            succeeded.push(filePath);
+          } else {
+            failed.push({ file: filePath, error: lastError ? lastError.message : 'unknown error' });
+            console.log(`ZuneManager: giving up on ${path.basename(filePath)} after ${MAX_RETRIES} attempts`);
           }
+
+          completedFiles++;
         }
 
-        const sendExt = path.extname(sendPath).toLowerCase();
-        const objectFormat = ExtensionToFormat[sendExt] || ObjectFormat.Undefined;
-        const sendName = path.basename(filePath, ext) + (needsConvert ? '.mp3' : path.extname(filePath));
-        const fileData = await fs.readFile(sendPath);
-        const totalBytes = fileData.length;
+        if (this.cancelRequested) break;
 
-        this.emit('transfer-progress', {
-          state: 'sending',
-          fileName: sendName,
-          fileIndex: completedFiles,
-          totalFiles,
-          bytesTransferred: 0,
-          totalBytes,
-        });
-
-        const { objectHandle } = await this.mtp.sendObjectInfo(this.storageId, 0, {
-          objectFormat,
-          compressedSize: totalBytes,
-          filename: sendName,
-        });
-
-        await this.mtp.sendObject(fileData, (sent, total) => {
-          this.emit('transfer-progress', {
-            state: 'sending',
-            fileName: sendName,
-            fileIndex: completedFiles,
-            totalFiles,
-            bytesTransferred: sent,
-            totalBytes: total,
-          });
-        });
-
-        // Set metadata via MTP object properties
-        if (objectHandle) {
-          console.log(`ZuneManager: setting metadata for handle ${objectHandle}`);
-          await this._setObjectMetadata(objectHandle, metadata);
-
-          // Group this track by album for abstract album creation
-          const isAudio = ZUNE_NATIVE_AUDIO.has(ext) || CONVERTIBLE_AUDIO.has(ext);
-          if (isAudio && metadata.album) {
-            const artist = metadata.artist || 'Unknown Artist';
-            const key = `${artist}|||${metadata.album}`;
-            if (!albumMap.has(key)) {
-              albumMap.set(key, {
-                artist,
-                albumArtist: metadata.albumArtist || artist,
-                album: metadata.album,
-                genre: metadata.genre || null,
-                albumArt: metadata.albumArt || null,
-                trackHandles: [],
-              });
-            }
-            const entry = albumMap.get(key);
-            entry.trackHandles.push(objectHandle);
-            // Use the first available album art we find
-            if (!entry.albumArt && metadata.albumArt) {
-              entry.albumArt = metadata.albumArt;
-            }
-          }
+        // Yield to event loop between batches
+        if (batchStart + BATCH_SIZE < filePaths.length) {
+          await new Promise(r => setTimeout(r, 0));
         }
-
-        completedFiles++;
       }
 
       // Create abstract audio album objects and link tracks to them.
@@ -412,6 +473,8 @@ class ZuneManager extends EventEmitter {
           state: 'complete',
           completedFiles,
           totalFiles,
+          succeeded: succeeded.length,
+          failed,
           storage: this.storageInfo,
         });
       }

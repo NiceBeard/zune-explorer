@@ -535,8 +535,21 @@ class ZuneSyncPanel {
                 completeEl.style.display = 'block';
                 document.getElementById('zune-sync-title').textContent = (this.deviceModel || 'zune').toLowerCase();
                 document.getElementById('zune-sync-subtitle').textContent = 'connected';
-                document.getElementById('zune-complete-text').textContent =
-                    `${progress.completedFiles} files synced`;
+                {
+                    const completeTextEl = document.getElementById('zune-complete-text');
+                    if (progress.failed && progress.failed.length > 0) {
+                        const transferred = progress.succeeded || (progress.completedFiles - progress.failed.length);
+                        completeTextEl.textContent =
+                            `transferred ${transferred} of ${progress.totalFiles} \u2014 ${progress.failed.length} failed`;
+                        completeTextEl.style.color = '#ff6900';
+                        this._lastTransferFailed = progress.failed;
+                    } else {
+                        completeTextEl.textContent =
+                            `${progress.completedFiles} files synced`;
+                        completeTextEl.style.color = '';
+                        this._lastTransferFailed = null;
+                    }
+                }
                 if (progress.storage) this._updateStorage(progress.storage);
                 setTimeout(() => {
                     completeEl.style.display = 'none';
