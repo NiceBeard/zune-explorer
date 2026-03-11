@@ -2047,11 +2047,12 @@ class ZuneExplorer {
         this.currentCategory = null;
         this.currentMenuIndex = 0;
         this.currentViewMode = 'grid'; // grid, list
-        this.categories = ['music', 'videos', 'pictures', 'documents', 'applications'];
+        this.categories = ['music', 'videos', 'pictures', 'podcasts', 'documents', 'applications'];
         this.categorizedFiles = {
             music: [],
             videos: [],
             pictures: [],
+            podcasts: [],
             documents: [],
             applications: []
         };
@@ -2077,6 +2078,7 @@ class ZuneExplorer {
         this.audioPlayer = null;
         this.nowPlayingOpen = false;
         this.zunePanel = null;
+        this.podcastPanel = null;
 
         // Music library state
         this.musicLibrary = {
@@ -2451,6 +2453,8 @@ class ZuneExplorer {
         if (this.currentCategory === 'music') {
             this.musicDrillDown = null;
             this.renderMusicView();
+        } else if (this.currentCategory === 'podcasts') {
+            if (this.podcastPanel) this.podcastPanel.render();
         } else if (this.currentCategory === 'documents') {
             this.renderRootView();
         } else {
@@ -3019,7 +3023,7 @@ class ZuneExplorer {
         this.categories.forEach(category => {
             const countElement = document.getElementById(`${category}-count`);
             if (countElement) {
-                if (category === 'documents') {
+                if (category === 'documents' || category === 'podcasts') {
                     countElement.textContent = '';
                 } else {
                     countElement.textContent = this.categorizedFiles[category].length;

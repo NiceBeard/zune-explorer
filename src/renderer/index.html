@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data:; font-src 'self'; media-src 'self' file:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data:; font-src 'self'; media-src 'self' file: https:;">
     <title>Zune</title>
     <link rel="stylesheet" href="../assets/css/styles.css">
 </head>
@@ -51,6 +51,10 @@
                         <button class="menu-item" data-category="pictures">
                             <span class="menu-text">pictures</span>
                             <span class="menu-count" id="pictures-count">0</span>
+                        </button>
+                        <button class="menu-item" data-category="podcasts">
+                            <span class="menu-text">podcasts</span>
+                            <span class="menu-count" id="podcasts-count">0</span>
                         </button>
                         <button class="menu-item" data-category="documents">
                             <span class="menu-text">documents</span>
@@ -403,6 +407,7 @@
 
     <script src="../assets/js/audio-player.js"></script>
     <script src="../assets/js/virtual-scroller.js"></script>
+    <script src="../assets/js/podcast-renderer.js"></script>
     <script src="../assets/js/renderer.js"></script>
     <script src="../assets/js/test-data-generator.js"></script>
 </body>
