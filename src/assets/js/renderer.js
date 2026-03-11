@@ -277,12 +277,12 @@ class ZuneSyncPanel {
     }
 
     _listenForZune() {
-        window.electronAPI.onZuneStatus((status) => {
+        this._zuneStatusHandler = window.electronAPI.onZuneStatus((status) => {
             this.state = status.state;
             this.lastStatus = status;
             this._updateUI(status);
         });
-        window.electronAPI.onZuneTransferProgress((progress) => {
+        this._transferProgressHandler = window.electronAPI.onZuneTransferProgress((progress) => {
             this._updateProgress(progress);
         });
 
@@ -294,6 +294,25 @@ class ZuneSyncPanel {
                 this._updateUI(status);
             }
         });
+    }
+
+    _cleanup() {
+        // Clean up per-session browse progress listener only
+        // Note: onZuneStatus and onZuneTransferProgress are lifetime listeners
+        // registered once in the constructor — they must persist across disconnect/reconnect.
+        if (this._browseProgressHandler) {
+            window.electronAPI.offZuneBrowseProgress(this._browseProgressHandler);
+            this._browseProgressHandler = null;
+        }
+
+        // Clear timers
+        if (this.deleteConfirmTimer) { clearTimeout(this.deleteConfirmTimer); this.deleteConfirmTimer = null; }
+        if (this.diffDeleteConfirmTimer) { clearTimeout(this.diffDeleteConfirmTimer); this.diffDeleteConfirmTimer = null; }
+        if (this._diffFilterTimer) { clearTimeout(this._diffFilterTimer); this._diffFilterTimer = null; }
+
+        // Destroy virtual scrollers (if they exist from Tasks 3-4)
+        if (this.browseScroller) { this.browseScroller.destroy(); this.browseScroller = null; }
+        if (this.diffScroller) { this.diffScroller.destroy(); this.diffScroller = null; }
     }
 
     toggle() {
@@ -375,6 +394,7 @@ class ZuneSyncPanel {
             case 'disconnected':
                 if (this.browseActive) this._closeBrowse();
                 if (this.diffActive) this._closeDiff();
+                this._cleanup();
                 this.deviceKey = null;
                 this.deviceModel = null;
                 this.storageBreakdown = null;
@@ -612,7 +632,10 @@ class ZuneSyncPanel {
         let scanFileCount = 0; // total files found during folder scan
 
         // Listen for progressive updates during scan
-        window.electronAPI.onZuneBrowseProgress((data) => {
+        if (this._browseProgressHandler) {
+            window.electronAPI.offZuneBrowseProgress(this._browseProgressHandler);
+        }
+        this._browseProgressHandler = window.electronAPI.onZuneBrowseProgress((data) => {
             if (data.phase === 'scanning') {
                 const found = (data.contents.music?.length || 0) +
                               (data.contents.videos?.length || 0) +
@@ -3730,8 +3753,11 @@ class ZuneExplorer {
 
         const paths = musicFiles.map(f => f.path);
 
-        // Listen for progress
-        window.electronAPI.onMusicScanProgress((data) => {
+        // Listen for progress (remove previous handler to prevent leaks on re-scan)
+        if (this._musicScanHandler) {
+            window.electronAPI.offMusicScanProgress(this._musicScanHandler);
+        }
+        this._musicScanHandler = window.electronAPI.onMusicScanProgress((data) => {
             for (const result of data.batch) {
                 lib.tracks.set(result.path, result);
             }
