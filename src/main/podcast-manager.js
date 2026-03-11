@@ -504,6 +504,153 @@ class PodcastManager {
       }
     }
   }
+
+  // --- iTunes search ---
+
+  async search(query) {
+    const encoded = encodeURIComponent(query);
+    const url = `https://itunes.apple.com/search?media=podcast&term=${encoded}&limit=25`;
+
+    const body = await new Promise((resolve, reject) => {
+      const req = https.get(url, {
+        headers: { 'User-Agent': 'ZuneExplorer/1.4.0' },
+      }, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`iTunes API returned HTTP ${res.statusCode}`));
+          return;
+        }
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => resolve(data));
+      });
+      req.on('error', reject);
+      req.setTimeout(15000, () => { req.destroy(); reject(new Error('Request timeout')); });
+    });
+
+    const data = JSON.parse(body);
+    const results = (data.results || []).map(r => ({
+      feedUrl: r.feedUrl || '',
+      title: r.collectionName || r.trackName || '',
+      author: r.artistName || '',
+      artworkUrl: r.artworkUrl100 || r.artworkUrl60 || '',
+      artworkBase64: null, // filled in below
+      genre: r.primaryGenreName || '',
+      trackCount: r.trackCount || 0,
+    }));
+
+    // Fetch artwork as base64 for CSP compliance (img-src doesn't allow https:)
+    await Promise.allSettled(
+      results.map(async (result) => {
+        if (!result.artworkUrl) return;
+        try {
+          const imgData = await this._fetchBinaryUrl(result.artworkUrl);
+          result.artworkBase64 = `data:${imgData.contentType};base64,${imgData.data.toString('base64')}`;
+        } catch {
+          // Leave artworkBase64 as null — renderer will use placeholder
+        }
+      })
+    );
+
+    return results.filter(r => r.feedUrl);
+  }
+
+  _fetchBinaryUrl(url) {
+    return new Promise((resolve, reject) => {
+      const client = url.startsWith('https') ? https : http;
+      const req = client.get(url, {
+        headers: { 'User-Agent': 'ZuneExplorer/1.4.0' },
+      }, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          this._fetchBinaryUrl(res.headers.location).then(resolve, reject);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+        const chunks = [];
+        res.on('data', chunk => chunks.push(chunk));
+        res.on('end', () => resolve({
+          data: Buffer.concat(chunks),
+          contentType: res.headers['content-type'] || 'image/jpeg',
+        }));
+      });
+      req.on('error', reject);
+      req.setTimeout(10000, () => { req.destroy(); reject(new Error('Request timeout')); });
+    });
+  }
+
+  // --- OPML import ---
+
+  parseOPML(xml) {
+    const parsed = this._xmlParser.parse(xml);
+
+    const feedUrls = [];
+
+    const extractOutlines = (outlines) => {
+      if (!outlines) return;
+      const list = Array.isArray(outlines) ? outlines : [outlines];
+      for (const outline of list) {
+        const xmlUrl = outline['@_xmlUrl'] || outline['@_xmlurl'] || outline['@_url'] || '';
+        if (xmlUrl) {
+          feedUrls.push(xmlUrl);
+        }
+        // Recurse into nested outlines (folder groupings)
+        if (outline.outline) {
+          extractOutlines(outline.outline);
+        }
+      }
+    };
+
+    if (parsed.opml && parsed.opml.body) {
+      extractOutlines(parsed.opml.body.outline);
+    }
+
+    return feedUrls;
+  }
+
+  async importOPML(filePath, webContents) {
+    const xml = fs.readFileSync(filePath, 'utf-8');
+    const feedUrls = this.parseOPML(xml);
+
+    if (feedUrls.length === 0) {
+      throw new Error('No podcast feeds found in OPML file');
+    }
+
+    let processed = 0;
+    const total = feedUrls.length;
+    const batchSize = 5;
+
+    for (let i = 0; i < feedUrls.length; i += batchSize) {
+      const batch = feedUrls.slice(i, i + batchSize);
+      await Promise.allSettled(
+        batch.map(async (feedUrl) => {
+          try {
+            const sub = await this.subscribe(feedUrl);
+            processed++;
+            if (webContents && !webContents.isDestroyed()) {
+              webContents.send('podcast-import-progress', {
+                current: processed,
+                total,
+                title: sub.title,
+              });
+            }
+          } catch {
+            processed++;
+            if (webContents && !webContents.isDestroyed()) {
+              webContents.send('podcast-import-progress', {
+                current: processed,
+                total,
+                title: feedUrl,
+              });
+            }
+          }
+        })
+      );
+    }
+
+    return processed;
+  }
 }
 
 module.exports = PodcastManager;
