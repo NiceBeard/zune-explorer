@@ -30,6 +30,9 @@ class ZuneSyncPanel {
         this.storageBreakdown = null;
         this.browseScroller = null;       // VirtualScroller for browse list
         this._browseChangeHandler = null; // event delegation handler for browse checkboxes
+        this.diffScroller = null;         // VirtualScroller for diff list
+        this._diffChangeHandler = null;   // event delegation handler for diff checkboxes
+        this._diffClickHandler = null;    // event delegation handler for diff header clicks
 
         this.panel = document.getElementById('zune-sync-panel');
         this.toggleBtn = document.getElementById('zune-toggle-btn');
@@ -173,6 +176,7 @@ class ZuneSyncPanel {
                 this.diffFilterQuery = '';
                 document.getElementById('zune-diff-filter-input').value = '';
                 document.getElementById('zune-diff-filter-clear').style.display = 'none';
+                this._destroyDiffScroller();
                 this._renderDiffList();
             });
         });
@@ -202,6 +206,7 @@ class ZuneSyncPanel {
                 document.getElementById('zune-diff-delete-btn').classList.remove('confirm');
                 this._computeDiff();
                 this._renderDiffSummary();
+                this._destroyDiffScroller();
                 this._renderDiffList();
             });
         });
@@ -213,6 +218,7 @@ class ZuneSyncPanel {
                 document.querySelectorAll('.zune-diff-group-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 this.collapsedGroups.clear();
+                this._destroyDiffScroller();
                 this._renderDiffList();
             });
         });
@@ -231,6 +237,7 @@ class ZuneSyncPanel {
             this._diffFilterTimer = setTimeout(() => {
                 this.diffFilterQuery = filterInput.value.trim().toLowerCase();
                 filterClear.style.display = this.diffFilterQuery ? 'block' : 'none';
+                this._destroyDiffScroller();
                 this._renderDiffList();
             }, 150);
         });
@@ -243,6 +250,7 @@ class ZuneSyncPanel {
                 filterInput.value = '';
                 this.diffFilterQuery = '';
                 filterClear.style.display = 'none';
+                this._destroyDiffScroller();
                 this._renderDiffList();
             }
         });
@@ -252,6 +260,7 @@ class ZuneSyncPanel {
             this.diffFilterQuery = '';
             filterClear.style.display = 'none';
             filterInput.focus();
+            this._destroyDiffScroller();
             this._renderDiffList();
         });
 
@@ -317,7 +326,7 @@ class ZuneSyncPanel {
 
         // Destroy virtual scrollers
         this._destroyBrowseScroller();
-        if (this.diffScroller) { this.diffScroller.destroy(); this.diffScroller = null; }
+        this._destroyDiffScroller();
     }
 
     toggle() {
@@ -783,6 +792,7 @@ class ZuneSyncPanel {
         this._computeDiff();
         this._enrichDeviceArt();
         this._renderDiffSummary();
+        this._destroyDiffScroller();
         this._renderDiffList();
     }
 
@@ -819,6 +829,7 @@ class ZuneSyncPanel {
         this.diffResult = null;
         this.diffSelectedPaths.clear();
         this.diffSelectedHandles.clear();
+        this._destroyDiffScroller();
 
         document.getElementById('zune-diff-view').style.display = 'none';
         document.getElementById('zune-diff-back').style.display = 'none';
@@ -898,6 +909,24 @@ class ZuneSyncPanel {
         if (listEl && this._browseChangeHandler) {
             listEl.removeEventListener('change', this._browseChangeHandler);
             this._browseChangeHandler = null;
+        }
+    }
+
+    _destroyDiffScroller() {
+        if (this.diffScroller) {
+            this.diffScroller.destroy();
+            this.diffScroller = null;
+        }
+        const listEl = document.getElementById('zune-diff-list');
+        if (listEl) {
+            if (this._diffChangeHandler) {
+                listEl.removeEventListener('change', this._diffChangeHandler);
+                this._diffChangeHandler = null;
+            }
+            if (this._diffClickHandler) {
+                listEl.removeEventListener('click', this._diffClickHandler);
+                this._diffClickHandler = null;
+            }
         }
     }
 
@@ -1269,9 +1298,9 @@ class ZuneSyncPanel {
         const pullBtn = document.getElementById('zune-pull-btn');
         const deleteBtn = document.getElementById('zune-diff-delete-btn');
 
-        listEl.textContent = '';
-
         if (!this.diffResult) {
+            this._destroyDiffScroller();
+            listEl.textContent = '';
             const emptyDiv = document.createElement('div');
             emptyDiv.className = 'zune-diff-empty';
             emptyDiv.textContent = 'no diff data';
@@ -1317,14 +1346,16 @@ class ZuneSyncPanel {
         document.getElementById('zune-diff-filter').style.display = 'flex';
 
         if (filteredItems.length === 0) {
+            this._destroyDiffScroller();
+            listEl.textContent = '';
             const emptyDiv = document.createElement('div');
             emptyDiv.className = 'zune-diff-empty';
             if (this.diffFilterQuery) {
                 emptyDiv.textContent = 'no matches';
             } else if (this.diffTab === 'local-only') {
-                emptyDiv.textContent = `all local ${this.diffCategory} on the device`;
+                emptyDiv.textContent = 'all local ' + this.diffCategory + ' on the device';
             } else if (this.diffTab === 'device-only') {
-                emptyDiv.textContent = `all device ${this.diffCategory} on the computer`;
+                emptyDiv.textContent = 'all device ' + this.diffCategory + ' on the computer';
             } else {
                 emptyDiv.textContent = 'no matched files';
             }
@@ -1334,14 +1365,255 @@ class ZuneSyncPanel {
             return;
         }
 
-        if (groupBy === 'all') {
-            this._renderDiffFlat(listEl, filteredItems, showCheckboxes);
-        } else {
-            this._renderDiffGrouped(listEl, filteredItems, showCheckboxes, groupBy);
-        }
+        this._renderDiffListVirtual(listEl, filteredItems, showCheckboxes, groupBy);
 
         this._updateSelectAllState(filteredItems);
         this._updateDiffActionButton();
+    }
+
+    _buildDiffEntries(items, groupBy) {
+        if (groupBy === 'all') {
+            return items.map(function(item) { return { type: 'diffTrack', data: item }; });
+        }
+
+        var groups = new Map();
+        for (var i = 0; i < items.length; i++) {
+            var item = items[i];
+            var key, name, artist, albumArt;
+            if (this.diffTab === 'matched') {
+                var loc = item.local || {};
+                var dev = item.device || {};
+                if (groupBy === 'album') {
+                    name = loc.album || dev.album || 'Unknown Album';
+                    artist = loc.artist || dev.artist || '';
+                    albumArt = loc.albumArt || this._getBrowseArt(dev) || null;
+                    key = name.toLowerCase();
+                } else {
+                    name = loc.artist || dev.artist || 'Unknown Artist';
+                    albumArt = loc.albumArt || this._getBrowseArt(dev) || null;
+                    key = name.toLowerCase();
+                    artist = '';
+                }
+            } else {
+                if (groupBy === 'album') {
+                    name = item.album || 'Unknown Album';
+                    artist = item.artist || '';
+                    albumArt = this._getBrowseArt(item) || null;
+                    key = name.toLowerCase();
+                } else {
+                    name = item.artist || 'Unknown Artist';
+                    albumArt = this._getBrowseArt(item) || null;
+                    key = name.toLowerCase();
+                    artist = '';
+                }
+            }
+            if (!groups.has(key)) {
+                groups.set(key, { name: name, artist: artist, albumArt: albumArt, tracks: [], key: key });
+            }
+            var g = groups.get(key);
+            g.tracks.push(item);
+            if (!g.albumArt && albumArt) g.albumArt = albumArt;
+        }
+
+        var sortedKeys = Array.from(groups.keys()).sort();
+        var entries = [];
+        for (var k = 0; k < sortedKeys.length; k++) {
+            var gKey = sortedKeys[k];
+            var group = groups.get(gKey);
+            entries.push({ type: 'diffHeader', data: group });
+            if (!this.collapsedGroups.has(gKey)) {
+                for (var t = 0; t < group.tracks.length; t++) {
+                    entries.push({ type: 'diffTrack', data: group.tracks[t] });
+                }
+            }
+        }
+        return entries;
+    }
+
+    _renderDiffListVirtual(listEl, items, showCheckboxes, groupBy) {
+        var entries = this._buildDiffEntries(items, groupBy);
+        var panel = this;
+
+        if (!this.diffScroller) {
+            listEl.textContent = '';
+
+            this.diffScroller = new VirtualScroller({
+                container: listEl,
+                rowTypes: {
+                    diffHeader: { height: 56, className: 'zune-diff-group-header' },
+                    diffTrack: { height: 44, className: 'zune-diff-item' },
+                },
+                renderRow: function(el, index, entry) {
+                    while (el.firstChild) el.removeChild(el.firstChild);
+
+                    if (entry.type === 'diffHeader') {
+                        var group = entry.data;
+                        var isCollapsed = panel.collapsedGroups.has(group.key);
+
+                        var arrow = document.createElement('span');
+                        arrow.className = 'zune-diff-group-arrow' + (isCollapsed ? ' collapsed' : '');
+                        arrow.textContent = '\u25BE';
+                        el.appendChild(arrow);
+
+                        if (group.albumArt) {
+                            var artImg = document.createElement('img');
+                            artImg.className = 'zune-diff-group-art';
+                            artImg.src = group.albumArt;
+                            artImg.alt = '';
+                            el.appendChild(artImg);
+                        }
+
+                        var info = document.createElement('div');
+                        info.className = 'zune-diff-group-info';
+                        var nameEl = document.createElement('div');
+                        nameEl.className = 'zune-diff-group-name';
+                        nameEl.textContent = group.name;
+                        info.appendChild(nameEl);
+                        var metaEl = document.createElement('div');
+                        metaEl.className = 'zune-diff-group-meta';
+                        var metaParts = [];
+                        if (group.artist) metaParts.push(group.artist);
+                        metaParts.push(group.tracks.length + ' track' + (group.tracks.length !== 1 ? 's' : ''));
+                        metaEl.textContent = metaParts.join(' \u2014 ');
+                        info.appendChild(metaEl);
+                        el.appendChild(info);
+
+                        if (showCheckboxes) {
+                            var groupCheck = document.createElement('input');
+                            groupCheck.type = 'checkbox';
+                            groupCheck.className = 'zune-diff-group-check';
+                            panel._updateGroupCheckState(groupCheck, group.tracks);
+                            el.appendChild(groupCheck);
+                        }
+                        el.dataset.groupKey = group.key;
+
+                    } else {
+                        // diffTrack row
+                        var item = entry.data;
+
+                        if (showCheckboxes) {
+                            var checkbox = document.createElement('input');
+                            checkbox.type = 'checkbox';
+                            checkbox.className = 'zune-diff-check';
+                            if (panel.diffTab === 'local-only') {
+                                checkbox.checked = panel.diffSelectedPaths.has(item.path);
+                            } else if (panel.diffTab === 'device-only') {
+                                checkbox.checked = panel.diffSelectedHandles.has(item.handle);
+                            }
+                            el.appendChild(checkbox);
+                        }
+
+                        // Album art
+                        var art = panel.diffTab === 'matched'
+                            ? ((item.local ? item.local.albumArt : null) || (item.device ? panel._getBrowseArt(item.device) : null))
+                            : (panel._getBrowseArt(item) || null);
+                        if (art) {
+                            var artImg2 = document.createElement('img');
+                            artImg2.className = 'zune-diff-art';
+                            artImg2.src = art;
+                            artImg2.alt = '';
+                            el.appendChild(artImg2);
+                        }
+
+                        var infoDiv = document.createElement('div');
+                        infoDiv.className = 'zune-diff-info';
+                        var titleSpan = document.createElement('span');
+                        titleSpan.className = 'zune-diff-title';
+                        if (panel.diffTab === 'matched') {
+                            titleSpan.textContent = (item.local && item.local.title) || (item.local && item.local.name) || (item.device && item.device.title) || (item.device && item.device.filename) || '?';
+                        } else {
+                            titleSpan.textContent = item.title || item.name || item.filename || '?';
+                        }
+                        infoDiv.appendChild(titleSpan);
+
+                        var metaSpan = document.createElement('span');
+                        metaSpan.className = 'zune-diff-meta';
+                        if (panel.diffCategory === 'music') {
+                            if (panel.diffTab === 'matched') {
+                                var parts = [];
+                                if (item.local && item.local.artist) parts.push(item.local.artist);
+                                if (item.local && item.local.album) parts.push(item.local.album);
+                                metaSpan.textContent = parts.join(' \u2014 ');
+                            } else {
+                                var parts2 = [];
+                                if (item.artist) parts2.push(item.artist);
+                                if (item.album) parts2.push(item.album);
+                                metaSpan.textContent = parts2.join(' \u2014 ');
+                            }
+                        } else {
+                            var size = item.size || (item.device && item.device.size) || (item.local && item.local.size) || 0;
+                            if (size > 0) {
+                                metaSpan.textContent = panel._formatSize(size);
+                            } else {
+                                metaSpan.textContent = item.filename || (item.device && item.device.filename) || '';
+                            }
+                        }
+                        if (metaSpan.textContent) infoDiv.appendChild(metaSpan);
+                        el.appendChild(infoDiv);
+                    }
+                },
+                overscan: 15,
+            });
+
+            // Event delegation: checkbox changes
+            this._diffChangeHandler = function(e) {
+                var checkbox = e.target;
+                if (checkbox.classList.contains('zune-diff-check')) {
+                    var row = checkbox.closest('.vs-row');
+                    if (!row) return;
+                    var idx = parseInt(row.dataset.index, 10);
+                    var entry = panel.diffScroller.getEntryAtIndex(idx);
+                    if (!entry || entry.type !== 'diffTrack') return;
+                    if (panel.diffTab === 'local-only') {
+                        if (checkbox.checked) panel.diffSelectedPaths.add(entry.data.path);
+                        else panel.diffSelectedPaths.delete(entry.data.path);
+                    } else if (panel.diffTab === 'device-only') {
+                        if (checkbox.checked) panel.diffSelectedHandles.add(entry.data.handle);
+                        else panel.diffSelectedHandles.delete(entry.data.handle);
+                    }
+                    panel._updateDiffActionButton();
+                    panel.diffScroller.refresh();
+                    var allItems = panel.diffTab === 'local-only'
+                        ? (panel.diffResult && panel.diffResult.localOnly || [])
+                        : (panel.diffResult && panel.diffResult.deviceOnly || []);
+                    panel._updateSelectAllState(allItems);
+                } else if (checkbox.classList.contains('zune-diff-group-check')) {
+                    var row2 = checkbox.closest('.vs-row');
+                    if (!row2) return;
+                    var idx2 = parseInt(row2.dataset.index, 10);
+                    var entry2 = panel.diffScroller.getEntryAtIndex(idx2);
+                    if (!entry2 || entry2.type !== 'diffHeader') return;
+                    panel._toggleGroupSelection(entry2.data.tracks, checkbox.checked);
+                    panel.diffScroller.refresh();
+                    panel._updateDiffActionButton();
+                    var allItems2 = panel.diffTab === 'local-only'
+                        ? (panel.diffResult && panel.diffResult.localOnly || [])
+                        : (panel.diffResult && panel.diffResult.deviceOnly || []);
+                    panel._updateSelectAllState(allItems2);
+                }
+            };
+            listEl.addEventListener('change', this._diffChangeHandler);
+
+            // Event delegation: header click to collapse/expand
+            this._diffClickHandler = function(e) {
+                if (e.target.closest('input')) return;
+                var row = e.target.closest('.zune-diff-group-header.vs-row');
+                if (!row) return;
+                var idx = parseInt(row.dataset.index, 10);
+                var entry = panel.diffScroller.getEntryAtIndex(idx);
+                if (!entry || entry.type !== 'diffHeader') return;
+                var key = entry.data.key;
+                if (panel.collapsedGroups.has(key)) {
+                    panel.collapsedGroups.delete(key);
+                } else {
+                    panel.collapsedGroups.add(key);
+                }
+                panel._renderDiffList();
+            };
+            listEl.addEventListener('click', this._diffClickHandler);
+        }
+
+        this.diffScroller.setData(entries, { preserveScroll: true });
     }
 
     _renderDiffFlat(listEl, items, showCheckboxes) {
@@ -1776,6 +2048,7 @@ class ZuneSyncPanel {
         // Re-compute diff
         this._computeDiff();
         this._renderDiffSummary();
+        this._destroyDiffScroller();
         this._renderDiffList();
     }
 
@@ -1883,6 +2156,7 @@ class ZuneSyncPanel {
 
         this._computeDiff();
         this._renderDiffSummary();
+        this._destroyDiffScroller();
         this._renderDiffList();
     }
 
@@ -1961,6 +2235,7 @@ class ZuneSyncPanel {
             this._computeDiff();
             this._computeStorageBreakdown();
             this._renderDiffSummary();
+            this._destroyDiffScroller();
             this._renderDiffList();
         }
     }
@@ -3881,6 +4156,7 @@ class ZuneExplorer {
                 this.zunePanel._computeDiff();
                 this.zunePanel._enrichDeviceArt();
                 this.zunePanel._renderDiffSummary();
+                this.zunePanel._destroyDiffScroller();
                 this.zunePanel._renderDiffList();
             }
         });
