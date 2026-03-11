@@ -981,12 +981,12 @@ class ZuneSyncPanel {
 
                     // Album art thumbnail (if available)
                     const browseArt = panel._getBrowseArt(item);
+                    var artImg = null;
                     if (browseArt) {
-                        const artImg = document.createElement('img');
+                        artImg = document.createElement('img');
                         artImg.className = 'zune-browse-art';
                         artImg.src = browseArt;
                         artImg.alt = '';
-                        el.appendChild(artImg);
                     }
 
                     const infoDiv = document.createElement('div');
@@ -1028,6 +1028,7 @@ class ZuneSyncPanel {
                     rightDiv.appendChild(sizeSpan);
 
                     el.appendChild(checkbox);
+                    if (artImg) el.appendChild(artImg);
                     el.appendChild(infoDiv);
                     el.appendChild(rightDiv);
                 },
