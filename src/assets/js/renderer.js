@@ -1733,7 +1733,6 @@ class ZuneSyncPanel {
     async _pullFromDevice() {
         if (this.diffSelectedHandles.size === 0) return;
 
-        // Ask user where to save before clearing selection
         const destResult = await window.electronAPI.pickPullDestination();
         if (!destResult.success) return;
 
@@ -1742,40 +1741,78 @@ class ZuneSyncPanel {
         const destDir = destResult.path;
 
         const pullBtn = document.getElementById('zune-pull-btn');
-        pullBtn.textContent = `copying 0 of ${handles.length}...`;
         pullBtn.disabled = true;
 
+        const BATCH_SIZE = 8;
+        const MAX_RETRIES = 3;
         let pulled = 0;
+        let failedCount = 0;
         const pulledFiles = [];
+        const failedFiles = [];
         const category = this.diffCategory;
         const deviceItems = (this.browseData && this.browseData[category]) || [];
 
-        for (const handle of handles) {
-            const deviceItem = deviceItems.find(i => i.handle === handle);
-            if (!deviceItem) continue;
+        for (let batchStart = 0; batchStart < handles.length; batchStart += BATCH_SIZE) {
+            const batchEnd = Math.min(batchStart + BATCH_SIZE, handles.length);
 
-            const filename = deviceItem.filename || `file_${handle}`;
-            const metadata = category === 'music' ? {
-                title: deviceItem.title || null,
-                artist: deviceItem.artist || null,
-                album: deviceItem.album || null,
-                genre: deviceItem.genre || null,
-                trackNumber: deviceItem.trackNumber || null,
-                albumArt: deviceItem.albumArt || null,
-            } : {};
-            const result = await window.electronAPI.zunePullFile(handle, filename, destDir, metadata);
+            for (let hi = batchStart; hi < batchEnd; hi++) {
+                const handle = handles[hi];
+                const deviceItem = deviceItems.find(i => i.handle === handle);
+                if (!deviceItem) continue;
 
-            if (result.success) {
-                pulled++;
-                pulledFiles.push({ path: result.path, size: result.size || 0 });
-                pullBtn.textContent = `copying ${pulled} of ${handles.length}...`;
+                const filename = deviceItem.filename || ('file_' + handle);
+                const metadata = category === 'music' ? {
+                    title: deviceItem.title || null,
+                    artist: deviceItem.artist || null,
+                    album: deviceItem.album || null,
+                    genre: deviceItem.genre || null,
+                    trackNumber: deviceItem.trackNumber || null,
+                    albumArt: this._getBrowseArt ? this._getBrowseArt(deviceItem) : (deviceItem.albumArt || null),
+                } : {};
+
+                let fileSuccess = false;
+                for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                    try {
+                        const result = await window.electronAPI.zunePullFile(handle, filename, destDir, metadata);
+                        if (result.success) {
+                            pulled++;
+                            pulledFiles.push({ path: result.path, size: result.size || 0 });
+                            fileSuccess = true;
+                            break;
+                        } else {
+                            throw new Error(result.error || 'Pull failed');
+                        }
+                    } catch (err) {
+                        console.log('Pull ' + filename + ' attempt ' + attempt + '/' + MAX_RETRIES + ' failed: ' + err.message);
+                        if (attempt < MAX_RETRIES) {
+                            await new Promise(r => setTimeout(r, 500));
+                        }
+                    }
+                }
+
+                if (!fileSuccess) {
+                    failedCount++;
+                    failedFiles.push(filename);
+                }
+
+                pullBtn.textContent = 'copying ' + (pulled + failedCount) + ' of ' + handles.length + '...';
             }
+
+            // Yield between batches
+            await new Promise(r => setTimeout(r, 0));
         }
 
-        pullBtn.textContent = `${pulled} files copied`;
+        if (failedCount > 0) {
+            pullBtn.textContent = pulled + ' copied, ' + failedCount + ' failed';
+            if (typeof showToast === 'function') {
+                showToast(failedCount + ' file(s) failed to copy: ' + failedFiles.slice(0, 3).join(', ') + (failedCount > 3 ? '...' : ''));
+            }
+        } else {
+            pullBtn.textContent = pulled + ' files copied';
+        }
         pullBtn.disabled = false;
 
-        // Add pulled files to local categorized files
+        // Keep the existing post-pull logic for adding to local files and triggering scan
         if (pulledFiles.length > 0) {
             for (const pf of pulledFiles) {
                 const ext = pf.path.split('.').pop().toLowerCase();
@@ -1788,14 +1825,12 @@ class ZuneSyncPanel {
                     isDirectory: false,
                 });
             }
-            // Trigger metadata scan only for music
             if (category === 'music') {
                 const paths = pulledFiles.map(pf => pf.path);
                 await window.electronAPI.batchScanAudioMetadata(paths, { includeArt: true });
             }
         }
 
-        // Re-compute diff
         this._computeDiff();
         this._renderDiffSummary();
         this._renderDiffList();
