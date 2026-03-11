@@ -6,6 +6,7 @@ class ZuneSyncPanel {
         this.browseActive = false;
         this.browseTab = 'music';
         this.browseData = null;
+        this.browseAlbumArtMap = {};
         this.selectedHandles = new Set();
         this.deleteConfirmTimer = null;
         this.diffDeleteConfirmTimer = null;
@@ -605,6 +606,11 @@ class ZuneSyncPanel {
             if (cached.success && cached.data) {
                 this.cachedData = cached.data;
                 this.browseData = cached.data.contents;
+                if (cached.data.contents.albumArtMap) {
+                    this.browseAlbumArtMap = cached.data.contents.albumArtMap;
+                } else {
+                    this.browseAlbumArtMap = {};
+                }
                 this._computeStorageBreakdown();
                 this._openDiffView();
                 return;
@@ -689,6 +695,7 @@ class ZuneSyncPanel {
             }
             // Keep browse data updated for progressive rendering
             this.browseData = data.contents;
+            this.browseAlbumArtMap = data.albumArtMap || this.browseAlbumArtMap || {};
         });
 
         const result = await window.electronAPI.zuneBrowseContents();
@@ -697,6 +704,7 @@ class ZuneSyncPanel {
 
         if (result.success) {
             this.browseData = result.contents;
+            this.browseAlbumArtMap = result.contents.albumArtMap || {};
 
             // Save to cache
             if (this.deviceKey) {
@@ -774,6 +782,14 @@ class ZuneSyncPanel {
         this._renderDiffList();
     }
 
+    _getBrowseArt(item) {
+        if (item.albumArt) return item.albumArt;  // backwards compat with old cache
+        if (item.albumArtKey && this.browseAlbumArtMap) {
+            return this.browseAlbumArtMap[item.albumArtKey] || null;
+        }
+        return null;
+    }
+
     _enrichDeviceArt() {
         if (!this.diffResult) return;
         if (this.diffCategory !== 'music') return;
@@ -786,7 +802,7 @@ class ZuneSyncPanel {
             }
         }
         for (const item of this.diffResult.deviceOnly) {
-            if (item.albumArt) continue;
+            if (this._getBrowseArt(item)) continue;
             const albumName = (item.album || '').toLowerCase().trim();
             if (albumName && artByAlbum.has(albumName)) {
                 item.albumArt = artByAlbum.get(albumName);
@@ -821,6 +837,7 @@ class ZuneSyncPanel {
         }
         this.cachedData = null;
         this.browseData = null;
+        this.browseAlbumArtMap = {};
         this.diffActive = false;
         document.getElementById('zune-diff-view').style.display = 'none';
         this._startFirstTimeScan();
@@ -908,10 +925,11 @@ class ZuneSyncPanel {
             checkbox.checked = this.selectedHandles.has(item.handle);
 
             // Album art thumbnail (if available)
-            if (item.albumArt) {
+            const browseArt = this._getBrowseArt(item);
+            if (browseArt) {
                 const artImg = document.createElement('img');
                 artImg.className = 'zune-browse-art';
-                artImg.src = item.albumArt;
+                artImg.src = browseArt;
                 artImg.alt = '';
                 label.appendChild(artImg);
             }
@@ -1312,11 +1330,11 @@ class ZuneSyncPanel {
                 if (groupBy === 'album') {
                     name = loc.album || dev.album || 'Unknown Album';
                     artist = loc.artist || dev.artist || '';
-                    albumArt = loc.albumArt || dev.albumArt || null;
+                    albumArt = loc.albumArt || this._getBrowseArt(dev) || null;
                     key = name.toLowerCase();
                 } else {
                     name = loc.artist || dev.artist || 'Unknown Artist';
-                    albumArt = loc.albumArt || dev.albumArt || null;
+                    albumArt = loc.albumArt || this._getBrowseArt(dev) || null;
                     key = name.toLowerCase();
                     artist = '';
                 }
@@ -1324,11 +1342,11 @@ class ZuneSyncPanel {
                 if (groupBy === 'album') {
                     name = item.album || 'Unknown Album';
                     artist = item.artist || '';
-                    albumArt = item.albumArt || null;
+                    albumArt = this._getBrowseArt(item) || null;
                     key = name.toLowerCase();
                 } else {
                     name = item.artist || 'Unknown Artist';
-                    albumArt = item.albumArt || null;
+                    albumArt = this._getBrowseArt(item) || null;
                     key = name.toLowerCase();
                     artist = '';
                 }
@@ -1460,8 +1478,8 @@ class ZuneSyncPanel {
 
         // Album art
         const art = this.diffTab === 'matched'
-            ? (item.local?.albumArt || item.device?.albumArt)
-            : (item.albumArt || null);
+            ? (item.local?.albumArt || (item.device ? this._getBrowseArt(item.device) : null))
+            : (this._getBrowseArt(item) || null);
         if (art) {
             const artImg = document.createElement('img');
             artImg.className = 'zune-diff-art';
@@ -1767,7 +1785,7 @@ class ZuneSyncPanel {
                     album: deviceItem.album || null,
                     genre: deviceItem.genre || null,
                     trackNumber: deviceItem.trackNumber || null,
-                    albumArt: this._getBrowseArt ? this._getBrowseArt(deviceItem) : (deviceItem.albumArt || null),
+                    albumArt: this._getBrowseArt(deviceItem),
                 } : {};
 
                 let fileSuccess = false;

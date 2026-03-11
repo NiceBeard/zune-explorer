@@ -840,6 +840,7 @@ class ZuneManager extends EventEmitter {
       // Probe if ZMDB atom IDs work as MTP handles (fast — one GetObject test)
       await this._probeZMDBHandles(zmdbResult);
 
+      this._deduplicateArt(zmdbResult);
       return zmdbResult;
     }
 
@@ -1272,7 +1273,30 @@ class ZuneManager extends EventEmitter {
     }
 
     console.log(`ZuneManager: [${elapsed()}] browse complete: ${result.music.length} music, ${result.videos.length} videos, ${result.pictures.length} pictures`);
+    this._deduplicateArt(result);
     return result;
+  }
+
+  _deduplicateArt(contents) {
+    const albumArtMap = {};
+    for (const category of ['music', 'videos', 'pictures']) {
+      const items = contents[category] || [];
+      for (const item of items) {
+        if (item.albumArt) {
+          // Use handle as fallback key for items without artist/album (videos, pictures)
+          const artKey = (item.artist && item.album)
+            ? (item.artist.toLowerCase() + '|' + item.album.toLowerCase())
+            : ('_handle_' + item.handle);
+          if (!albumArtMap[artKey]) {
+            albumArtMap[artKey] = item.albumArt;
+          }
+          item.albumArtKey = artKey;
+          delete item.albumArt;
+        }
+      }
+    }
+    contents.albumArtMap = albumArtMap;
+    return contents;
   }
 
   async deleteObjects(handles) {
