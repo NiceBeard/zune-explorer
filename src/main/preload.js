@@ -14,7 +14,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   scanApplications: () => ipcRenderer.invoke('scan-applications'),
   getAudioMetadata: (path) => ipcRenderer.invoke('get-audio-metadata', path),
   batchScanAudioMetadata: (paths, options) => ipcRenderer.invoke('batch-scan-audio-metadata', paths, options),
-  onMusicScanProgress: (callback) => ipcRenderer.on('music-scan-progress', (event, data) => callback(data)),
+  onMusicScanProgress: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('music-scan-progress', handler);
+    return handler;
+  },
+  offMusicScanProgress: (handler) => ipcRenderer.removeListener('music-scan-progress', handler),
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
   windowMaximize: () => ipcRenderer.invoke('window-maximize'),
   windowClose: () => ipcRenderer.invoke('window-close'),
@@ -43,9 +48,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   zuneProbeProperties: (handle) => ipcRenderer.invoke('zune-probe-properties', handle),
   zuneProbeWmdrmpd: () => ipcRenderer.invoke('zune-probe-wmdrmpd'),
   zuneInstallDriver: () => ipcRenderer.invoke('zune-install-driver'),
-  onZuneStatus: (callback) => ipcRenderer.on('zune-status', (event, status) => callback(status)),
-  onZuneTransferProgress: (callback) => ipcRenderer.on('zune-transfer-progress', (event, progress) => callback(progress)),
-  onZuneBrowseProgress: (callback) => ipcRenderer.on('zune-browse-progress', (event, data) => callback(data)),
+  onZuneStatus: (callback) => {
+    const handler = (_event, status) => callback(status);
+    ipcRenderer.on('zune-status', handler);
+    return handler;
+  },
+  offZuneStatus: (handler) => ipcRenderer.removeListener('zune-status', handler),
+  onZuneTransferProgress: (callback) => {
+    const handler = (_event, progress) => callback(progress);
+    ipcRenderer.on('zune-transfer-progress', handler);
+    return handler;
+  },
+  offZuneTransferProgress: (handler) => ipcRenderer.removeListener('zune-transfer-progress', handler),
+  onZuneBrowseProgress: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('zune-browse-progress', handler);
+    return handler;
+  },
+  offZuneBrowseProgress: (handler) => ipcRenderer.removeListener('zune-browse-progress', handler),
 
   // Metadata enrichment
   metadataSearch: (album, artist) => ipcRenderer.invoke('metadata-search', album, artist),
