@@ -435,6 +435,75 @@ class PodcastManager {
     this._subscriptions.splice(index, 1);
     this._saveSubscriptions();
   }
+
+  // --- Feed refresh ---
+
+  async refresh(subscriptionId) {
+    const sub = this._subscriptions.find(s => s.id === subscriptionId);
+    if (!sub) throw new Error('Subscription not found');
+
+    try {
+      const xml = await this._fetchUrl(sub.feedUrl);
+      const feed = this._parseFeed(xml);
+
+      // Load existing episodes and build ID set
+      const existingEpisodes = this._loadEpisodes(subscriptionId);
+      const existingIds = new Set(existingEpisodes.map(e => e.id));
+
+      // Find new episodes (not already stored)
+      const newEpisodes = feed.episodes.filter(e => !existingIds.has(e.id));
+
+      // Merge: new episodes first, then existing (preserves playback state)
+      const merged = [...newEpisodes, ...existingEpisodes];
+
+      // Update subscription metadata
+      sub.title = feed.title;
+      sub.author = feed.author;
+      sub.description = feed.description;
+      sub.episodeCount = merged.length;
+      sub.newEpisodeCount = newEpisodes.length;
+      sub.lastRefreshed = new Date().toISOString();
+      sub.error = null;
+
+      // Update artwork if changed
+      if (feed.artworkUrl && feed.artworkUrl !== sub.artworkUrl) {
+        const artworkPath = await this._fetchArtwork(subscriptionId, feed.artworkUrl);
+        if (artworkPath) {
+          sub.artworkUrl = feed.artworkUrl;
+          sub.artworkPath = artworkPath;
+        }
+      }
+
+      this._saveSubscriptions();
+      this._saveEpisodes(subscriptionId, merged);
+
+      return { subscriptionId, newEpisodeCount: newEpisodes.length };
+    } catch (err) {
+      sub.error = err.message;
+      sub.lastRefreshed = new Date().toISOString();
+      this._saveSubscriptions();
+      return { subscriptionId, newEpisodeCount: 0, error: err.message };
+    }
+  }
+
+  async refreshAll(webContents) {
+    const subscriptions = [...this._subscriptions];
+    const batchSize = 5;
+
+    for (let i = 0; i < subscriptions.length; i += batchSize) {
+      const batch = subscriptions.slice(i, i + batchSize);
+      const results = await Promise.allSettled(
+        batch.map(sub => this.refresh(sub.id))
+      );
+
+      // Emit results for each completed refresh
+      for (const result of results) {
+        if (result.status === 'fulfilled' && webContents && !webContents.isDestroyed()) {
+          webContents.send('podcast-refresh-complete', result.value);
+        }
+      }
+    }
+  }
 }
 
 module.exports = PodcastManager;
