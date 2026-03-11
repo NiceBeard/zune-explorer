@@ -48,31 +48,68 @@ class AudioPlayer {
 
   async play(file, queue) {
     this.queue = queue || [file];
-    this.currentIndex = this.queue.findIndex(f => f.path === file.path);
+    this.currentIndex = this.queue.findIndex(f => (f.id && f.id === file.id) || f.path === file.path);
     if (this.currentIndex === -1) this.currentIndex = 0;
     await this.loadAndPlay(this.queue[this.currentIndex]);
   }
 
   async loadAndPlay(file) {
     try {
-      const metadata = await window.electronAPI.getAudioMetadata(file.path);
-      this.currentMetadata = metadata;
-      this.audio.src = 'file://' + file.path.split('/').map(encodeURIComponent).join('/');
+      if (file.isPodcast) {
+        // Podcast episode — metadata is inline, no IPC needed
+        this.currentMetadata = {
+          title: file.title,
+          artist: file.podcastName,
+          album: file.podcastName,
+          picture: file.artworkPath ? [{ data: file.artworkPath, format: 'path' }] : null,
+          duration: file.duration,
+        };
+        // Use local file if downloaded, otherwise stream from URL
+        if (file.localPath) {
+          this.audio.src = 'file://' + file.localPath.split('/').map(encodeURIComponent).join('/');
+        } else {
+          this.audio.src = file.enclosureUrl;
+        }
+        // Resume from saved position — must wait for media to load
+        if (file.playbackPosition && file.playbackPosition > 0) {
+          const resumePos = file.playbackPosition;
+          await new Promise((resolve) => {
+            const onLoaded = () => {
+              this.audio.currentTime = resumePos;
+              this.audio.removeEventListener('loadedmetadata', onLoaded);
+              resolve();
+            };
+            this.audio.addEventListener('loadedmetadata', onLoaded);
+          });
+        }
+      } else {
+        // Music track — existing behavior
+        const metadata = await window.electronAPI.getAudioMetadata(file.path);
+        this.currentMetadata = metadata;
+        this.audio.src = 'file://' + file.path.split('/').map(encodeURIComponent).join('/');
+      }
       await this.audio.play();
       this.isPlaying = true;
-      this.emit('trackchange', { file, metadata, index: this.currentIndex, queue: this.queue });
+      this.emit('trackchange', { file, metadata: this.currentMetadata, index: this.currentIndex, queue: this.queue });
       this.emit('play');
     } catch (error) {
       console.error('Error loading track:', error);
-      const ext = (file.path || '').split('.').pop().toLowerCase();
-      const mediaError = this.audio.error;
       let message;
-      if (mediaError && mediaError.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
-        message = `unable to play .${ext} files on this platform`;
-      } else if (mediaError && mediaError.code === MediaError.MEDIA_ERR_DECODE) {
-        message = `unable to decode .${ext} file`;
+      if (file.isPodcast) {
+        const type = file.enclosureType || 'audio';
+        message = file.localPath
+          ? `unable to play downloaded episode`
+          : `unable to stream episode (${type})`;
       } else {
-        message = `unable to play: ${file.name || file.title || ext}`;
+        const ext = (file.path || '').split('.').pop().toLowerCase();
+        const mediaError = this.audio.error;
+        if (mediaError && mediaError.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+          message = `unable to play .${ext} files on this platform`;
+        } else if (mediaError && mediaError.code === MediaError.MEDIA_ERR_DECODE) {
+          message = `unable to decode .${ext} file`;
+        } else {
+          message = `unable to play: ${file.name || file.title || ext}`;
+        }
       }
       this.isPlaying = false;
       this.emit('playbackerror', { file, message });
