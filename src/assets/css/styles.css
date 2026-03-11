@@ -1773,6 +1773,7 @@ body.platform-linux .now-playing-panel {
     max-height: calc(100vh - 320px);
     scrollbar-width: thin;
     scrollbar-color: #333 transparent;
+    position: relative;
 }
 
 .zune-browse-list::-webkit-scrollbar {
@@ -2046,6 +2047,7 @@ body.platform-linux .now-playing-panel {
     max-height: 300px;
     scrollbar-width: thin;
     scrollbar-color: #333 transparent;
+    position: relative;
 }
 
 .zune-sync-panel.expanded .zune-diff-list {
@@ -2658,13 +2660,62 @@ body.platform-linux .now-playing-panel {
     color: var(--zune-orange);
 }
 
-/* Songs List */
-.music-songs-list {
+/* Songs View Wrapper */
+.songs-view-wrapper {
+    display: flex;
+    max-height: calc(100vh - 280px);
+}
+
+/* Alpha Rail */
+.alpha-rail {
     display: flex;
     flex-direction: column;
+    justify-content: center;
+    padding: 4px 0;
+    width: 28px;
+    flex-shrink: 0;
+    margin-left: -18px;
+}
+
+.alpha-rail-letter {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    padding: 1px 0;
+    cursor: pointer;
+    text-align: center;
+    line-height: 1.4;
+    transition: color 0.15s;
+}
+
+.alpha-rail-letter:hover {
+    color: var(--zune-orange);
+}
+
+.alpha-rail-letter.inactive {
+    color: rgba(255, 255, 255, 0.25);
+    cursor: default;
+}
+
+/* Songs List */
+.music-songs-list {
     overflow-y: auto;
-    flex: 1;
     position: relative;
+    flex: 1;
+    scrollbar-width: thin;
+    scrollbar-color: #333 transparent;
+}
+
+.music-songs-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.music-songs-list::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 2px;
 }
 
 .music-song-row.vs-row {
@@ -2673,6 +2724,12 @@ body.platform-linux .now-playing-panel {
     justify-content: space-between;
     padding: 12px 8px;
     cursor: pointer;
+    min-height: 48px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.music-song-row.vs-row:hover {
+    background: rgba(255, 105, 0, 0.08);
 }
 
 .music-letter-row.vs-row {
@@ -2681,6 +2738,12 @@ body.platform-linux .now-playing-panel {
     color: var(--zune-text-dim);
     padding: 16px 4px 8px;
     cursor: pointer;
+    min-height: 64px;
+    text-transform: lowercase;
+}
+
+.music-letter-row.vs-row:hover {
+    color: var(--zune-orange);
 }
 
 .music-song-row {

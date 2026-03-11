@@ -4201,6 +4201,43 @@ class ZuneExplorer {
         container.appendChild(grid);
     }
 
+    _buildAlphaRail(letterMap) {
+        const rail = document.createElement('div');
+        rail.className = 'alpha-rail';
+        const allLetters = '#abcdefghijklmnopqrstuvwxyz'.split('');
+        for (const letter of allLetters) {
+            const btn = document.createElement('button');
+            btn.className = 'alpha-rail-letter';
+            btn.textContent = letter;
+            btn.dataset.letter = letter;
+            if (!letterMap || !(letter in letterMap)) {
+                btn.classList.add('inactive');
+            }
+            rail.appendChild(btn);
+        }
+
+        rail.addEventListener('click', (e) => {
+            const btn = e.target.closest('.alpha-rail-letter');
+            if (!btn || btn.classList.contains('inactive')) return;
+            const letter = btn.dataset.letter;
+            if (this.songsLetterMap && letter in this.songsLetterMap) {
+                this.songsScroller.scrollToOffset(this.songsLetterMap[letter]);
+            }
+        });
+
+        return rail;
+    }
+
+    _updateAlphaRail(container) {
+        const rail = container.querySelector('.alpha-rail');
+        if (!rail) return;
+        const letterMap = this.songsLetterMap || {};
+        rail.querySelectorAll('.alpha-rail-letter').forEach(btn => {
+            const letter = btn.dataset.letter;
+            btn.classList.toggle('inactive', !(letter in letterMap));
+        });
+    }
+
     renderMusicSongsView(container) {
         const songs = this.musicLibrary.sortedSongs;
 
@@ -4228,6 +4265,7 @@ class ZuneExplorer {
         if (this.songsScroller && container.querySelector('.music-songs-list')) {
             this.songsScroller.setData(entries, { preserveScroll: true });
             this.songsLetterMap = this.songsScroller.buildLetterPositionMap();
+            this._updateAlphaRail(container);
             return;
         }
 
@@ -4235,9 +4273,12 @@ class ZuneExplorer {
         this.clearElement(container);
         if (this.songsScroller) { this.songsScroller.destroy(); this.songsScroller = null; }
 
+        // Wrapper: alpha rail on left, songs list on right
+        const wrapper = document.createElement('div');
+        wrapper.className = 'songs-view-wrapper';
+
         const list = document.createElement('div');
         list.className = 'music-songs-list';
-        container.appendChild(list);
 
         const self = this;
         this.songsScroller = new VirtualScroller({
@@ -4324,6 +4365,12 @@ class ZuneExplorer {
 
         this.songsScroller.setData(entries);
         this.songsLetterMap = this.songsScroller.buildLetterPositionMap();
+
+        // Build alpha rail after letter map is ready
+        const rail = this._buildAlphaRail(this.songsLetterMap);
+        wrapper.appendChild(rail);
+        wrapper.appendChild(list);
+        container.appendChild(wrapper);
     }
 
     renderMusicArtistsView(container) {
@@ -5887,5 +5934,5 @@ class ZuneExplorer {
 
 // Initialize the Zune Explorer when the DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    new ZuneExplorer();
+    window.__zuneExplorer = new ZuneExplorer();
 });

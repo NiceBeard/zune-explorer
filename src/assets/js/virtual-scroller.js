@@ -45,7 +45,9 @@ class VirtualScroller {
         this._container.appendChild(this._spacer);
 
         this._rowContainer = document.createElement('div');
-        this._rowContainer.style.position = 'relative';
+        this._rowContainer.style.position = 'absolute';
+        this._rowContainer.style.top = '0';
+        this._rowContainer.style.left = '0';
         this._rowContainer.style.width = '100%';
         this._container.appendChild(this._rowContainer);
 
