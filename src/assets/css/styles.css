@@ -3551,3 +3551,14 @@ body.platform-linux .now-playing-panel {
 .playlist-track-missing .playlist-track-title {
     text-decoration: line-through;
 }
+
+/* ==============================
+   Virtual Scroller
+   ============================== */
+.vs-spacer {
+    width: 100%;
+}
+.vs-row {
+    box-sizing: border-box;
+    overflow: hidden;
+}
