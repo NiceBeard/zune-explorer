@@ -28,6 +28,8 @@ class ZuneSyncPanel {
         this.lastStatus = null;
         this.deviceModel = null;
         this.storageBreakdown = null;
+        this.browseScroller = null;       // VirtualScroller for browse list
+        this._browseChangeHandler = null; // event delegation handler for browse checkboxes
 
         this.panel = document.getElementById('zune-sync-panel');
         this.toggleBtn = document.getElementById('zune-toggle-btn');
@@ -142,6 +144,8 @@ class ZuneSyncPanel {
         document.querySelectorAll('.zune-browse-tab').forEach(tab => {
             tab.addEventListener('click', () => {
                 this.browseTab = tab.dataset.tab;
+                this.selectedHandles.clear();
+                this._destroyBrowseScroller();
                 document.querySelectorAll('.zune-browse-tab').forEach(t => t.classList.remove('active'));
                 tab.classList.add('active');
                 this._renderBrowseList();
@@ -311,8 +315,8 @@ class ZuneSyncPanel {
         if (this.diffDeleteConfirmTimer) { clearTimeout(this.diffDeleteConfirmTimer); this.diffDeleteConfirmTimer = null; }
         if (this._diffFilterTimer) { clearTimeout(this._diffFilterTimer); this._diffFilterTimer = null; }
 
-        // Destroy virtual scrollers (if they exist from Tasks 3-4)
-        if (this.browseScroller) { this.browseScroller.destroy(); this.browseScroller = null; }
+        // Destroy virtual scrollers
+        this._destroyBrowseScroller();
         if (this.diffScroller) { this.diffScroller.destroy(); this.diffScroller = null; }
     }
 
@@ -877,6 +881,7 @@ class ZuneSyncPanel {
             clearTimeout(this.deleteConfirmTimer);
             this.deleteConfirmTimer = null;
         }
+        this._destroyBrowseScroller();
 
         document.getElementById('zune-browse-view').style.display = 'none';
         if (this.state === 'connected' && !this.diffActive) {
@@ -884,16 +889,26 @@ class ZuneSyncPanel {
         }
     }
 
+    _destroyBrowseScroller() {
+        if (this.browseScroller) {
+            this.browseScroller.destroy();
+            this.browseScroller = null;
+        }
+        const listEl = document.getElementById('zune-browse-list');
+        if (listEl && this._browseChangeHandler) {
+            listEl.removeEventListener('change', this._browseChangeHandler);
+            this._browseChangeHandler = null;
+        }
+    }
+
     _renderBrowseList() {
         const listEl = document.getElementById('zune-browse-list');
         const actionsEl = document.getElementById('zune-browse-actions');
-
-        // Preserve scroll position across progressive re-renders
-        const savedScroll = listEl.scrollTop;
-
-        listEl.textContent = '';
+        const panel = this;
 
         if (!this.browseData) {
+            this._destroyBrowseScroller();
+            while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
             const emptyDiv = document.createElement('div');
             emptyDiv.className = 'zune-browse-empty';
             emptyDiv.textContent = 'no data';
@@ -905,6 +920,8 @@ class ZuneSyncPanel {
         const items = this.browseData[this.browseTab] || [];
 
         if (items.length === 0) {
+            this._destroyBrowseScroller();
+            while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
             const emptyDiv = document.createElement('div');
             emptyDiv.className = 'zune-browse-empty';
             emptyDiv.textContent = 'no ' + this.browseTab + ' on device';
@@ -913,86 +930,101 @@ class ZuneSyncPanel {
             return;
         }
 
-        for (const item of items) {
-            const label = document.createElement('label');
-            label.className = 'zune-browse-item';
-            label.dataset.handle = String(item.handle);
+        const entries = items.map(item => ({ type: 'browseItem', data: item }));
 
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.className = 'zune-browse-check';
-            checkbox.dataset.handle = String(item.handle);
-            checkbox.checked = this.selectedHandles.has(item.handle);
+        if (!this.browseScroller) {
+            while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
 
-            // Album art thumbnail (if available)
-            const browseArt = this._getBrowseArt(item);
-            if (browseArt) {
-                const artImg = document.createElement('img');
-                artImg.className = 'zune-browse-art';
-                artImg.src = browseArt;
-                artImg.alt = '';
-                label.appendChild(artImg);
-            }
+            this.browseScroller = new VirtualScroller({
+                container: listEl,
+                rowTypes: { browseItem: { height: 52, className: 'zune-browse-item' } },
+                renderRow(el, index, entry) {
+                    // Clear children before populating (row recycling)
+                    while (el.firstChild) el.removeChild(el.firstChild);
 
-            const infoDiv = document.createElement('div');
-            infoDiv.className = 'zune-browse-info';
+                    const item = entry.data;
 
-            // Show title/artist/album if available, otherwise filename
-            const displayTitle = item.title || item.filename;
-            const titleSpan = document.createElement('span');
-            titleSpan.className = 'zune-browse-filename';
-            titleSpan.title = item.filename;
-            titleSpan.textContent = displayTitle;
-            infoDiv.appendChild(titleSpan);
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.className = 'zune-browse-check';
+                    checkbox.checked = panel.selectedHandles.has(item.handle);
 
-            if (item.artist || item.album) {
-                const metaSpan = document.createElement('span');
-                metaSpan.className = 'zune-browse-meta';
-                const parts = [];
-                if (item.artist) parts.push(item.artist);
-                if (item.album) parts.push(item.album);
-                metaSpan.textContent = parts.join(' \u2014 ');
-                infoDiv.appendChild(metaSpan);
-            }
+                    // Album art thumbnail (if available)
+                    const browseArt = panel._getBrowseArt(item);
+                    if (browseArt) {
+                        const artImg = document.createElement('img');
+                        artImg.className = 'zune-browse-art';
+                        artImg.src = browseArt;
+                        artImg.alt = '';
+                        el.appendChild(artImg);
+                    }
 
-            const rightDiv = document.createElement('div');
-            rightDiv.className = 'zune-browse-right';
+                    const infoDiv = document.createElement('div');
+                    infoDiv.className = 'zune-browse-info';
 
-            if (item.duration) {
-                const durSpan = document.createElement('span');
-                durSpan.className = 'zune-browse-duration';
-                const secs = Math.floor(item.duration / 1000);
-                const mins = Math.floor(secs / 60);
-                const remSecs = secs % 60;
-                durSpan.textContent = `${mins}:${String(remSecs).padStart(2, '0')}`;
-                rightDiv.appendChild(durSpan);
-            }
+                    const displayTitle = item.title || item.filename;
+                    const titleSpan = document.createElement('span');
+                    titleSpan.className = 'zune-browse-filename';
+                    titleSpan.title = item.filename;
+                    titleSpan.textContent = displayTitle;
+                    infoDiv.appendChild(titleSpan);
 
-            const sizeSpan = document.createElement('span');
-            sizeSpan.className = 'zune-browse-size';
-            sizeSpan.textContent = this._formatSize(item.size);
-            rightDiv.appendChild(sizeSpan);
+                    if (item.artist || item.album) {
+                        const metaSpan = document.createElement('span');
+                        metaSpan.className = 'zune-browse-meta';
+                        const parts = [];
+                        if (item.artist) parts.push(item.artist);
+                        if (item.album) parts.push(item.album);
+                        metaSpan.textContent = parts.join(' \u2014 ');
+                        infoDiv.appendChild(metaSpan);
+                    }
 
-            label.appendChild(checkbox);
-            label.appendChild(infoDiv);
-            label.appendChild(rightDiv);
-            listEl.appendChild(label);
+                    const rightDiv = document.createElement('div');
+                    rightDiv.className = 'zune-browse-right';
 
-            checkbox.addEventListener('change', () => {
-                const handle = item.handle;
-                if (checkbox.checked) {
-                    this.selectedHandles.add(handle);
-                } else {
-                    this.selectedHandles.delete(handle);
-                }
-                this._updateDeleteButton();
+                    if (item.duration) {
+                        const durSpan = document.createElement('span');
+                        durSpan.className = 'zune-browse-duration';
+                        const secs = Math.floor(item.duration / 1000);
+                        const mins = Math.floor(secs / 60);
+                        const remSecs = secs % 60;
+                        durSpan.textContent = mins + ':' + String(remSecs).padStart(2, '0');
+                        rightDiv.appendChild(durSpan);
+                    }
+
+                    const sizeSpan = document.createElement('span');
+                    sizeSpan.className = 'zune-browse-size';
+                    sizeSpan.textContent = panel._formatSize(item.size);
+                    rightDiv.appendChild(sizeSpan);
+
+                    el.appendChild(checkbox);
+                    el.appendChild(infoDiv);
+                    el.appendChild(rightDiv);
+                },
+                overscan: 15,
             });
+
+            // Event delegation for checkbox changes
+            this._browseChangeHandler = (e) => {
+                if (!e.target.classList.contains('zune-browse-check')) return;
+                const row = e.target.closest('.vs-row');
+                if (!row) return;
+                const idx = parseInt(row.dataset.index, 10);
+                const entry = panel.browseScroller.getEntryAtIndex(idx);
+                if (!entry) return;
+                const handle = entry.data.handle;
+                if (e.target.checked) {
+                    panel.selectedHandles.add(handle);
+                } else {
+                    panel.selectedHandles.delete(handle);
+                }
+                panel._updateDeleteButton();
+            };
+            listEl.addEventListener('change', this._browseChangeHandler);
         }
 
+        this.browseScroller.setData(entries, { preserveScroll: true });
         this._updateDeleteButton();
-
-        // Restore scroll position after progressive re-render
-        listEl.scrollTop = savedScroll;
     }
 
     _updateDeleteButton() {
