@@ -14,7 +14,8 @@ Podcasts sits between pictures and documents in the main navigation:
 
 Adding the new category requires updates to:
 - `this.categories` array in renderer.js — insert `'podcasts'` at index 3
-- Add `podcasts: []` to `this.categorizedFiles` initialization (even though podcasts don't use file scanning, this prevents `undefined` when code accesses `categorizedFiles[currentCategory]`)
+- Add `podcasts: []` to `this.categorizedFiles` initialization (prevents `undefined` when code accesses `categorizedFiles[currentCategory]`)
+- Exclude `'podcasts'` from `updateFileCounts()` (same pattern as `'documents'` exclusion) — PodcastPanel updates `#podcasts-count` directly after fetching subscriptions
 - New `<button class="menu-item">` in `index.html` between pictures and documents, including `<span class="menu-count" id="podcasts-count">0</span>` (shows total subscription count)
 - `selectCategory()` — add `else if (this.currentCategory === 'podcasts')` branch delegating to PodcastPanel. Must appear before the final `else` block (between existing category checks and the fallback `renderCategoryContent()`)
 - Verify any code using hardcoded category indices is updated (documents shifts from 3→4, applications from 4→5)
@@ -64,12 +65,13 @@ Episodes play through the existing AudioPlayer class and now playing bar, with m
   - Podcast episodes are identified by an `isPodcast: true` property on the queue entry
   - When `isPodcast` is true: skip `getAudioMetadata()` IPC call (metadata already inline), set `audio.src` to `localPath` (if downloaded) or `enclosureUrl` (if streaming) — no `file://` prefix needed for remote URLs
   - Emit `trackchange` with podcast-specific metadata: episode title as track title, podcast name as artist, podcast artwork path
+  - Error handler: for podcast entries, use `enclosureType` (e.g., `audio/mpeg`) for format identification instead of extracting extension from the URL (URLs may have query strings)
   - Queue identity matching: use `episode.id` instead of `file.path` for podcast entries. Both `play(file, queue)` and `loadAndPlay(file)` must check `id` before `path`: `this.queue.findIndex(f => (f.id && f.id === file.id) || f.path === file.path)`
 - **Mixed queues**: Podcast episodes and music tracks can coexist in the Now Playing queue. `next()` and `previous()` call `loadAndPlay()` which handles both types via the `isPodcast` branch.
 - **Podcast queue entry shape**: `{ isPodcast: true, id, title, podcastName, artworkPath, duration, enclosureUrl, localPath, subscriptionId, playbackPosition }`
 - **Now playing bar**: Displays podcast episode info naturally — episode title, podcast name, artwork. No UI changes needed beyond what `trackchange` already provides.
 - **Playback position**: Saved per-episode on `pause` and `timeupdate`. PodcastPanel's `timeupdate` listener implements its own 15-second throttle (timestamp check) — AudioPlayer's emission frequency is unchanged so the existing progress bar UI is unaffected. Each position save via IPC also updates the main process's "last known" podcast playback state, so on `before-quit` the main process already has a recent position and can persist it without needing to query the renderer.
-- **Episode ended**: When a podcast episode reaches the `ended` event, PodcastPanel marks it as played via `podcast-mark-played` IPC and resets `playbackPosition` to 0. AudioPlayer's existing `next()` behavior advances to the next queue item.
+- **Episode ended**: PodcastPanel detects episode completion via AudioPlayer's `trackchange` event (which fires when `next()` advances to a different track after an episode ends). This naturally excludes repeat-one scenarios where the same track restarts. On detection, PodcastPanel marks the previous episode as played via `podcast-mark-played` IPC and resets its `playbackPosition` to 0.
 - **Episode object for playback** includes `subscriptionId` so position saves can locate the correct episode file.
 - Podcast episodes can be added to Now Playing queue via context menu.
 
