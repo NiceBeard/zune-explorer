@@ -561,6 +561,187 @@ class PodcastPanel {
     this.explorer.showToast('Added to Now Playing');
   }
 
+  // ========================================
+  // Add / Subscribe Modal
+  // ========================================
+
+  _showAddModal() {
+    // Create modal overlay
+    const overlay = document.createElement('div');
+    overlay.className = 'zune-prompt-overlay';
+    overlay.style.display = 'flex';
+
+    const box = document.createElement('div');
+    box.className = 'zune-prompt-box podcast-add-modal';
+
+    let boxHtml = '<div class="podcast-add-tabs">';
+    boxHtml += '<span class="podcast-add-tab active" data-mode="search">search</span>';
+    boxHtml += '<span class="podcast-add-tab" data-mode="rss">rss url</span>';
+    boxHtml += '<span class="podcast-add-tab" data-mode="opml">import opml</span>';
+    boxHtml += '</div>';
+    boxHtml += '<div class="podcast-add-body">';
+    boxHtml += '<div class="podcast-add-search active" data-panel="search">';
+    boxHtml += '<input type="text" class="zune-prompt-input" placeholder="search for podcasts..." id="podcast-search-input">';
+    boxHtml += '<div class="podcast-search-results" id="podcast-search-results"></div>';
+    boxHtml += '</div>';
+    boxHtml += '<div class="podcast-add-search" data-panel="rss" style="display:none">';
+    boxHtml += '<input type="text" class="zune-prompt-input" placeholder="paste RSS feed URL..." id="podcast-rss-input">';
+    boxHtml += '<div class="podcast-add-actions">';
+    boxHtml += '<button class="zune-prompt-btn" id="podcast-rss-submit">subscribe</button>';
+    boxHtml += '</div>';
+    boxHtml += '</div>';
+    boxHtml += '<div class="podcast-add-search" data-panel="opml" style="display:none">';
+    boxHtml += '<p class="podcast-opml-hint">Import subscriptions from an OPML file exported from another podcast app.</p>';
+    boxHtml += '<button class="zune-prompt-btn" id="podcast-opml-pick">choose file...</button>';
+    boxHtml += '<div class="podcast-opml-progress" id="podcast-opml-progress" style="display:none"></div>';
+    boxHtml += '</div>';
+    boxHtml += '</div>';
+
+    box.innerHTML = boxHtml;
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    // Close on click outside
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) { overlay.remove(); }
+    });
+
+    // Tab switching
+    box.querySelectorAll('.podcast-add-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        box.querySelectorAll('.podcast-add-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        box.querySelectorAll('[data-panel]').forEach(p => { p.style.display = 'none'; });
+        var panel = box.querySelector('[data-panel="' + tab.dataset.mode + '"]');
+        if (panel) panel.style.display = '';
+      });
+    });
+
+    // Search with debounce
+    var searchTimeout;
+    const searchInput = box.querySelector('#podcast-search-input');
+    const resultsDiv = box.querySelector('#podcast-search-results');
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => this._doSearch(searchInput.value, resultsDiv, overlay), 500);
+    });
+    searchInput.focus();
+
+    // RSS subscribe
+    const rssInput = box.querySelector('#podcast-rss-input');
+    const rssSubmit = box.querySelector('#podcast-rss-submit');
+    rssSubmit.addEventListener('click', async () => {
+      const url = rssInput.value.trim();
+      if (!url) return;
+      try {
+        await window.electronAPI.podcastSubscribe(url);
+        overlay.remove();
+        this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
+        this._updateCount();
+        this.render();
+        this.explorer.showToast('Subscribed!');
+      } catch (e) {
+        this.explorer.showToast(e.message || "Couldn't subscribe");
+      }
+    });
+    rssInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') rssSubmit.click();
+    });
+
+    // OPML import
+    box.querySelector('#podcast-opml-pick').addEventListener('click', async () => {
+      const filePath = await window.electronAPI.podcastPickOpmlFile();
+      if (!filePath) return;
+      const progressDiv = box.querySelector('#podcast-opml-progress');
+      progressDiv.style.display = '';
+      progressDiv.textContent = 'Importing...';
+
+      const progressHandler = window.electronAPI.onPodcastImportProgress((data) => {
+        progressDiv.textContent = 'Importing ' + data.current + ' of ' + data.total + '...';
+      });
+
+      try {
+        const result = await window.electronAPI.podcastImportOpml(filePath);
+        window.electronAPI.offPodcastImportProgress(progressHandler);
+        overlay.remove();
+        this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
+        this._updateCount();
+        this.render();
+        this.explorer.showToast('Imported ' + result.imported + ' podcasts');
+      } catch (e) {
+        window.electronAPI.offPodcastImportProgress(progressHandler);
+        progressDiv.textContent = 'Import failed: ' + e.message;
+      }
+    });
+
+    // Escape to close
+    const escHandler = (e) => {
+      if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); }
+    };
+    document.addEventListener('keydown', escHandler);
+  }
+
+  async _doSearch(query, resultsDiv, overlay) {
+    if (!query || query.length < 2) {
+      resultsDiv.innerHTML = '';
+      return;
+    }
+    resultsDiv.innerHTML = '<div class="podcast-search-loading">Searching...</div>';
+
+    try {
+      const results = await window.electronAPI.podcastSearch(query);
+      if (results.length === 0) {
+        resultsDiv.innerHTML = '<div class="podcast-search-empty">No results found</div>';
+        return;
+      }
+
+      resultsDiv.innerHTML = '';
+      for (const r of results) {
+        const resultEl = document.createElement('div');
+        resultEl.className = 'podcast-search-result';
+
+        const artHtml = r.artworkBase64
+          ? '<img src="' + r.artworkBase64 + '" class="podcast-search-art">'
+          : '<div class="podcast-art-placeholder small">&#127911;</div>';
+
+        const alreadySubbed = this.subscriptions.some(s => s.feedUrl === r.feedUrl);
+
+        let resultHtml = artHtml;
+        resultHtml += '<div class="podcast-search-info">';
+        resultHtml += '<div class="podcast-search-title">' + this._escapeHtml(r.trackName) + '</div>';
+        resultHtml += '<div class="podcast-search-author">' + this._escapeHtml(r.artistName) + '</div>';
+        resultHtml += '</div>';
+        resultHtml += '<button class="zune-prompt-btn podcast-subscribe-btn"' + (alreadySubbed ? ' disabled' : '') + '>';
+        resultHtml += alreadySubbed ? 'subscribed' : 'subscribe';
+        resultHtml += '</button>';
+
+        resultEl.innerHTML = resultHtml;
+
+        if (!alreadySubbed) {
+          resultEl.querySelector('.podcast-subscribe-btn').addEventListener('click', async () => {
+            const btn = resultEl.querySelector('.podcast-subscribe-btn');
+            btn.disabled = true;
+            btn.textContent = '...';
+            try {
+              await window.electronAPI.podcastSubscribe(r.feedUrl);
+              btn.textContent = 'subscribed';
+              this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
+              this._updateCount();
+            } catch (e) {
+              btn.disabled = false;
+              btn.textContent = 'subscribe';
+              this.explorer.showToast(e.message || "Couldn't subscribe");
+            }
+          });
+        }
+
+        resultsDiv.appendChild(resultEl);
+      }
+    } catch (e) {
+      resultsDiv.innerHTML = '<div class="podcast-search-empty">Search failed: ' + this._escapeHtml(e.message) + '</div>';
+    }
+  }
+
   _escapeHtml(str) {
     if (!str) return '';
     const div = document.createElement('div');
