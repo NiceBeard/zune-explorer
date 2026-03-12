@@ -186,13 +186,16 @@ class PodcastPanel {
     html += '<div class="hero-header">podcasts</div>';
     html += '<div class="podcast-content" style="position: relative; z-index: 1; margin-top: 130px;">';
 
-    // Header with back button
+    // Header with back button and artwork
     html += '<div class="podcast-episode-header">';
     html += '<svg class="podcast-back-btn" width="48" height="48" viewBox="0 0 48 48" fill="none">';
     html += '<circle cx="24" cy="24" r="22" stroke="rgba(255,255,255,0.6)" stroke-width="2.5"/>';
     html += '<path d="M27 14L17 24L27 34" stroke="rgba(255,255,255,0.8)" stroke-width="4" stroke-linecap="square" stroke-linejoin="miter"/>';
     html += '<line x1="18" y1="24" x2="33" y2="24" stroke="rgba(255,255,255,0.8)" stroke-width="4"/>';
     html += '</svg>';
+    if (sub.artworkPath) {
+      html += '<img class="podcast-episode-art" src="file://' + this.explorer.userDataPath + '/podcasts/' + sub.artworkPath + '">';
+    }
     html += '<div class="podcast-episode-header-info">';
     html += '<div class="podcast-episode-title">' + this._escapeHtml(sub.title) + '</div>';
     html += '<div class="podcast-episode-meta">' + this._escapeHtml(sub.author) + ' &middot; ' + this.episodes.length + ' episodes &middot; <span class="podcast-action-link podcast-refresh-single">&#x21bb; refresh</span></div>';
@@ -240,7 +243,7 @@ class PodcastPanel {
     this._episodeScroller = new VirtualScroller({
       container: listEl,
       rowTypes: {
-        episode: { height: 64, className: 'podcast-ep-row' },
+        episode: { height: 72, className: 'podcast-ep-row' },
       },
       renderRow: function(el, index, entry) {
         while (el.firstChild) el.removeChild(el.firstChild);
@@ -603,9 +606,14 @@ class PodcastPanel {
     overlay.appendChild(box);
     document.body.appendChild(overlay);
 
-    // Close on click outside
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) { overlay.remove(); }
+    // Close on click outside — refresh list in case subscriptions were added
+    overlay.addEventListener('click', async (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+        this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
+        this._updateCount();
+        this.render();
+      }
     });
 
     // Tab switching
@@ -677,8 +685,14 @@ class PodcastPanel {
     });
 
     // Escape to close
-    const escHandler = (e) => {
-      if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); }
+    const escHandler = async (e) => {
+      if (e.key === 'Escape') {
+        overlay.remove();
+        document.removeEventListener('keydown', escHandler);
+        this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
+        this._updateCount();
+        this.render();
+      }
     };
     document.addEventListener('keydown', escHandler);
   }

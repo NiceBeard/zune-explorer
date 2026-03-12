@@ -3829,6 +3829,14 @@ body.platform-linux .now-playing-panel {
   stroke: rgba(255, 255, 255, 0.9);
 }
 
+.podcast-episode-art {
+  width: 72px;
+  height: 72px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
 .podcast-episode-header-info {
   min-width: 0;
 }
@@ -3849,13 +3857,32 @@ body.platform-linux .now-playing-panel {
   min-height: 300px;
   max-height: calc(100vh - 320px);
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+.podcast-episode-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.podcast-episode-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.podcast-episode-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.podcast-episode-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 /* Episode rows */
 .podcast-ep-row {
   display: flex;
   align-items: center;
-  padding: 12px 16px;
+  padding: 14px 16px;
   gap: 16px;
   cursor: default;
 }
@@ -3910,7 +3937,7 @@ body.platform-linux .now-playing-panel {
 .podcast-ep-meta {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.35);
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
 .podcast-ep-remaining {
