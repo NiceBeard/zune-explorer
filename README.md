@@ -14,10 +14,13 @@ Built with Electron. Runs on macOS, Windows, and Linux.
 - **Built-in music player** with album art display and unsupported format notifications
 - **Playlists** — create, edit, and reorder playlists from anywhere in the music section. Individual JSON files per playlist with drag-to-reorder and play all
 - **Now Playing** — persistent queue that survives app restarts. Click a song to replace the queue, "Add to Now Playing" to append. Accessible from the Playlists tab
+- **Podcasts** — search, subscribe, stream, and download podcasts. iTunes search, direct RSS, and OPML import. Episode playback with position resume, download management, and audio/video sub-tabs
 - **Pins** — pin any navigable item (file, folder, album, artist, genre, playlist) to the left sidebar. Right-click to pin/unpin. Pinned albums and artists show album art
+- **Unified back navigation** — the back button steps through your history one page at a time, just like the Zune HD. Works across all categories including circular music navigation (album → artist → album)
 - **Deep folder scanning** — recurses through your entire music/videos/pictures directory tree, no matter how nested
 - **Symlink support** — follows symlinks to external drives and network volumes
-- Files automatically organized into **music**, **videos**, **pictures**, **documents**, and **applications**
+- **Zune HD-style menu** with subcategory labels under each category, matching the real device
+- Files automatically organized into **music**, **videos**, **pictures**, **podcasts**, **documents**, and **applications**
 - Browsable file system in the documents category with smart root directories
 - **External drive discovery** — mounted volumes and drives appear in the documents root view
 - **Left sidebar** with pinned section above recent files, both with muted white Zune HD-style headers
@@ -159,7 +162,8 @@ src/main/zune/
 
 src/main/
 ├── musicbrainz.js      # MusicBrainz / Cover Art Archive API client
-└── metadata-cache.js   # Persistent metadata cache (album art, year, genre)
+├── metadata-cache.js   # Persistent metadata cache (album art, year, genre)
+└── podcast-manager.js  # RSS/Atom parsing, iTunes search, OPML import, downloads
 ```
 
 ### Push-to-Device Pipeline
