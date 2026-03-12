@@ -3882,9 +3882,11 @@ body.platform-linux .now-playing-panel {
 .podcast-ep-row {
   display: flex;
   align-items: center;
+  min-height: 56px;
   padding: 14px 16px;
   gap: 16px;
   cursor: default;
+  box-sizing: border-box;
 }
 
 .podcast-ep-row.even {
@@ -3937,7 +3939,7 @@ body.platform-linux .now-playing-panel {
 .podcast-ep-meta {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.35);
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .podcast-ep-remaining {

@@ -243,7 +243,7 @@ class PodcastPanel {
     this._episodeScroller = new VirtualScroller({
       container: listEl,
       rowTypes: {
-        episode: { height: 72, className: 'podcast-ep-row' },
+        episode: { height: 56, className: 'podcast-ep-row' },
       },
       renderRow: function(el, index, entry) {
         while (el.firstChild) el.removeChild(el.firstChild);
