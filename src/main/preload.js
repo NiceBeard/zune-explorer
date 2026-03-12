@@ -78,22 +78,65 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Drag-and-drop path resolution (sandbox-safe)
   getPathForFile: (file) => webUtils.getPathForFile(file),
 
-  // Podcasts
-  podcastSearch: (query) => ipcRenderer.invoke('podcast-search', query),
-  podcastSubscribe: (feedUrl) => ipcRenderer.invoke('podcast-subscribe', feedUrl),
-  podcastUnsubscribe: (id) => ipcRenderer.invoke('podcast-unsubscribe', id),
-  podcastPickOpmlFile: () => ipcRenderer.invoke('podcast-pick-opml-file'),
-  podcastImportOpml: (filePath) => ipcRenderer.invoke('podcast-import-opml', filePath),
-  podcastRefresh: (subscriptionId) => ipcRenderer.invoke('podcast-refresh', subscriptionId),
-  podcastGetSubscriptions: () => ipcRenderer.invoke('podcast-get-subscriptions'),
-  podcastGetEpisodes: (subscriptionId) => ipcRenderer.invoke('podcast-get-episodes', subscriptionId),
-  podcastDownloadEpisode: (subId, epId) => ipcRenderer.invoke('podcast-download-episode', subId, epId),
+  // Podcasts — unwrap { success, ...data } responses from main process
+  podcastSearch: async (query) => {
+    const r = await ipcRenderer.invoke('podcast-search', query);
+    if (!r.success) throw new Error(r.error);
+    return r.results;
+  },
+  podcastSubscribe: async (feedUrl) => {
+    const r = await ipcRenderer.invoke('podcast-subscribe', feedUrl);
+    if (!r.success) throw new Error(r.error);
+    return r.subscription;
+  },
+  podcastUnsubscribe: async (id) => {
+    const r = await ipcRenderer.invoke('podcast-unsubscribe', id);
+    if (!r.success) throw new Error(r.error);
+  },
+  podcastPickOpmlFile: async () => {
+    const r = await ipcRenderer.invoke('podcast-pick-opml-file');
+    if (r.cancelled) return null;
+    return r.filePath;
+  },
+  podcastImportOpml: async (filePath) => {
+    const r = await ipcRenderer.invoke('podcast-import-opml', filePath);
+    if (!r.success) throw new Error(r.error);
+    return r.count;
+  },
+  podcastRefresh: async (subscriptionId) => {
+    const r = await ipcRenderer.invoke('podcast-refresh', subscriptionId);
+    if (!r.success) throw new Error(r.error);
+    return r.result || r.results;
+  },
+  podcastGetSubscriptions: async () => {
+    const r = await ipcRenderer.invoke('podcast-get-subscriptions');
+    if (!r.success) throw new Error(r.error);
+    return r.subscriptions;
+  },
+  podcastGetEpisodes: async (subscriptionId) => {
+    const r = await ipcRenderer.invoke('podcast-get-episodes', subscriptionId);
+    if (!r.success) throw new Error(r.error);
+    return r.episodes;
+  },
+  podcastDownloadEpisode: async (subId, epId) => {
+    const r = await ipcRenderer.invoke('podcast-download-episode', subId, epId);
+    if (!r.success) throw new Error(r.error);
+    return r.localPath;
+  },
   podcastCancelDownload: (epId) => ipcRenderer.invoke('podcast-cancel-download', epId),
   podcastDeleteDownload: (subId, epId) => ipcRenderer.invoke('podcast-delete-download', subId, epId),
   podcastSavePlaybackPosition: (subId, epId, pos) => ipcRenderer.invoke('podcast-save-playback-position', subId, epId, pos),
   podcastMarkPlayed: (subId, epId, played) => ipcRenderer.invoke('podcast-mark-played', subId, epId, played),
-  podcastGetPreferences: () => ipcRenderer.invoke('podcast-get-preferences'),
-  podcastPickDownloadDirectory: () => ipcRenderer.invoke('podcast-pick-download-directory'),
+  podcastGetPreferences: async () => {
+    const r = await ipcRenderer.invoke('podcast-get-preferences');
+    if (!r.success) throw new Error(r.error);
+    return r.preferences;
+  },
+  podcastPickDownloadDirectory: async () => {
+    const r = await ipcRenderer.invoke('podcast-pick-download-directory');
+    if (!r.success) return null;
+    return r.directory;
+  },
   getUserDataPath: () => ipcRenderer.invoke('get-user-data-path'),
   onPodcastDownloadProgress: (callback) => {
     const handler = (_event, data) => callback(data);

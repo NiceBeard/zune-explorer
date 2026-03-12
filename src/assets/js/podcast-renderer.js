@@ -352,6 +352,7 @@ class PodcastPanel {
         : null,
       duration: episode.duration,
       enclosureUrl: episode.enclosureUrl,
+      enclosureType: episode.enclosureType,
       localPath: episode.localPath,
       subscriptionId: sub.id,
       playbackPosition: episode.playbackPosition || 0,
@@ -553,6 +554,7 @@ class PodcastPanel {
         : null,
       duration: episode.duration,
       enclosureUrl: episode.enclosureUrl,
+      enclosureType: episode.enclosureType,
       localPath: episode.localPath,
       subscriptionId: sub.id,
       playbackPosition: episode.playbackPosition || 0,
@@ -708,8 +710,8 @@ class PodcastPanel {
 
         let resultHtml = artHtml;
         resultHtml += '<div class="podcast-search-info">';
-        resultHtml += '<div class="podcast-search-title">' + this._escapeHtml(r.trackName) + '</div>';
-        resultHtml += '<div class="podcast-search-author">' + this._escapeHtml(r.artistName) + '</div>';
+        resultHtml += '<div class="podcast-search-title">' + this._escapeHtml(r.title) + '</div>';
+        resultHtml += '<div class="podcast-search-author">' + this._escapeHtml(r.author) + '</div>';
         resultHtml += '</div>';
         resultHtml += '<button class="zune-prompt-btn podcast-subscribe-btn"' + (alreadySubbed ? ' disabled' : '') + '>';
         resultHtml += alreadySubbed ? 'subscribed' : 'subscribe';

@@ -47,9 +47,17 @@ class PodcastManager {
     fs.writeFileSync(this._subscriptionsPath, JSON.stringify(this._subscriptions, null, 2));
   }
 
+  _episodePath(subscriptionId) {
+    const filePath = path.resolve(this._episodesDir, `${subscriptionId}.json`);
+    if (!filePath.startsWith(this._episodesDir + path.sep)) {
+      throw new Error('Invalid subscription ID');
+    }
+    return filePath;
+  }
+
   _loadEpisodes(subscriptionId) {
     try {
-      const filePath = path.join(this._episodesDir, `${subscriptionId}.json`);
+      const filePath = this._episodePath(subscriptionId);
       const data = fs.readFileSync(filePath, 'utf-8');
       return JSON.parse(data);
     } catch {
@@ -58,7 +66,7 @@ class PodcastManager {
   }
 
   _saveEpisodes(subscriptionId, episodes) {
-    const filePath = path.join(this._episodesDir, `${subscriptionId}.json`);
+    const filePath = this._episodePath(subscriptionId);
     fs.writeFileSync(filePath, JSON.stringify(episodes, null, 2));
   }
 
@@ -342,7 +350,7 @@ class PodcastManager {
 
   // --- Artwork ---
 
-  _fetchArtwork(subscriptionId, url) {
+  _fetchArtwork(subscriptionId, url, _redirectCount = 0) {
     return new Promise((resolve, reject) => {
       if (!url) return resolve(null);
 
@@ -350,9 +358,10 @@ class PodcastManager {
       const req = client.get(url, {
         headers: { 'User-Agent': 'ZuneExplorer/1.4.0' },
       }, (res) => {
-        // Follow redirects
+        // Follow redirects (capped at 5)
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          this._fetchArtwork(subscriptionId, res.headers.location).then(resolve, reject);
+          if (_redirectCount >= 5) return resolve(null);
+          this._fetchArtwork(subscriptionId, res.headers.location, _redirectCount + 1).then(resolve, reject);
           return;
         }
         if (res.statusCode !== 200) {
@@ -554,14 +563,15 @@ class PodcastManager {
     return results.filter(r => r.feedUrl);
   }
 
-  _fetchBinaryUrl(url) {
+  _fetchBinaryUrl(url, _redirectCount = 0) {
     return new Promise((resolve, reject) => {
       const client = url.startsWith('https') ? https : http;
       const req = client.get(url, {
         headers: { 'User-Agent': 'ZuneExplorer/1.4.0' },
       }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          this._fetchBinaryUrl(res.headers.location).then(resolve, reject);
+          if (_redirectCount >= 5) { reject(new Error('Too many redirects')); return; }
+          this._fetchBinaryUrl(res.headers.location, _redirectCount + 1).then(resolve, reject);
           return;
         }
         if (res.statusCode !== 200) {
@@ -678,7 +688,7 @@ class PodcastManager {
     return result.filePaths[0];
   }
 
-  async downloadEpisode(subscriptionId, episodeId, webContents) {
+  async downloadEpisode(subscriptionId, episodeId, webContents, _redirectCount = 0) {
     const sub = this._subscriptions.find(s => s.id === subscriptionId);
     if (!sub) throw new Error('Subscription not found');
 
@@ -746,18 +756,22 @@ class PodcastManager {
       const req = client.get(episode.enclosureUrl, {
         headers: { 'User-Agent': 'ZuneExplorer/1.4.0' },
       }, (res) => {
-        // Follow redirects — destroy outer req cleanly, then re-download
+        // Follow redirects — destroy outer req cleanly, then re-download (capped at 5)
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           res.resume(); // drain the response so the socket is released
           writeStream.close();
           try { fs.unlinkSync(partialPath); } catch { /* ignore */ }
           req.removeAllListeners('error');
+          if (_redirectCount >= 5) {
+            reject(new Error('Too many redirects'));
+            return;
+          }
           const redirectUrl = res.headers.location;
           episode.enclosureUrl = redirectUrl;
           this._saveEpisodes(subscriptionId, this._loadEpisodes(subscriptionId).map(e =>
             e.id === episodeId ? { ...e, enclosureUrl: redirectUrl } : e
           ));
-          this.downloadEpisode(subscriptionId, episodeId, webContents).then(resolve, reject);
+          this.downloadEpisode(subscriptionId, episodeId, webContents, _redirectCount + 1).then(resolve, reject);
           return;
         }
 
@@ -903,6 +917,8 @@ class PodcastManager {
       // (newEpisodeCount tracks newly-added episodes from refresh, not total unplayed)
       if (played && sub.newEpisodeCount > 0) {
         sub.newEpisodeCount--;
+      } else if (!played) {
+        sub.newEpisodeCount++;
       }
       this._saveSubscriptions();
     }
