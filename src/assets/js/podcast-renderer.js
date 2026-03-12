@@ -20,7 +20,7 @@ class PodcastPanel {
 
     // Fetch subscriptions
     this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
-    this._updateCount();
+
 
     if (this.currentSubscription) {
       this._renderEpisodeView(contentPanel);
@@ -33,11 +33,6 @@ class PodcastPanel {
 
     // Auto-refresh if stale (>15 min)
     this._autoRefreshIfStale();
-  }
-
-  _updateCount() {
-    const el = document.getElementById('podcasts-count');
-    if (el) el.textContent = this.subscriptions.length || '';
   }
 
   async _autoRefreshIfStale() {
@@ -454,7 +449,7 @@ class PodcastPanel {
         this.episodes = await window.electronAPI.podcastGetEpisodes(subscriptionId);
         this._renderEpisodeList();
       }
-      this._updateCount();
+  
       this.explorer.showToast('Feed refreshed');
     } catch (e) {
       this.explorer.showToast('Refresh failed: ' + e.message);
@@ -466,7 +461,7 @@ class PodcastPanel {
     try {
       await window.electronAPI.podcastRefresh();
       this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
-      this._updateCount();
+  
       this.render();
       this.explorer.showToast('All feeds refreshed');
     } catch (e) {
@@ -483,7 +478,7 @@ class PodcastPanel {
     if (!confirmed) return;
     await window.electronAPI.podcastUnsubscribe(subscriptionId);
     this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
-    this._updateCount();
+
     if (this.currentSubscription && this.currentSubscription.id === subscriptionId) {
       this.currentSubscription = null;
     }
@@ -528,7 +523,7 @@ class PodcastPanel {
     this._renderEpisodeList();
     // Update subscription count
     this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
-    this._updateCount();
+
   }
 
   _addToNowPlaying(episode) {
@@ -597,7 +592,7 @@ class PodcastPanel {
       if (e.target === overlay) {
         overlay.remove();
         this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
-        this._updateCount();
+    
         this.render();
       }
     });
@@ -633,7 +628,7 @@ class PodcastPanel {
         await window.electronAPI.podcastSubscribe(url);
         overlay.remove();
         this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
-        this._updateCount();
+    
         this.render();
         this.explorer.showToast('Subscribed!');
       } catch (e) {
@@ -661,7 +656,7 @@ class PodcastPanel {
         window.electronAPI.offPodcastImportProgress(progressHandler);
         overlay.remove();
         this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
-        this._updateCount();
+    
         this.render();
         this.explorer.showToast('Imported ' + result.imported + ' podcasts');
       } catch (e) {
@@ -676,7 +671,7 @@ class PodcastPanel {
         overlay.remove();
         document.removeEventListener('keydown', escHandler);
         this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
-        this._updateCount();
+    
         this.render();
       }
     };
@@ -728,7 +723,7 @@ class PodcastPanel {
               await window.electronAPI.podcastSubscribe(r.feedUrl);
               btn.textContent = 'subscribed';
               this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
-              this._updateCount();
+          
             } catch (e) {
               btn.disabled = false;
               btn.textContent = 'subscribe';

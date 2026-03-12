@@ -130,7 +130,7 @@ body {
 }
 
 .panoramic-container.show-sync .menu-text,
-.panoramic-container.show-sync .menu-count {
+.panoramic-container.show-sync .menu-subs {
     color: var(--zune-text-dim);
 }
 
@@ -510,7 +510,7 @@ body {
     color: var(--zune-text-dim);
 }
 
-.panoramic-container.show-recent .menu-count {
+.panoramic-container.show-recent .menu-subs {
     color: var(--zune-text-dim);
 }
 
@@ -535,12 +535,12 @@ body {
     background: none;
     border: none;
     color: var(--zune-text);
-    padding: 20px 40px;
+    padding: 12px 40px 4px;
     cursor: pointer;
     transition: all 0.3s ease;
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
+    align-items: flex-start;
     position: relative;
     overflow: hidden;
     width: 100%;
@@ -584,10 +584,21 @@ body {
     padding-left: 88px;
 }
 
-.menu-count {
-    font-size: 20px;
-    color: var(--zune-text-dim);
-    font-weight: 300;
+.menu-subs {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.3);
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-top: -2px;
+}
+
+.menu-item[data-category="music"] .menu-subs {
+    margin-left: 48px;
+}
+
+.menu-item:hover .menu-subs {
+    color: rgba(255, 105, 0, 0.5);
 }
 
 /* Empty state */

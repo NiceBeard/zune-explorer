@@ -2117,11 +2117,6 @@ class ZuneExplorer {
         this.homePath = await window.electronAPI.getHomeDirectory();
         this.userDataPath = await window.electronAPI.getUserDataPath();
         this.podcastPanel = new PodcastPanel(this);
-        // Load podcast count for menu display
-        try {
-            this.podcastPanel.subscriptions = await window.electronAPI.podcastGetSubscriptions();
-            this.podcastPanel._updateCount();
-        } catch { /* ignore — count will update when user visits podcasts */ }
         const sf = await window.electronAPI.getSpecialFolders();
         if (this.platform === 'win32') {
             this.smartRoots = [
@@ -2160,7 +2155,6 @@ class ZuneExplorer {
         }
         await this.scanFileSystem();
         this.zunePanel = new ZuneSyncPanel(this);
-        this.updateFileCounts();
         await this.loadRecentFiles();
         this.updateRecentFiles();
         await this.loadPins();
@@ -3039,19 +3033,6 @@ class ZuneExplorer {
         if (this.recentFiles.length > 20) {
             this.recentFiles = this.recentFiles.slice(0, 20);
         }
-    }
-
-    updateFileCounts() {
-        this.categories.forEach(category => {
-            const countElement = document.getElementById(`${category}-count`);
-            if (countElement) {
-                if (category === 'documents' || category === 'podcasts') {
-                    countElement.textContent = '';
-                } else {
-                    countElement.textContent = this.categorizedFiles[category].length;
-                }
-            }
-        });
     }
 
     updateRecentFiles() {
@@ -5879,14 +5860,12 @@ class ZuneExplorer {
                         await this.renderDirectoryContents();
                     } else if (this.currentCategory === 'music') {
                         await this.scanFileSystem();
-                        this.updateFileCounts();
                         // Re-scan music library after delete
                         this.musicLibrary.scanState = 'idle';
                         this.musicLibrary.tracks.clear();
                         this.renderMusicView();
                     } else if (this.currentCategory !== 'documents') {
                         await this.scanFileSystem();
-                        this.updateFileCounts();
                         this.renderCategoryContent();
                     }
                     this.updateRecentFiles();
