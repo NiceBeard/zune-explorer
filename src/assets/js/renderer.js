@@ -2117,6 +2117,11 @@ class ZuneExplorer {
         this.homePath = await window.electronAPI.getHomeDirectory();
         this.userDataPath = await window.electronAPI.getUserDataPath();
         this.podcastPanel = new PodcastPanel(this);
+        // Load podcast count for menu display
+        try {
+            this.podcastPanel.subscriptions = await window.electronAPI.podcastGetSubscriptions();
+            this.podcastPanel._updateCount();
+        } catch { /* ignore — count will update when user visits podcasts */ }
         const sf = await window.electronAPI.getSpecialFolders();
         if (this.platform === 'win32') {
             this.smartRoots = [
