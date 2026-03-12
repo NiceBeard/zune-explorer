@@ -172,6 +172,395 @@ class PodcastPanel {
     if (refreshAll) refreshAll.addEventListener('click', () => this._refreshAll());
   }
 
+  // ========================================
+  // Episode Drill-Down
+  // ========================================
+
+  async _renderEpisodeView(container) {
+    const sub = this.currentSubscription;
+    this.episodes = await window.electronAPI.podcastGetEpisodes(sub.id);
+
+    const fileDisplay = document.getElementById('file-display');
+
+    let html = '<div class="podcast-view podcast-episode-view">';
+    html += '<div class="hero-header">podcasts</div>';
+    html += '<div class="podcast-content" style="position: relative; z-index: 1; margin-top: 130px;">';
+
+    // Header with back button
+    html += '<div class="podcast-episode-header">';
+    html += '<svg class="podcast-back-btn" width="48" height="48" viewBox="0 0 48 48" fill="none">';
+    html += '<circle cx="24" cy="24" r="22" stroke="rgba(255,255,255,0.6)" stroke-width="2.5"/>';
+    html += '<path d="M27 14L17 24L27 34" stroke="rgba(255,255,255,0.8)" stroke-width="4" stroke-linecap="square" stroke-linejoin="miter"/>';
+    html += '<line x1="18" y1="24" x2="33" y2="24" stroke="rgba(255,255,255,0.8)" stroke-width="4"/>';
+    html += '</svg>';
+    html += '<div class="podcast-episode-header-info">';
+    html += '<div class="podcast-episode-title">' + this._escapeHtml(sub.title) + '</div>';
+    html += '<div class="podcast-episode-meta">' + this._escapeHtml(sub.author) + ' &middot; ' + this.episodes.length + ' episodes &middot; <span class="podcast-action-link podcast-refresh-single">&#x21bb; refresh</span></div>';
+    html += '</div>';
+    html += '</div>';
+
+    // Episode list container (VirtualScroller will populate)
+    html += '<div class="podcast-episode-list" id="podcast-episode-list"></div>';
+
+    html += '</div></div>';
+    fileDisplay.innerHTML = html;
+
+    // Bind events
+    const backBtn = fileDisplay.querySelector('.podcast-back-btn');
+    if (backBtn) {
+      backBtn.addEventListener('click', () => {
+        this.currentSubscription = null;
+        this.episodes = [];
+        if (this._episodeScroller) { this._episodeScroller.destroy(); this._episodeScroller = null; }
+        this.render();
+      });
+    }
+
+    const refreshSingle = fileDisplay.querySelector('.podcast-refresh-single');
+    if (refreshSingle) {
+      refreshSingle.addEventListener('click', () => {
+        this._refreshSingle(sub.id);
+      });
+    }
+
+    // Render episode list with VirtualScroller
+    this._renderEpisodeList();
+  }
+
+  _renderEpisodeList() {
+    const listEl = document.getElementById('podcast-episode-list');
+    if (!listEl) return;
+
+    if (this._episodeScroller) {
+      this._episodeScroller.destroy();
+      this._episodeScroller = null;
+    }
+
+    const self = this;
+    this._episodeScroller = new VirtualScroller({
+      container: listEl,
+      rowTypes: {
+        episode: { height: 64, className: 'podcast-ep-row' },
+      },
+      renderRow: function(el, index, entry) {
+        while (el.firstChild) el.removeChild(el.firstChild);
+        self._populateEpisodeRow(el, entry.data, index);
+      },
+    });
+
+    const entries = this.episodes.map(ep => ({ type: 'episode', data: ep }));
+    this._episodeScroller.setData(entries);
+  }
+
+  _populateEpisodeRow(row, episode, index) {
+    row.dataset.episodeId = episode.id;
+    row.dataset.index = index;
+    if (index % 2 === 0) {
+      row.classList.add('even');
+    } else {
+      row.classList.remove('even');
+    }
+
+    // Status dot
+    let dotHtml = '';
+    if (!episode.played && episode.playbackPosition === 0) {
+      dotHtml = '<div class="podcast-dot new"></div>';
+    } else if (!episode.played && episode.playbackPosition > 0) {
+      dotHtml = '<div class="podcast-dot in-progress"></div>';
+    } else {
+      dotHtml = '<div class="podcast-dot played"></div>';
+    }
+
+    // Duration formatting
+    const duration = this._formatDuration(episode.duration);
+    const played = episode.played;
+
+    // Progress info for in-progress episodes
+    let progressHtml = '';
+    if (!episode.played && episode.playbackPosition > 0 && episode.duration > 0) {
+      const remaining = episode.duration - episode.playbackPosition;
+      const pct = Math.round((episode.playbackPosition / episode.duration) * 100);
+      progressHtml = ' &middot; <span class="podcast-ep-remaining">' + this._formatDuration(remaining) + ' left</span>';
+      progressHtml += '<div class="podcast-ep-progress"><div class="podcast-ep-progress-bar" style="width: ' + pct + '%"></div></div>';
+    }
+
+    // Action buttons
+    let actionHtml = '';
+    if (episode.downloaded) {
+      actionHtml = '<span class="podcast-ep-action downloaded ' + (played ? 'dim' : '') + '">&#10003; downloaded</span>';
+    } else {
+      actionHtml = '<span class="podcast-ep-action stream" data-action="stream">&#9654; stream</span>';
+      actionHtml += '<span class="podcast-ep-action download" data-action="download">&#8615; download</span>';
+    }
+
+    // Publish date
+    const pubDate = episode.publishDate ? new Date(episode.publishDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+
+    row.innerHTML = dotHtml +
+      '<div class="podcast-ep-info ' + (played ? 'played' : '') + '">' +
+        '<div class="podcast-ep-title">' + this._escapeHtml(episode.title) + '</div>' +
+        '<div class="podcast-ep-meta">' + pubDate + ' &middot; ' + duration + progressHtml + '</div>' +
+      '</div>' +
+      '<div class="podcast-ep-actions">' + actionHtml + '</div>';
+
+    // Event: click title to play
+    const titleEl = row.querySelector('.podcast-ep-title');
+    if (titleEl) {
+      titleEl.addEventListener('click', () => this._playEpisode(episode));
+    }
+
+    // Event: stream button
+    const streamBtn = row.querySelector('[data-action="stream"]');
+    if (streamBtn) {
+      streamBtn.addEventListener('click', (e) => { e.stopPropagation(); this._playEpisode(episode); });
+    }
+
+    // Event: download button
+    const downloadBtn = row.querySelector('[data-action="download"]');
+    if (downloadBtn) {
+      downloadBtn.addEventListener('click', (e) => { e.stopPropagation(); this._downloadEpisode(episode); });
+    }
+
+    // Context menu
+    row.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      this._showEpisodeContextMenu(e, episode);
+    });
+  }
+
+  _formatDuration(seconds) {
+    if (!seconds || seconds <= 0) return '';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (h > 0) return h + 'h ' + m.toString().padStart(2, '0') + 'm';
+    return m + 'm';
+  }
+
+  // ========================================
+  // Playback Integration
+  // ========================================
+
+  _playEpisode(episode) {
+    const sub = this.currentSubscription;
+    const queueEntry = {
+      isPodcast: true,
+      id: episode.id,
+      title: episode.title,
+      podcastName: sub.title,
+      artworkPath: sub.artworkPath
+        ? this.explorer.userDataPath + '/podcasts/' + sub.artworkPath
+        : null,
+      duration: episode.duration,
+      enclosureUrl: episode.enclosureUrl,
+      localPath: episode.localPath,
+      subscriptionId: sub.id,
+      playbackPosition: episode.playbackPosition || 0,
+    };
+
+    this.explorer.audioPlayer.play(queueEntry, [queueEntry]);
+  }
+
+  _registerEventListeners() {
+    // Guard: only register once (called from render(), not per-view)
+    if (this._listenersRegistered) return;
+    this._listenersRegistered = true;
+
+    // Playback position saving (throttled)
+    this._timeupdateHandler = (data) => {
+      const currentFile = this.explorer.audioPlayer.getCurrentFile();
+      if (!currentFile || !currentFile.isPodcast) return;
+
+      const now = Date.now();
+      if (now - this._lastPositionSave >= this._positionThrottleMs) {
+        this._lastPositionSave = now;
+        window.electronAPI.podcastSavePlaybackPosition(
+          currentFile.subscriptionId,
+          currentFile.id,
+          data.currentTime
+        );
+      }
+    };
+    this.explorer.audioPlayer.on('timeupdate', this._timeupdateHandler);
+
+    // Pause - save position immediately
+    this._pauseHandler = () => {
+      const currentFile = this.explorer.audioPlayer.getCurrentFile();
+      if (!currentFile || !currentFile.isPodcast) return;
+      window.electronAPI.podcastSavePlaybackPosition(
+        currentFile.subscriptionId,
+        currentFile.id,
+        this.explorer.audioPlayer.audio.currentTime
+      );
+    };
+    this.explorer.audioPlayer.on('pause', this._pauseHandler);
+
+    // Track change - detect episode completion
+    this._trackchangeHandler = ({ file }) => {
+      // Check if previous track was a podcast that just ended
+      const prev = this._lastPlayingPodcast;
+      if (prev && prev.isPodcast && (!file || file.id !== prev.id)) {
+        // Previous podcast episode ended
+        window.electronAPI.podcastMarkPlayed(prev.subscriptionId, prev.id, true);
+      }
+      this._lastPlayingPodcast = (file && file.isPodcast) ? file : null;
+    };
+    this.explorer.audioPlayer.on('trackchange', this._trackchangeHandler);
+
+    // Download events
+    this._dlProgressHandler = window.electronAPI.onPodcastDownloadProgress((data) => {
+      this._updateDownloadProgress(data);
+    });
+    this._dlCompleteHandler = window.electronAPI.onPodcastDownloadComplete((data) => {
+      this._onDownloadComplete(data);
+    });
+    this._dlErrorHandler = window.electronAPI.onPodcastDownloadError((data) => {
+      this.explorer.showToast('Download failed: ' + data.error);
+    });
+  }
+
+  _updateDownloadProgress(data) {
+    const row = document.querySelector('[data-episode-id="' + data.episodeId + '"] .podcast-ep-actions');
+    if (row) {
+      row.innerHTML = '<span class="podcast-ep-action downloading">' + data.percent + '%</span>';
+    }
+  }
+
+  _onDownloadComplete(data) {
+    // Update local episode data
+    const ep = this.episodes.find(e => e.id === data.episodeId);
+    if (ep) {
+      ep.downloaded = true;
+      ep.localPath = data.localPath;
+    }
+    // Re-render episode list
+    this._renderEpisodeList();
+  }
+
+  // ========================================
+  // Download & Action Methods
+  // ========================================
+
+  async _downloadEpisode(episode) {
+    const sub = this.currentSubscription;
+    // Check if download directory is set
+    var prefs = await window.electronAPI.podcastGetPreferences();
+    if (!prefs.downloadDirectory) {
+      var dir = await window.electronAPI.podcastPickDownloadDirectory();
+      if (!dir) return; // cancelled
+    }
+    try {
+      await window.electronAPI.podcastDownloadEpisode(sub.id, episode.id);
+    } catch (e) {
+      this.explorer.showToast('Download failed: ' + e.message);
+    }
+  }
+
+  async _refreshSingle(subscriptionId) {
+    try {
+      await window.electronAPI.podcastRefresh(subscriptionId);
+      this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
+      if (this.currentSubscription && this.currentSubscription.id === subscriptionId) {
+        this.currentSubscription = this.subscriptions.find(s => s.id === subscriptionId);
+        this.episodes = await window.electronAPI.podcastGetEpisodes(subscriptionId);
+        this._renderEpisodeList();
+      }
+      this._updateCount();
+      this.explorer.showToast('Feed refreshed');
+    } catch (e) {
+      this.explorer.showToast('Refresh failed: ' + e.message);
+    }
+  }
+
+  async _refreshAll() {
+    this.explorer.showToast('Refreshing all feeds...');
+    try {
+      await window.electronAPI.podcastRefresh();
+      this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
+      this._updateCount();
+      this.render();
+      this.explorer.showToast('All feeds refreshed');
+    } catch (e) {
+      this.explorer.showToast('Refresh failed: ' + e.message);
+    }
+  }
+
+  async _unsubscribe(subscriptionId) {
+    const sub = this.subscriptions.find(s => s.id === subscriptionId);
+    const confirmed = await this.explorer.showConfirmModal(
+      'Unsubscribe',
+      'Remove "' + (sub ? sub.title : 'this podcast') + '" from your subscriptions?'
+    );
+    if (!confirmed) return;
+    await window.electronAPI.podcastUnsubscribe(subscriptionId);
+    this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
+    this._updateCount();
+    if (this.currentSubscription && this.currentSubscription.id === subscriptionId) {
+      this.currentSubscription = null;
+    }
+    this.render();
+  }
+
+  _showEpisodeContextMenu(e, episode) {
+    const items = [];
+    if (!episode.downloaded) {
+      items.push({ label: 'Stream', action: () => this._playEpisode(episode) });
+      items.push({ label: 'Download', action: () => this._downloadEpisode(episode) });
+    } else {
+      items.push({ label: 'Play', action: () => this._playEpisode(episode) });
+      items.push({ label: 'Delete download', action: () => this._deleteDownload(episode) });
+    }
+    items.push({ separator: true });
+    items.push({
+      label: episode.played ? 'Mark as unplayed' : 'Mark as played',
+      action: () => this._togglePlayed(episode),
+    });
+    items.push({
+      label: 'Add to Now Playing',
+      action: () => this._addToNowPlaying(episode),
+    });
+    this.explorer.showDynamicContextMenu(e, items);
+  }
+
+  async _deleteDownload(episode) {
+    const sub = this.currentSubscription;
+    await window.electronAPI.podcastDeleteDownload(sub.id, episode.id);
+    episode.downloaded = false;
+    episode.localPath = null;
+    this._renderEpisodeList();
+  }
+
+  async _togglePlayed(episode) {
+    const sub = this.currentSubscription;
+    const newState = !episode.played;
+    await window.electronAPI.podcastMarkPlayed(sub.id, episode.id, newState);
+    episode.played = newState;
+    if (newState) episode.playbackPosition = 0;
+    this._renderEpisodeList();
+    // Update subscription count
+    this.subscriptions = await window.electronAPI.podcastGetSubscriptions();
+    this._updateCount();
+  }
+
+  _addToNowPlaying(episode) {
+    const sub = this.currentSubscription;
+    const queueEntry = {
+      isPodcast: true,
+      id: episode.id,
+      title: episode.title,
+      podcastName: sub.title,
+      artworkPath: sub.artworkPath
+        ? this.explorer.userDataPath + '/podcasts/' + sub.artworkPath
+        : null,
+      duration: episode.duration,
+      enclosureUrl: episode.enclosureUrl,
+      localPath: episode.localPath,
+      subscriptionId: sub.id,
+      playbackPosition: episode.playbackPosition || 0,
+    };
+    this.explorer.audioPlayer.queue.push(queueEntry);
+    this.explorer.showToast('Added to Now Playing');
+  }
+
   _escapeHtml(str) {
     if (!str) return '';
     const div = document.createElement('div');
