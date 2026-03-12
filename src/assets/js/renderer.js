@@ -2098,6 +2098,7 @@ class ZuneExplorer {
         };
         this.musicSubView = 'albums';  // 'albums' | 'artists' | 'songs' | 'genres' | 'playlists'
         this.musicDrillDown = null;    // null | { type: 'album', key } | { type: 'artist', name }
+        this.navStack = [];            // navigation history stack for back button
         this.songsScroller = null;        // VirtualScroller for songs list
         this.songsLetterMap = null;       // letter -> scroll offset for alpha-jump
 
@@ -2446,6 +2447,7 @@ class ZuneExplorer {
     }
 
     selectCategory(index) {
+        this.pushNavState();
         this.currentCategory = this.categories[index];
         this.currentMenuIndex = index;
         this.browsingMode = false;
@@ -2620,12 +2622,7 @@ class ZuneExplorer {
     }
 
     async navigateToFolder(folderPath) {
-        if (this.currentPath !== null) {
-            this.pathHistory.push(this.currentPath);
-        } else {
-            this.pathHistory.push(null);
-        }
-
+        this.pushNavState();
         this.currentPath = folderPath;
         this.browsingMode = true;
         this.updateHeader();
@@ -2806,53 +2803,70 @@ class ZuneExplorer {
         this.focusMenu();
     }
 
-    navigateBack() {
-        // Music: drill-down → sub-view → menu
-        if (this.currentCategory === 'music') {
-            if (this.musicDrillDown) {
-                this.musicDrillDown = null;
-                this.renderMusicView();
-            } else {
-                this.showMenu();
+    pushNavState() {
+        const state = {
+            view: this.currentView,
+            category: this.currentCategory,
+            musicSubView: this.musicSubView,
+            musicDrillDown: this.musicDrillDown ? { ...this.musicDrillDown } : null,
+            browsingMode: this.browsingMode,
+            currentPath: this.currentPath,
+        };
+        if (this.currentCategory === 'podcasts' && this.podcastPanel) {
+            state.podcastSubscription = this.podcastPanel.currentSubscription;
+            state.podcastSubTab = this.podcastPanel.currentSubTab;
+        }
+        this.navStack.push(state);
+    }
+
+    restoreNavState(state) {
+        if (state.view === 'menu' || state.view === 'recent' || state.view === 'sync') {
+            this.showMenu();
+            return;
+        }
+
+        this.currentCategory = state.category;
+        this.currentMenuIndex = this.categories.indexOf(state.category);
+
+        if (state.category === 'music') {
+            this.musicSubView = state.musicSubView;
+            this.musicDrillDown = state.musicDrillDown;
+            this.showContent();
+            this.renderMusicView();
+        } else if (state.category === 'podcasts') {
+            if (this.podcastPanel) {
+                if (this.podcastPanel._episodeScroller) {
+                    this.podcastPanel._episodeScroller.destroy();
+                    this.podcastPanel._episodeScroller = null;
+                }
+                this.podcastPanel.currentSubscription = state.podcastSubscription || null;
+                this.podcastPanel.currentSubTab = state.podcastSubTab || 'audio';
+                this.podcastPanel.episodes = [];
             }
-            return;
-        }
-
-        // Non-documents categories go straight to menu
-        if (this.currentCategory !== 'documents') {
-            this.currentPath = null;
-            this.pathHistory = [];
-            this.browsingMode = false;
-            this.showMenu();
-            return;
-        }
-
-        // Documents at root view → go to menu
-        if (!this.browsingMode) {
-            this.currentPath = null;
-            this.pathHistory = [];
-            this.showMenu();
-            return;
-        }
-
-        // Documents browsing → navigate back through history
-        if (this.pathHistory.length > 0) {
-            const previousPath = this.pathHistory.pop();
-            if (previousPath === null) {
-                this.currentPath = null;
-                this.browsingMode = false;
-                this.updateHeader();
-                this.renderRootView();
-            } else {
-                this.currentPath = previousPath;
-                this.updateHeader();
+            this.showContent();
+            if (this.podcastPanel) this.podcastPanel.render();
+        } else if (state.category === 'documents') {
+            this.browsingMode = state.browsingMode;
+            this.currentPath = state.currentPath;
+            this.showContent();
+            this.updateHeader();
+            if (this.browsingMode && this.currentPath) {
                 this.renderDirectoryContents();
+            } else {
+                this.renderRootView();
             }
         } else {
-            this.currentPath = null;
-            this.browsingMode = false;
-            this.updateHeader();
-            this.renderRootView();
+            this.showContent();
+            this.renderCategoryContent();
+        }
+    }
+
+    navigateBack() {
+        if (this.navStack.length > 0) {
+            const state = this.navStack.pop();
+            this.restoreNavState(state);
+        } else {
+            this.showMenu();
         }
     }
 
@@ -3340,6 +3354,7 @@ class ZuneExplorer {
     }
 
     navigateToPin(pin) {
+        if (pin.type !== 'file') this.pushNavState();
         switch (pin.type) {
             case 'file': {
                 const ext = pin.path ? '.' + pin.path.split('.').pop().toLowerCase() : '';
@@ -4192,6 +4207,7 @@ class ZuneExplorer {
                 overlay.appendChild(artist);
                 tile.appendChild(overlay);
                 tile.addEventListener('click', () => {
+                    this.pushNavState();
                     this.musicDrillDown = { type: 'album', key: album.key };
                     this.renderMusicView();
                 });
@@ -4431,6 +4447,7 @@ class ZuneExplorer {
                 row.appendChild(thumb);
                 row.appendChild(info);
                 row.addEventListener('click', () => {
+                    this.pushNavState();
                     this.musicDrillDown = { type: 'artist', name: (artist.name).toLowerCase() };
                     this.renderMusicView();
                 });
@@ -4480,7 +4497,9 @@ class ZuneExplorer {
             row.appendChild(nameEl);
             row.appendChild(count);
             row.addEventListener('click', () => {
-                this.renderGenreDetail(container, genre);
+                this.pushNavState();
+                this.musicDrillDown = { type: 'genre', name: genre.name.toLowerCase() };
+                this.renderMusicView();
             });
             row.addEventListener('contextmenu', (e) => {
                 this.showMusicItemContextMenu(e, genre.tracks, [
@@ -4532,12 +4551,7 @@ class ZuneExplorer {
         backLabel.textContent = 'GENRES';
         backBtn.appendChild(backLabel);
         backBtn.addEventListener('click', () => {
-            if (this.musicDrillDown && this.musicDrillDown.type === 'genre') {
-                this.musicDrillDown = null;
-                this.renderMusicView();
-            } else {
-                this.renderMusicGenresView(container);
-            }
+            this.navigateBack();
         });
         header.appendChild(backBtn);
         const title = document.createElement('div');
@@ -4617,6 +4631,7 @@ class ZuneExplorer {
         npRow.appendChild(npInfo);
 
         npRow.addEventListener('click', () => {
+            this.pushNavState();
             this.musicDrillDown = { type: 'now-playing' };
             this.renderMusicView();
         });
@@ -4662,6 +4677,7 @@ class ZuneExplorer {
             row.appendChild(info);
 
             row.addEventListener('click', () => {
+                this.pushNavState();
                 this.musicDrillDown = { type: 'playlist', id: playlist.id };
                 this.renderMusicView();
             });
@@ -4776,6 +4792,7 @@ class ZuneExplorer {
         artistEl.className = 'music-album-detail-artist music-link';
         artistEl.textContent = album.artist;
         artistEl.addEventListener('click', () => {
+            this.pushNavState();
             this.musicDrillDown = { type: 'artist', name: album.artist.toLowerCase() };
             this.renderMusicView();
         });
@@ -4904,6 +4921,7 @@ class ZuneExplorer {
             overlay.appendChild(artistName);
             tile.appendChild(overlay);
             tile.addEventListener('click', () => {
+                this.pushNavState();
                 this.musicDrillDown = { type: 'album', key: album.key };
                 this.renderMusicView();
             });

@@ -144,6 +144,7 @@ class PodcastPanel {
     // Row click - drill down
     container.querySelectorAll('.podcast-row').forEach(row => {
       row.addEventListener('click', () => {
+        this.explorer.pushNavState();
         const subId = row.dataset.subId;
         this.currentSubscription = this.subscriptions.find(s => s.id === subId);
         this.render();
@@ -186,13 +187,8 @@ class PodcastPanel {
     html += '<div class="hero-header">podcasts</div>';
     html += '<div class="podcast-content" style="position: relative; z-index: 1; margin-top: 130px;">';
 
-    // Header with back button and artwork
+    // Header with artwork
     html += '<div class="podcast-episode-header">';
-    html += '<svg class="podcast-back-btn" width="48" height="48" viewBox="0 0 48 48" fill="none">';
-    html += '<circle cx="24" cy="24" r="22" stroke="rgba(255,255,255,0.6)" stroke-width="2.5"/>';
-    html += '<path d="M27 14L17 24L27 34" stroke="rgba(255,255,255,0.8)" stroke-width="4" stroke-linecap="square" stroke-linejoin="miter"/>';
-    html += '<line x1="18" y1="24" x2="33" y2="24" stroke="rgba(255,255,255,0.8)" stroke-width="4"/>';
-    html += '</svg>';
     if (sub.artworkPath) {
       html += '<img class="podcast-episode-art" src="file://' + this.explorer.userDataPath + '/podcasts/' + sub.artworkPath + '">';
     }
@@ -209,16 +205,6 @@ class PodcastPanel {
     fileDisplay.innerHTML = html;
 
     // Bind events
-    const backBtn = fileDisplay.querySelector('.podcast-back-btn');
-    if (backBtn) {
-      backBtn.addEventListener('click', () => {
-        this.currentSubscription = null;
-        this.episodes = [];
-        if (this._episodeScroller) { this._episodeScroller.destroy(); this._episodeScroller = null; }
-        this.render();
-      });
-    }
-
     const refreshSingle = fileDisplay.querySelector('.podcast-refresh-single');
     if (refreshSingle) {
       refreshSingle.addEventListener('click', () => {

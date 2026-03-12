@@ -3820,15 +3820,6 @@ body.platform-linux .now-playing-panel {
   margin-bottom: 20px;
 }
 
-.podcast-back-btn {
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.podcast-back-btn:hover circle {
-  stroke: rgba(255, 255, 255, 0.9);
-}
-
 .podcast-episode-art {
   width: 72px;
   height: 72px;
