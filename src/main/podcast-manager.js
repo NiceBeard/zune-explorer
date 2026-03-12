@@ -93,7 +93,7 @@ class PodcastManager {
 
   _fetchUrl(url, _redirectCount = 0) {
     return new Promise((resolve, reject) => {
-      if (_redirectCount > 5) {
+      if (_redirectCount >= 5) {
         return reject(new Error('Too many redirects'));
       }
       const client = url.startsWith('https') ? https : http;
@@ -746,13 +746,17 @@ class PodcastManager {
       const req = client.get(episode.enclosureUrl, {
         headers: { 'User-Agent': 'ZuneExplorer/1.4.0' },
       }, (res) => {
-        // Follow redirects
+        // Follow redirects — destroy outer req cleanly, then re-download
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          res.resume(); // drain the response so the socket is released
           writeStream.close();
           try { fs.unlinkSync(partialPath); } catch { /* ignore */ }
-          // Update enclosure URL and retry
+          req.removeAllListeners('error');
           const redirectUrl = res.headers.location;
           episode.enclosureUrl = redirectUrl;
+          this._saveEpisodes(subscriptionId, this._loadEpisodes(subscriptionId).map(e =>
+            e.id === episodeId ? { ...e, enclosureUrl: redirectUrl } : e
+          ));
           this.downloadEpisode(subscriptionId, episodeId, webContents).then(resolve, reject);
           return;
         }
@@ -895,7 +899,11 @@ class PodcastManager {
     // Update subscription newEpisodeCount
     const sub = this._subscriptions.find(s => s.id === subscriptionId);
     if (sub) {
-      sub.newEpisodeCount = episodes.filter(e => !e.played).length;
+      // Decrement/increment newEpisodeCount based on the change
+      // (newEpisodeCount tracks newly-added episodes from refresh, not total unplayed)
+      if (played && sub.newEpisodeCount > 0) {
+        sub.newEpisodeCount--;
+      }
       this._saveSubscriptions();
     }
   }
