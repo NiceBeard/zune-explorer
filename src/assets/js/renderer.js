@@ -2073,6 +2073,7 @@ class ZuneExplorer {
         this.pathHistory = [];           // stack of previous paths for back navigation
         this.browsingMode = false;       // true when browsing directories (vs root view)
         this.homePath = null;            // cached home directory path
+        this.userDataPath = null;        // cached userData directory path
         this.smartRoots = [];            // populated in init()
         this.externalVolumes = [];
         this.audioPlayer = null;
@@ -2113,6 +2114,8 @@ class ZuneExplorer {
             document.body.classList.add('platform-linux');
         }
         this.homePath = await window.electronAPI.getHomeDirectory();
+        this.userDataPath = await window.electronAPI.getUserDataPath();
+        this.podcastPanel = new PodcastPanel(this);
         const sf = await window.electronAPI.getSpecialFolders();
         if (this.platform === 'win32') {
             this.smartRoots = [
