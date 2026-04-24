@@ -7,7 +7,6 @@ const SCHEMA_VERSION = 1;
 let state = null;
 let storeDir = null;
 let subscribers = [];
-let writeTimer = null;
 
 function defaultPrefs(defaultHome) {
   return {
@@ -64,14 +63,6 @@ async function writeNow() {
   const tmp = filePath + '.tmp';
   await fs.writeFile(tmp, raw);
   await fs.rename(tmp, filePath);
-}
-
-function scheduleWrite(ms = 200) {
-  if (writeTimer) clearTimeout(writeTimer);
-  writeTimer = setTimeout(() => {
-    writeTimer = null;
-    writeNow().catch((err) => console.error('preferences: write failed', err));
-  }, ms);
 }
 
 async function load(userDataDir, { defaultHome }) {
@@ -160,7 +151,6 @@ function _resetModule() {
   state = null;
   storeDir = null;
   subscribers = [];
-  if (writeTimer) { clearTimeout(writeTimer); writeTimer = null; }
 }
 
 module.exports = { load, get, update, reset, subscribe, SCHEMA_VERSION, _resetModule };
