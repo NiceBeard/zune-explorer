@@ -100,4 +100,67 @@ function get(dotPath) {
   return cur;
 }
 
-module.exports = { load, get, SCHEMA_VERSION };
+function collectLeafPaths(patch, prefix = '') {
+  const out = [];
+  for (const key of Object.keys(patch)) {
+    const v = patch[key];
+    const p = prefix ? `${prefix}.${key}` : key;
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      out.push(...collectLeafPaths(v, p));
+    } else {
+      out.push({ path: p, newValue: v });
+    }
+  }
+  return out;
+}
+
+function deepMerge(target, src) {
+  for (const key of Object.keys(src)) {
+    const sv = src[key];
+    if (sv && typeof sv === 'object' && !Array.isArray(sv)) {
+      if (!target[key] || typeof target[key] !== 'object') target[key] = {};
+      deepMerge(target[key], sv);
+    } else {
+      target[key] = sv;
+    }
+  }
+}
+
+async function update(patch) {
+  if (!state) throw new Error('preferences not loaded');
+  const events = collectLeafPaths(patch);
+  deepMerge(state, patch);
+  await writeNow();
+  for (const evt of events) {
+    for (const cb of subscribers) {
+      try { cb(evt); } catch (err) { console.error('preferences subscriber threw', err); }
+    }
+  }
+}
+
+async function reset(section) {
+  if (!state || !storeDir) throw new Error('preferences not loaded');
+  const home = state.__defaultHome || require('node:os').homedir();
+  const defaults = defaultPrefs(home);
+  if (section) {
+    state[section] = defaults[section];
+  } else {
+    state = defaults;
+    state.__defaultHome = home;
+  }
+  await writeNow();
+}
+
+function subscribe(cb) {
+  subscribers.push(cb);
+  return () => { subscribers = subscribers.filter((s) => s !== cb); };
+}
+
+function _resetModule() {
+  state = null;
+  storeDir = null;
+  subscribers = [];
+  if (writeTimer) { clearTimeout(writeTimer); writeTimer = null; }
+}
+
+module.exports = { load, get, update, reset, subscribe, SCHEMA_VERSION, _resetModule };

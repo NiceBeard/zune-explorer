@@ -68,3 +68,67 @@ test('get: returns value at dot path', async () => {
   assert.equal(prefs.get('sync.pullDestination'), null);
   assert.equal(prefs.get('nonexistent.path'), undefined);
 });
+
+test('update: deep merges patch and persists', async () => {
+  const prefs = freshModule();
+  await prefs.load(tmpDir, { defaultHome: '/Users/test' });
+  await prefs.update({ library: { music: ['/new'] } });
+  assert.deepEqual(prefs.get('library.music'), ['/new']);
+  assert.deepEqual(prefs.get('library.videos'), ['/Users/test/Movies']);
+  const fresh = freshModule();
+  const store = await fresh.load(tmpDir, { defaultHome: '/Users/test' });
+  assert.deepEqual(store.library.music, ['/new']);
+});
+
+test('subscribe: fires on update with path and newValue', async () => {
+  const prefs = freshModule();
+  await prefs.load(tmpDir, { defaultHome: '/Users/test' });
+  const events = [];
+  prefs.subscribe((evt) => events.push(evt));
+  await prefs.update({ library: { scanDesktopAndDownloads: true } });
+  assert.equal(events.length, 1);
+  assert.equal(events[0].path, 'library.scanDesktopAndDownloads');
+  assert.equal(events[0].newValue, true);
+});
+
+test('subscribe: fires once per leaf touched', async () => {
+  const prefs = freshModule();
+  await prefs.load(tmpDir, { defaultHome: '/Users/test' });
+  const events = [];
+  prefs.subscribe((evt) => events.push(evt));
+  await prefs.update({
+    library: { music: ['/x'] },
+    sync: { pullDestination: '/y' },
+  });
+  const paths = events.map((e) => e.path).sort();
+  assert.deepEqual(paths, ['library.music', 'sync.pullDestination']);
+});
+
+test('reset: section reset restores defaults for that section only', async () => {
+  const prefs = freshModule();
+  await prefs.load(tmpDir, { defaultHome: '/Users/test' });
+  await prefs.update({
+    library: { music: ['/x'] },
+    sync: { pullDestination: '/y' },
+  });
+  await prefs.reset('library');
+  assert.deepEqual(prefs.get('library.music'), ['/Users/test/Music']);
+  assert.equal(prefs.get('sync.pullDestination'), '/y');
+});
+
+test('reset: full reset with no argument', async () => {
+  const prefs = freshModule();
+  await prefs.load(tmpDir, { defaultHome: '/Users/test' });
+  await prefs.update({ sync: { pullDestination: '/y' } });
+  await prefs.reset();
+  assert.equal(prefs.get('sync.pullDestination'), null);
+});
+
+test('load: malformed JSON is preserved as .bad and defaults used', async () => {
+  await fs.writeFile(path.join(tmpDir, 'preferences.json'), '{not json');
+  const prefs = freshModule();
+  const store = await prefs.load(tmpDir, { defaultHome: '/Users/test' });
+  assert.equal(store.version, 1);
+  const bad = await fs.readFile(path.join(tmpDir, 'preferences.json.bad'), 'utf-8');
+  assert.equal(bad, '{not json');
+});
