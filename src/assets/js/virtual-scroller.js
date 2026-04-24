@@ -93,12 +93,14 @@ class VirtualScroller {
             proto.style.left = '-9999px';
             proto.style.visibility = 'hidden';
             proto.style.width = '100%';
-            // Do NOT set height — let CSS classes determine natural height.
-            // typeConfig.height is only a fallback if measurement returns 0.
+            // Let CSS classes determine natural height, but use typeConfig.height
+            // as a floor. A contentless prototype can measure smaller than the
+            // CSS min-height; without the floor, rows get positioned too tightly
+            // and visually stack on top of each other.
             document.body.appendChild(proto);
 
             const rect = proto.getBoundingClientRect();
-            this._measuredHeights[typeName] = rect.height || typeConfig.height;
+            this._measuredHeights[typeName] = Math.max(rect.height, typeConfig.height);
 
             document.body.removeChild(proto);
         }
