@@ -2931,11 +2931,11 @@ class ZuneExplorer {
     }
 
     async scanMediaFiles() {
-        const sep = this.platform === 'win32' ? '\\' : '/';
+        const lib = this.preferences?.library || {};
         const categoryDirs = {
-            music: [`${this.homePath}${sep}Music`],
-            videos: [this.platform === 'darwin' ? `${this.homePath}${sep}Movies` : `${this.homePath}${sep}Videos`],
-            pictures: [`${this.homePath}${sep}Pictures`],
+            music: lib.music || [],
+            videos: lib.videos || [],
+            pictures: lib.pictures || [],
         };
 
         for (const [category, dirs] of Object.entries(categoryDirs)) {
@@ -2944,12 +2944,15 @@ class ZuneExplorer {
             }
         }
 
-        const commonDirs = [
-            `${this.homePath}${sep}Desktop`,
-            `${this.homePath}${sep}Downloads`,
-        ];
-        for (const dir of commonDirs) {
-            await this.scanDirectoryForMedia(dir);
+        if (lib.scanDesktopAndDownloads) {
+            const sep = this.platform === 'win32' ? '\\' : '/';
+            const commonDirs = [
+                `${this.homePath}${sep}Desktop`,
+                `${this.homePath}${sep}Downloads`,
+            ];
+            for (const dir of commonDirs) {
+                await this.scanDirectoryForMedia(dir);
+            }
         }
     }
 
