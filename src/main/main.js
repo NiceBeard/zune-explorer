@@ -11,6 +11,8 @@ const { DeviceCache } = require('./zune/device-cache');
 const { MetadataCache } = require('./metadata-cache.js');
 const musicbrainz = require('./musicbrainz.js');
 const PodcastManager = require('./podcast-manager');
+const preferences = require('./preferences');
+const { detectInstallType, importLegacyFiles } = require('./preferences-migrations');
 
 const execFileAsync = promisify(execFile);
 const ffmpegPath = require('ffmpeg-static');
@@ -91,15 +93,47 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
-  createWindow();
-
+app.whenReady().then(async () => {
   deviceCache = new DeviceCache(app.getPath('userData'));
   metadataCache = new MetadataCache(app.getPath('userData'));
   zuneManager.metadataCache = metadataCache;
 
   podcastManager = new PodcastManager(app.getPath('userData'));
   podcastManager.cleanupPartialDownloads();
+
+  // Preferences: load, migrate legacy files on first run after upgrade
+  const userDataDir = app.getPath('userData');
+  const install = await detectInstallType(userDataDir);
+  const prefFile = path.join(userDataDir, 'preferences.json');
+  const hadPreferencesFile = await fs.access(prefFile).then(() => true).catch(() => false);
+
+  await preferences.load(userDataDir, { defaultHome: app.getPath('home') });
+
+  let firstRunPayload = null;
+  if (!hadPreferencesFile) {
+    const legacyPatch = await importLegacyFiles(userDataDir);
+    if (Object.keys(legacyPatch).length > 0) {
+      await preferences.update(legacyPatch);
+    }
+    await preferences.update({
+      meta: { installedVersion: app.getVersion(), firstRunAt: new Date().toISOString() },
+    });
+    firstRunPayload = { type: install.type, version: app.getVersion() };
+  }
+
+  preferences.subscribe((evt) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('preferences-changed', evt);
+    }
+  });
+
+  createWindow();
+
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (firstRunPayload) {
+      mainWindow.webContents.send('first-run', firstRunPayload);
+    }
+  });
 
   // Start Zune USB detection
   zuneManager.start();
@@ -501,6 +535,74 @@ ipcMain.handle('fix-extensionless-files', async (event, filePaths) => {
     }
   }
   return { success: true, renamed };
+});
+
+// Preferences IPC
+ipcMain.handle('preferences-load', async () => {
+  const current = preferences.get('');
+  if (current !== undefined) return { success: true, preferences: current };
+  const loaded = await preferences.load(app.getPath('userData'), { defaultHome: app.getPath('home') });
+  return { success: true, preferences: loaded };
+});
+
+ipcMain.handle('preferences-update', async (_evt, patch) => {
+  try {
+    if (patch && patch.library) {
+      for (const cat of ['music', 'videos', 'pictures']) {
+        if (Array.isArray(patch.library[cat]) && patch.library[cat].length === 0) {
+          return { success: false, error: `library.${cat} cannot be empty` };
+        }
+      }
+    }
+    await preferences.update(patch);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('preferences-reset', async (_evt, section) => {
+  try {
+    await preferences.reset(section);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Generic folder picker (reused by library / sync / podcasts)
+ipcMain.handle('pick-folder', async (_evt, title) => {
+  const { dialog } = require('electron');
+  const r = await dialog.showOpenDialog(mainWindow, {
+    title: title || 'Choose folder',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (r.canceled || r.filePaths.length === 0) return { success: false, canceled: true };
+  return { success: true, path: r.filePaths[0] };
+});
+
+ipcMain.handle('get-app-version', async () => app.getVersion());
+
+ipcMain.handle('clear-metadata-cache', async () => {
+  try {
+    if (metadataCache && typeof metadataCache.clear === 'function') {
+      await metadataCache.clear();
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('clear-device-cache', async () => {
+  try {
+    if (deviceCache && typeof deviceCache.clear === 'function') {
+      await deviceCache.clear();
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 });
 
 ipcMain.handle('pick-pull-destination', async () => {

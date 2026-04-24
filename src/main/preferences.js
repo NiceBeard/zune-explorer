@@ -82,6 +82,11 @@ async function load(userDataDir, { defaultHome }) {
 
 function get(dotPath) {
   if (!state) return undefined;
+  if (dotPath === undefined || dotPath === null || dotPath === '') {
+    const copy = { ...state };
+    delete copy.__defaultHome;
+    return copy;
+  }
   const parts = dotPath.split('.');
   let cur = state;
   for (const p of parts) {
