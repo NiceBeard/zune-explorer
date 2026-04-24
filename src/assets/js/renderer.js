@@ -2080,6 +2080,9 @@ class ZuneExplorer {
         this.nowPlayingOpen = false;
         this.zunePanel = null;
         this.podcastPanel = null;
+        this.preferences = null;
+        this._prefChangeHandler = null;
+        this.settingsView = null;
 
         // Music library state
         this.musicLibrary = {
@@ -2116,6 +2119,24 @@ class ZuneExplorer {
         }
         this.homePath = await window.electronAPI.getHomeDirectory();
         this.userDataPath = await window.electronAPI.getUserDataPath();
+
+        const prefResult = await window.electronAPI.preferencesLoad();
+        if (prefResult && prefResult.success) {
+            this.preferences = prefResult.preferences;
+        } else {
+            console.error('Failed to load preferences; using empty defaults');
+            this.preferences = {
+                library: { music: [], videos: [], pictures: [], scanDesktopAndDownloads: false },
+                sync: { pullDestination: null },
+                podcasts: { downloadDirectory: null },
+                meta: {},
+            };
+        }
+
+        this._prefChangeHandler = window.electronAPI.onPreferencesChanged((evt) => {
+            this._onPreferenceChanged(evt);
+        });
+
         this.podcastPanel = new PodcastPanel(this);
         const sf = await window.electronAPI.getSpecialFolders();
         if (this.platform === 'win32') {
@@ -2871,6 +2892,28 @@ class ZuneExplorer {
 
     focusMenu() {
         // Keep keyboard navigation tracking but no visual focus
+    }
+
+    _onPreferenceChanged(evt) {
+        const parts = evt.path.split('.');
+        let cur = this.preferences;
+        for (let i = 0; i < parts.length - 1; i++) {
+            if (!cur[parts[i]]) cur[parts[i]] = {};
+            cur = cur[parts[i]];
+        }
+        const oldValue = cur[parts[parts.length - 1]];
+        cur[parts[parts.length - 1]] = evt.newValue;
+
+        if (evt.path.startsWith('library.')) {
+            this._handleLibraryPrefChange(evt.path, oldValue, evt.newValue);
+        }
+        if (this.settingsView && this.settingsView.isOpen) {
+            this.settingsView.refresh();
+        }
+    }
+
+    _handleLibraryPrefChange(_path, _oldValue, _newValue) {
+        // Implemented in Task 10
     }
 
     async scanFileSystem() {
