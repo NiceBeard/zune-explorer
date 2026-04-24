@@ -2912,8 +2912,85 @@ class ZuneExplorer {
         }
     }
 
-    _handleLibraryPrefChange(_path, _oldValue, _newValue) {
-        // Implemented in Task 10
+    async _handleLibraryPrefChange(prefPath, oldValue, newValue) {
+        const { computeAddedPaths, computeRemovedPaths, isUnderPrefix, isUnderAnyPrefix } = window.pathUtils;
+
+        const categoryMatch = /^library\.(music|videos|pictures)$/.exec(prefPath);
+        if (categoryMatch) {
+            const category = categoryMatch[1];
+            const added = computeAddedPaths(oldValue || [], newValue || []);
+            const removed = computeRemovedPaths(oldValue || [], newValue || []);
+            const stillCovered = newValue || [];
+
+            if (removed.length) {
+                this.categorizedFiles[category] = this.categorizedFiles[category].filter((f) => {
+                    for (const rp of removed) {
+                        if (isUnderPrefix(f.path, rp) && !isUnderAnyPrefix(f.path, stillCovered)) return false;
+                    }
+                    return true;
+                });
+                if (category === 'music') {
+                    for (const [tPath] of this.musicLibrary.tracks) {
+                        for (const rp of removed) {
+                            if (isUnderPrefix(tPath, rp) && !isUnderAnyPrefix(tPath, stillCovered)) {
+                                this.musicLibrary.tracks.delete(tPath);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            for (const dir of added) {
+                await this.scanDirectoryRecursive(dir, category);
+            }
+
+            if (added.length || removed.length) {
+                this.showToast?.(`rescanning ${category}…`);
+                if (category === 'music') await this.scanMusicLibrary();
+                this._refreshCurrentView();
+            }
+            return;
+        }
+
+        if (prefPath === 'library.scanDesktopAndDownloads') {
+            const sep = this.platform === 'win32' ? '\\' : '/';
+            const dirs = [`${this.homePath}${sep}Desktop`, `${this.homePath}${sep}Downloads`];
+            if (newValue) {
+                for (const dir of dirs) await this.scanDirectoryForMedia(dir);
+                this.showToast?.('rescanning desktop & downloads…');
+                await this.scanMusicLibrary();
+            } else {
+                const keep = [
+                    ...(this.preferences.library.music || []),
+                    ...(this.preferences.library.videos || []),
+                    ...(this.preferences.library.pictures || []),
+                ];
+                for (const category of ['music', 'videos', 'pictures']) {
+                    this.categorizedFiles[category] = this.categorizedFiles[category].filter((f) => {
+                        for (const dir of dirs) {
+                            if (isUnderPrefix(f.path, dir) && !isUnderAnyPrefix(f.path, keep)) return false;
+                        }
+                        return true;
+                    });
+                }
+                for (const [tPath] of this.musicLibrary.tracks) {
+                    for (const dir of dirs) {
+                        if (isUnderPrefix(tPath, dir) && !isUnderAnyPrefix(tPath, keep)) {
+                            this.musicLibrary.tracks.delete(tPath);
+                            break;
+                        }
+                    }
+                }
+            }
+            this._refreshCurrentView();
+        }
+    }
+
+    _refreshCurrentView() {
+        if (!this.currentCategory) return;
+        if (this.currentCategory === 'music') this.renderMusicView?.();
+        else if (this.currentCategory === 'videos' || this.currentCategory === 'pictures') this.renderCategoryContent?.();
     }
 
     async scanFileSystem() {
