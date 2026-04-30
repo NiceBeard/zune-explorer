@@ -24,9 +24,16 @@ function computeRemovedPaths(oldList, newList) {
   return oldList.filter((p) => !newSet.has(normalize(p)));
 }
 
-module.exports = {
+const pathUtils = {
   isUnderPrefix,
   isUnderAnyPrefix,
   computeAddedPaths,
   computeRemovedPaths,
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = pathUtils;
+}
+if (typeof window !== 'undefined') {
+  window.pathUtils = pathUtils;
+}

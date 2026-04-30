@@ -1,5 +1,4 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
-const pathUtils = require('../shared/path-utils');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   getDirectoryContents: (path) => ipcRenderer.invoke('get-directory-contents', path),
@@ -191,5 +190,3 @@ contextBridge.exposeInMainWorld('electronAPI', {
   clearMetadataCache: () => ipcRenderer.invoke('clear-metadata-cache'),
   clearDeviceCache: () => ipcRenderer.invoke('clear-device-cache'),
 });
-
-contextBridge.exposeInMainWorld('pathUtils', pathUtils);
