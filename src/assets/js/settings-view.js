@@ -216,7 +216,22 @@ class SettingsView {
       },
     ];
   }
-  _podcastsItems() { return [{ kind: 'placeholder', label: 'podcasts — pending' }]; }
+  _podcastsItems() {
+    const dir = this.explorer.preferences?.podcasts?.downloadDirectory;
+    return [
+      { kind: 'info', label: 'download directory', value: dir || '(not set)' },
+      {
+        kind: 'action',
+        label: dir ? 'change directory' : 'choose directory',
+        onClick: async () => {
+          const r = await window.electronAPI.pickFolder('Choose podcast download directory');
+          if (r && r.success) {
+            await window.electronAPI.preferencesUpdate({ podcasts: { downloadDirectory: r.path } });
+          }
+        },
+      },
+    ];
+  }
   _dataItems()     { return [{ kind: 'placeholder', label: 'data — pending' }]; }
   _aboutItems()    { return [{ kind: 'placeholder', label: 'about — pending' }]; }
 }
