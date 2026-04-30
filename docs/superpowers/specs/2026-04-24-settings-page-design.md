@@ -12,7 +12,7 @@ Preferences have been squeezed into the app one JSON file at a time (`pull-desti
 
 ### In scope (v1)
 
-1. **Settings as the sixth panorama section** — hero-header-styled top-level category, right of `applications`. Inherits the existing horizontal slide animation between panorama sections; no bespoke animation code.
+1. **Settings as a new top-level category** — hero-header-styled top-level category, right of `applications`. Inherits the existing horizontal slide animation between panorama sections; no bespoke animation code.
 2. **Unified preferences store** — a single schema-versioned `preferences.json` in `userData/`, covering cross-cutting preferences only. User *content* (pins, playlists, now-playing, metadata cache, device cache) stays where it lives.
 3. **Five settings sections** (see §4 for details):
    - Library
@@ -39,7 +39,7 @@ Preferences have been squeezed into the app one JSON file at a time (`pull-desti
 
 ### Panorama placement
 
-Settings is the sixth hero-header section, to the right of `applications`. Hero header uses the existing `.hero-header` pattern: ~340px font, weight 100, lowercase, `rgba(255,255,255,0.55)`, `top: -160px`, `overflow: hidden` on the wrapper. Horizontal slide from/to this section uses the same transition the other five panorama sections use today.
+Settings is a new top-level category at the end of the panorama, to the right of `applications` (current categories: music, videos, pictures, podcasts, documents, applications — settings becomes the seventh). Hero header uses the existing `.hero-header` pattern: ~340px font, weight 100, lowercase, `rgba(255,255,255,0.55)`, `top: -160px`, `overflow: hidden` on the wrapper. Horizontal slide from/to this section uses the same transition the other five panorama sections use today.
 
 ### Internal drill-down
 
