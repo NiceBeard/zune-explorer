@@ -495,7 +495,7 @@ body {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    justify-content: center;
+    justify-content: safe center;
     padding: 40px 60px;
     position: relative;
     overflow-y: auto;
@@ -4124,14 +4124,22 @@ body.platform-linux .now-playing-panel {
   width: 10vw;
   min-width: 32px;
   max-width: 72px;
-  height: 0;
-  max-height: 40vh;
+  height: 40vh;
   background: #EC008C;
-  transition:
-    height 2s cubic-bezier(0.25, 0.1, 0.25, 1),
-    background-color 2s linear;
+  transform: scaleY(0);
+  transform-origin: bottom center;
+  transition: transform 2s cubic-bezier(0.25, 0.1, 0.25, 1);
 }
-.boot-splash-bar.active { height: 40vh; }
+.boot-splash-bar.active {
+  transform: scaleY(1);
+  animation: boot-splash-color-cycle 2s linear forwards;
+}
+@keyframes boot-splash-color-cycle {
+  0%   { background: #EC008C; }
+  33%  { background: #F58220; }
+  66%  { background: #00ADA7; }
+  100% { background: #2B3990; }
+}
 
 .boot-splash-message {
   margin-top: 32px;
