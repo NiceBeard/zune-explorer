@@ -2236,18 +2236,8 @@ class ZuneExplorer {
 
         // Context menu actions are now handled dynamically by showDynamicContextMenu()
 
-        // Mouse wheel for vertical scrolling in menu
-        const menuContainer = document.querySelector('.menu-container');
-        menuContainer.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            if (this.currentView === 'menu') {
-                if (e.deltaY > 0) {
-                    this.navigateMenuDown();
-                } else {
-                    this.navigateMenuUp();
-                }
-            }
-        });
+        // Mouse wheel scrolls the menu container natively when items overflow.
+        // (Keyboard arrows still drive currentMenuIndex for keyboard nav.)
 
         // Horizontal swipe/wheel to switch carousel panels
         document.getElementById('panoramic-container').addEventListener('wheel', (e) => {

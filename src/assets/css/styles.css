@@ -500,9 +500,11 @@ body {
     position: relative;
     min-height: 0;
     overflow-y: auto;
+    scrollbar-width: none;
     transform-origin: right center;
     transition: transform var(--transition-duration) var(--transition-easing);
 }
+.menu-container::-webkit-scrollbar { display: none; }
 
 .panoramic-container.show-recent .menu-container {
     transform: scale(0.55);
@@ -2081,6 +2083,8 @@ body.platform-linux .now-playing-panel {
     align-items: center;
     gap: 8px;
     padding: 6px 4px;
+    min-height: 44px;
+    box-sizing: border-box;
     border-bottom: 1px solid #111;
     font-size: 12px;
     color: var(--zune-text-secondary);
@@ -2335,6 +2339,8 @@ body.platform-linux .now-playing-panel {
     align-items: center;
     gap: 8px;
     padding: 8px 4px;
+    min-height: 56px;
+    box-sizing: border-box;
     cursor: pointer;
     border-bottom: 1px solid #111;
     background: rgba(255, 255, 255, 0.02);
