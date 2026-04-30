@@ -262,7 +262,18 @@ class SettingsView {
       },
     ];
   }
-  _aboutItems()    { return [{ kind: 'placeholder', label: 'about — pending' }]; }
+  _aboutItems() {
+    return [
+      { kind: 'info', label: 'version', value: this._appVersion || 'loading…' },
+      {
+        kind: 'action',
+        label: 'github repo',
+        onClick: () => window.electronAPI.openExternal?.('https://github.com/NiceBeard/zune-explorer'),
+      },
+      { kind: 'info', label: 'author',  value: 'NiceBeard' },
+      { kind: 'info', label: 'license', value: 'MIT' },
+    ];
+  }
 }
 
 window.SettingsView = SettingsView;

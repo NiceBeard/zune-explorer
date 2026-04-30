@@ -184,4 +184,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   clearMetadataCache: () => ipcRenderer.invoke('clear-metadata-cache'),
   clearDeviceCache: () => ipcRenderer.invoke('clear-device-cache'),
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
 });

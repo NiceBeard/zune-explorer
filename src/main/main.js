@@ -290,6 +290,17 @@ ipcMain.handle('get-special-folders', async () => {
   return result;
 });
 
+ipcMain.handle('open-external', async (_evt, url) => {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return { success: false };
+    await shell.openExternal(url);
+    return { success: true };
+  } catch {
+    return { success: false };
+  }
+});
+
 ipcMain.handle('get-external-volumes', async () => {
   try {
     const volumes = await platform.getExternalVolumes();
