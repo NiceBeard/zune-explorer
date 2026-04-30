@@ -2913,6 +2913,10 @@ class ZuneExplorer {
     }
 
     navigateBack() {
+        if (this.settingsView && this.settingsView.isOpen) {
+            this.settingsView.pop();
+            return;
+        }
         if (this.navStack.length > 0) {
             const state = this.navStack.pop();
             this.restoreNavState(state);
