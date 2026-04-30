@@ -45,6 +45,15 @@ class MetadataCache {
     await this._load();
     return { ...this.cache };
   }
+
+  async clear() {
+    this.cache = {};
+    try {
+      await fs.writeFile(this.filePath, '{}');
+    } catch (err) {
+      console.error('MetadataCache.clear failed', err);
+    }
+  }
 }
 
 module.exports = { MetadataCache };

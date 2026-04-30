@@ -232,7 +232,36 @@ class SettingsView {
       },
     ];
   }
-  _dataItems()     { return [{ kind: 'placeholder', label: 'data — pending' }]; }
+  _dataItems() {
+    return [
+      {
+        kind: 'action',
+        label: 'clear metadata cache',
+        onClick: async () => {
+          const ok = await this.explorer.showConfirmModal?.(
+            'Clear metadata cache',
+            'Album art and enriched metadata will be re-downloaded as needed. Continue?'
+          );
+          if (!ok) return;
+          const r = await window.electronAPI.clearMetadataCache();
+          this.explorer.showToast?.(r && r.success ? 'metadata cache cleared' : 'failed to clear metadata cache');
+        },
+      },
+      {
+        kind: 'action',
+        label: 'clear device cache',
+        onClick: async () => {
+          const ok = await this.explorer.showConfirmModal?.(
+            'Clear device cache',
+            'Cached Zune device browse data will be re-fetched on next connect. Continue?'
+          );
+          if (!ok) return;
+          const r = await window.electronAPI.clearDeviceCache();
+          this.explorer.showToast?.(r && r.success ? 'device cache cleared' : 'failed to clear device cache');
+        },
+      },
+    ];
+  }
   _aboutItems()    { return [{ kind: 'placeholder', label: 'about — pending' }]; }
 }
 
