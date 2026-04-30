@@ -6,7 +6,7 @@ class BootSplash {
     this.messageEl = document.getElementById('boot-splash-message');
   }
 
-  async show({ message, minDurationMs = 2000, fadeMs = 300 } = {}) {
+  async show({ message, minDurationMs = 5000, fadeMs = 300 } = {}) {
     if (!this.root) return;
     this.messageEl.textContent = message || '';
     this.root.style.display = 'flex';

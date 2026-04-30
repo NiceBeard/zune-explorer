@@ -498,6 +498,7 @@ body {
     justify-content: safe center;
     padding: 40px 60px;
     position: relative;
+    min-height: 0;
     overflow-y: auto;
     transform-origin: right center;
     transition: transform var(--transition-duration) var(--transition-easing);
@@ -4112,42 +4113,44 @@ body.platform-linux .now-playing-panel {
   inset: 0;
   background: #000;
   z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
   transition: opacity 300ms ease-out;
 }
 .boot-splash.fading { opacity: 0; pointer-events: none; }
 
 .boot-splash-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
   width: 10vw;
   min-width: 32px;
   max-width: 72px;
-  height: 40vh;
-  background: #EC008C;
-  transform: scaleY(0);
+  height: 60vh;
+  background: linear-gradient(
+    to top,
+    #EC008C 0%,
+    #F58220 35%,
+    #00ADA7 70%,
+    #2B3990 100%
+  );
+  transform: translateX(-50%) scaleY(0);
   transform-origin: bottom center;
-  transition: transform 2s cubic-bezier(0.25, 0.1, 0.25, 1);
+  transition: transform 5s cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 .boot-splash-bar.active {
-  transform: scaleY(1);
-  animation: boot-splash-color-cycle 2s linear forwards;
-}
-@keyframes boot-splash-color-cycle {
-  0%   { background: #EC008C; }
-  33%  { background: #F58220; }
-  66%  { background: #00ADA7; }
-  100% { background: #2B3990; }
+  transform: translateX(-50%) scaleY(1);
 }
 
 .boot-splash-message {
-  margin-top: 32px;
+  position: absolute;
+  top: 22vh;
+  left: 50%;
+  transform: translateX(-50%);
   font-size: 28px;
   font-weight: 100;
   color: rgba(255, 255, 255, 0.7);
   text-transform: lowercase;
   letter-spacing: 1px;
+  white-space: nowrap;
 }
 /* Settings drill-down --------------------------------------------------- */
 .settings-content { position: relative; z-index: 1; margin-top: 130px; }
