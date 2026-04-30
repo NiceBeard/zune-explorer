@@ -554,10 +554,7 @@ ipcMain.handle('consume-first-run', async () => {
 });
 
 ipcMain.handle('preferences-load', async () => {
-  const current = preferences.get('');
-  if (current !== undefined) return { success: true, preferences: current };
-  const loaded = await preferences.load(app.getPath('userData'), { defaultHome: app.getPath('home') });
-  return { success: true, preferences: loaded };
+  return { success: true, preferences: preferences.get('') };
 });
 
 ipcMain.handle('preferences-update', async (_evt, patch) => {
@@ -621,14 +618,7 @@ ipcMain.handle('clear-device-cache', async () => {
 });
 
 ipcMain.handle('pick-pull-destination', async () => {
-  const settingsPath = path.join(app.getPath('userData'), 'pull-destination.json');
-  let defaultPath;
-  try {
-    const data = await fs.readFile(settingsPath, 'utf-8');
-    defaultPath = JSON.parse(data).path;
-  } catch {
-    defaultPath = app.getPath('music');
-  }
+  const defaultPath = preferences.get('sync.pullDestination') || app.getPath('music');
 
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Choose destination folder',
@@ -641,14 +631,7 @@ ipcMain.handle('pick-pull-destination', async () => {
   }
 
   const chosen = result.filePaths[0];
-
-  // Remember for next time
-  try {
-    await fs.writeFile(settingsPath, JSON.stringify({ path: chosen }));
-  } catch {
-    // Non-critical — just won't remember next time
-  }
-
+  await preferences.update({ sync: { pullDestination: chosen } });
   return { success: true, path: chosen };
 });
 

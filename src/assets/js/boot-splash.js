@@ -6,7 +6,7 @@ class BootSplash {
     this.messageEl = document.getElementById('boot-splash-message');
   }
 
-  async show({ message, task, minDurationMs = 2000, fadeMs = 300 } = {}) {
+  async show({ message, minDurationMs = 2000, fadeMs = 300 } = {}) {
     if (!this.root) return;
     this.messageEl.textContent = message || '';
     this.root.style.display = 'flex';
@@ -16,10 +16,6 @@ class BootSplash {
     this.bar.classList.add('active');
 
     await new Promise((r) => setTimeout(r, minDurationMs));
-
-    if (task && typeof task.then === 'function') {
-      try { await task; } catch (err) { console.warn('BootSplash task failed', err); }
-    }
 
     this.root.classList.add('fading');
     await new Promise((r) => setTimeout(r, fadeMs));
