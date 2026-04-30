@@ -8,6 +8,10 @@
     <link rel="stylesheet" href="../assets/css/styles.css">
 </head>
 <body>
+    <div class="boot-splash" id="boot-splash" style="display:none">
+      <div class="boot-splash-bar" id="boot-splash-bar"></div>
+      <div class="boot-splash-message" id="boot-splash-message"></div>
+    </div>
     <div class="zune-container">
         <!-- Custom title bar (Windows only, hidden on macOS via CSS) -->
         <div class="title-bar" id="title-bar">
@@ -63,6 +67,10 @@
                         <button class="menu-item" data-category="applications">
                             <span class="menu-text">applications</span>
                             <span class="menu-subs">all</span>
+                        </button>
+                        <button class="menu-item" data-category="settings">
+                            <span class="menu-text">settings</span>
+                            <span class="menu-subs">preferences</span>
                         </button>
                     </nav>
                 </div>
@@ -405,9 +413,12 @@
         </div>
     </div>
 
+    <script src="../shared/path-utils.js"></script>
     <script src="../assets/js/audio-player.js"></script>
     <script src="../assets/js/virtual-scroller.js"></script>
     <script src="../assets/js/podcast-renderer.js"></script>
+    <script src="../assets/js/boot-splash.js"></script>
+    <script src="../assets/js/settings-view.js"></script>
     <script src="../assets/js/renderer.js"></script>
     <script src="../assets/js/test-data-generator.js"></script>
 </body>

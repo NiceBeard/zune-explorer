@@ -168,4 +168,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return handler;
   },
   offPodcastImportProgress: (handler) => ipcRenderer.removeListener('podcast-import-progress', handler),
+
+  // Preferences, settings, and first-run
+  preferencesLoad: () => ipcRenderer.invoke('preferences-load'),
+  preferencesUpdate: (patch) => ipcRenderer.invoke('preferences-update', patch),
+  preferencesReset: (section) => ipcRenderer.invoke('preferences-reset', section),
+  onPreferencesChanged: (cb) => {
+    const handler = (_e, evt) => cb(evt);
+    ipcRenderer.on('preferences-changed', handler);
+    return handler;
+  },
+  offPreferencesChanged: (h) => ipcRenderer.removeListener('preferences-changed', h),
+  consumeFirstRun: () => ipcRenderer.invoke('consume-first-run'),
+  pickFolder: (title) => ipcRenderer.invoke('pick-folder', title),
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  clearMetadataCache: () => ipcRenderer.invoke('clear-metadata-cache'),
+  clearDeviceCache: () => ipcRenderer.invoke('clear-device-cache'),
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
 });

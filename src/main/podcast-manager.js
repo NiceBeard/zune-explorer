@@ -6,8 +6,9 @@ const http = require('http');
 const crypto = require('crypto');
 
 class PodcastManager {
-  constructor(userDataPath) {
+  constructor(userDataPath, options = {}) {
     this._userDataPath = userDataPath;
+    this._getDownloadDirectory = (options && options.getDownloadDirectory) || (() => null);
     this._podcastDir = path.join(userDataPath, 'podcasts');
     this._episodesDir = path.join(this._podcastDir, 'episodes');
     this._artworkDir = path.join(this._podcastDir, 'artwork');
@@ -94,7 +95,10 @@ class PodcastManager {
   }
 
   getPreferences() {
-    return { ...this._preferences };
+    return {
+      ...this._preferences,
+      downloadDirectory: this._getDownloadDirectory() || this._preferences.downloadDirectory,
+    };
   }
 
   // --- HTTP fetching ---
@@ -676,15 +680,13 @@ class PodcastManager {
     const result = await dialog.showOpenDialog({
       title: 'Choose Podcast Download Directory',
       properties: ['openDirectory', 'createDirectory'],
-      defaultPath: this._preferences.downloadDirectory || undefined,
+      defaultPath: this._getDownloadDirectory() || this._preferences.downloadDirectory || undefined,
     });
 
     if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
       return null;
     }
 
-    this._preferences.downloadDirectory = result.filePaths[0];
-    this._savePreferences();
     return result.filePaths[0];
   }
 
@@ -697,13 +699,14 @@ class PodcastManager {
     if (!episode) throw new Error('Episode not found');
     if (!episode.enclosureUrl) throw new Error('No download URL for this episode');
 
-    if (!this._preferences.downloadDirectory) {
+    const dir = this._getDownloadDirectory() || this._preferences.downloadDirectory;
+    if (!dir) {
       throw new Error('No download directory set');
     }
 
     // Build destination path: <downloadDir>/<podcast>/<episode>.<ext>
     const podcastDir = path.join(
-      this._preferences.downloadDirectory,
+      dir,
       this._sanitizeFilename(sub.title)
     );
     fs.mkdirSync(podcastDir, { recursive: true });
@@ -931,7 +934,7 @@ class PodcastManager {
   }
 
   cleanupPartialDownloads() {
-    const downloadDir = this._preferences.downloadDirectory;
+    const downloadDir = this._getDownloadDirectory() || this._preferences.downloadDirectory;
     if (!downloadDir) return;
 
     try {

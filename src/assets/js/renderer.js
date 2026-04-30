@@ -2047,14 +2047,15 @@ class ZuneExplorer {
         this.currentCategory = null;
         this.currentMenuIndex = 0;
         this.currentViewMode = 'grid'; // grid, list
-        this.categories = ['music', 'videos', 'pictures', 'podcasts', 'documents', 'applications'];
+        this.categories = ['music', 'videos', 'pictures', 'podcasts', 'documents', 'applications', 'settings'];
         this.categorizedFiles = {
             music: [],
             videos: [],
             pictures: [],
             podcasts: [],
             documents: [],
-            applications: []
+            applications: [],
+            settings: []
         };
         this.recentFiles = [];
         this.pinnedItems = [];
@@ -2080,6 +2081,9 @@ class ZuneExplorer {
         this.nowPlayingOpen = false;
         this.zunePanel = null;
         this.podcastPanel = null;
+        this.preferences = null;
+        this._prefChangeHandler = null;
+        this.settingsView = null;
 
         // Music library state
         this.musicLibrary = {
@@ -2116,6 +2120,41 @@ class ZuneExplorer {
         }
         this.homePath = await window.electronAPI.getHomeDirectory();
         this.userDataPath = await window.electronAPI.getUserDataPath();
+
+        const prefResult = await window.electronAPI.preferencesLoad();
+        if (prefResult && prefResult.success) {
+            this.preferences = prefResult.preferences;
+        } else {
+            console.error('Failed to load preferences; using empty defaults');
+            this.preferences = {
+                library: { music: [], videos: [], pictures: [], scanDesktopAndDownloads: false },
+                sync: { pullDestination: null },
+                podcasts: { downloadDirectory: null },
+                meta: {},
+            };
+        }
+
+        this._prefChangeHandler = window.electronAPI.onPreferencesChanged((evt) => {
+            this._onPreferenceChanged(evt);
+        });
+
+        const firstRun = await window.electronAPI.consumeFirstRun();
+
+        if (firstRun) {
+            const splash = new window.BootSplash();
+            const message = firstRun.type === 'new'
+                ? 'welcome to zune explorer'
+                : `updated to v${firstRun.version}`;
+            await splash.show({ message });
+
+            if (firstRun.type === 'upgrade' && !this.preferences.meta?.behaviorChangeToastShown) {
+                setTimeout(() => {
+                    this.showToast?.('desktop & downloads are no longer scanned by default. re-enable in settings → library.');
+                }, 500);
+                await window.electronAPI.preferencesUpdate({ meta: { behaviorChangeToastShown: true } });
+            }
+        }
+
         this.podcastPanel = new PodcastPanel(this);
         const sf = await window.electronAPI.getSpecialFolders();
         if (this.platform === 'win32') {
@@ -2197,18 +2236,8 @@ class ZuneExplorer {
 
         // Context menu actions are now handled dynamically by showDynamicContextMenu()
 
-        // Mouse wheel for vertical scrolling in menu
-        const menuContainer = document.querySelector('.menu-container');
-        menuContainer.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            if (this.currentView === 'menu') {
-                if (e.deltaY > 0) {
-                    this.navigateMenuDown();
-                } else {
-                    this.navigateMenuUp();
-                }
-            }
-        });
+        // Mouse wheel scrolls the menu container natively when items overflow.
+        // (Keyboard arrows still drive currentMenuIndex for keyboard nav.)
 
         // Horizontal swipe/wheel to switch carousel panels
         document.getElementById('panoramic-container').addEventListener('wheel', (e) => {
@@ -2461,6 +2490,9 @@ class ZuneExplorer {
             if (this.podcastPanel) this.podcastPanel.render();
         } else if (this.currentCategory === 'documents') {
             this.renderRootView();
+        } else if (this.currentCategory === 'settings') {
+            if (!this.settingsView) this.settingsView = new window.SettingsView(this);
+            this.settingsView.render();
         } else {
             this.renderCategoryContent();
         }
@@ -2861,6 +2893,10 @@ class ZuneExplorer {
     }
 
     navigateBack() {
+        if (this.settingsView && this.settingsView.isOpen) {
+            this.settingsView.pop();
+            return;
+        }
         if (this.navStack.length > 0) {
             const state = this.navStack.pop();
             this.restoreNavState(state);
@@ -2871,6 +2907,105 @@ class ZuneExplorer {
 
     focusMenu() {
         // Keep keyboard navigation tracking but no visual focus
+    }
+
+    _onPreferenceChanged(evt) {
+        const parts = evt.path.split('.');
+        let cur = this.preferences;
+        for (let i = 0; i < parts.length - 1; i++) {
+            if (!cur[parts[i]]) cur[parts[i]] = {};
+            cur = cur[parts[i]];
+        }
+        const oldValue = cur[parts[parts.length - 1]];
+        cur[parts[parts.length - 1]] = evt.newValue;
+
+        if (evt.path.startsWith('library.')) {
+            this._handleLibraryPrefChange(evt.path, oldValue, evt.newValue);
+        }
+        if (this.settingsView && this.settingsView.isOpen) {
+            this.settingsView.refresh();
+        }
+    }
+
+    async _handleLibraryPrefChange(prefPath, oldValue, newValue) {
+        const { computeAddedPaths, computeRemovedPaths, isUnderPrefix, isUnderAnyPrefix } = window.pathUtils;
+
+        const categoryMatch = /^library\.(music|videos|pictures)$/.exec(prefPath);
+        if (categoryMatch) {
+            const category = categoryMatch[1];
+            const added = computeAddedPaths(oldValue || [], newValue || []);
+            const removed = computeRemovedPaths(oldValue || [], newValue || []);
+            const stillCovered = newValue || [];
+
+            if (removed.length) {
+                this.categorizedFiles[category] = this.categorizedFiles[category].filter((f) => {
+                    for (const rp of removed) {
+                        if (isUnderPrefix(f.path, rp) && !isUnderAnyPrefix(f.path, stillCovered)) return false;
+                    }
+                    return true;
+                });
+                if (category === 'music') {
+                    for (const [tPath] of this.musicLibrary.tracks) {
+                        for (const rp of removed) {
+                            if (isUnderPrefix(tPath, rp) && !isUnderAnyPrefix(tPath, stillCovered)) {
+                                this.musicLibrary.tracks.delete(tPath);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            for (const dir of added) {
+                await this.scanDirectoryRecursive(dir, category);
+            }
+
+            if (added.length || removed.length) {
+                this.showToast?.(`rescanning ${category}…`);
+                if (category === 'music') await this.scanMusicLibrary();
+                this._refreshCurrentView();
+            }
+            return;
+        }
+
+        if (prefPath === 'library.scanDesktopAndDownloads') {
+            const sep = this.platform === 'win32' ? '\\' : '/';
+            const dirs = [`${this.homePath}${sep}Desktop`, `${this.homePath}${sep}Downloads`];
+            if (newValue) {
+                for (const dir of dirs) await this.scanDirectoryForMedia(dir);
+                this.showToast?.('rescanning desktop & downloads…');
+                await this.scanMusicLibrary();
+            } else {
+                const keep = [
+                    ...(this.preferences.library.music || []),
+                    ...(this.preferences.library.videos || []),
+                    ...(this.preferences.library.pictures || []),
+                ];
+                for (const category of ['music', 'videos', 'pictures']) {
+                    this.categorizedFiles[category] = this.categorizedFiles[category].filter((f) => {
+                        for (const dir of dirs) {
+                            if (isUnderPrefix(f.path, dir) && !isUnderAnyPrefix(f.path, keep)) return false;
+                        }
+                        return true;
+                    });
+                }
+                for (const [tPath] of this.musicLibrary.tracks) {
+                    for (const dir of dirs) {
+                        if (isUnderPrefix(tPath, dir) && !isUnderAnyPrefix(tPath, keep)) {
+                            this.musicLibrary.tracks.delete(tPath);
+                            break;
+                        }
+                    }
+                }
+            }
+            this._refreshCurrentView();
+        }
+    }
+
+    _refreshCurrentView() {
+        if (!this.currentCategory) return;
+        if (this.currentCategory === 'music') this.renderMusicView?.();
+        else if (this.currentCategory === 'videos' || this.currentCategory === 'pictures') this.renderCategoryContent?.();
     }
 
     async scanFileSystem() {
@@ -2888,11 +3023,11 @@ class ZuneExplorer {
     }
 
     async scanMediaFiles() {
-        const sep = this.platform === 'win32' ? '\\' : '/';
+        const lib = this.preferences?.library || {};
         const categoryDirs = {
-            music: [`${this.homePath}${sep}Music`],
-            videos: [this.platform === 'darwin' ? `${this.homePath}${sep}Movies` : `${this.homePath}${sep}Videos`],
-            pictures: [`${this.homePath}${sep}Pictures`],
+            music: lib.music || [],
+            videos: lib.videos || [],
+            pictures: lib.pictures || [],
         };
 
         for (const [category, dirs] of Object.entries(categoryDirs)) {
@@ -2901,12 +3036,15 @@ class ZuneExplorer {
             }
         }
 
-        const commonDirs = [
-            `${this.homePath}${sep}Desktop`,
-            `${this.homePath}${sep}Downloads`,
-        ];
-        for (const dir of commonDirs) {
-            await this.scanDirectoryForMedia(dir);
+        if (lib.scanDesktopAndDownloads) {
+            const sep = this.platform === 'win32' ? '\\' : '/';
+            const commonDirs = [
+                `${this.homePath}${sep}Desktop`,
+                `${this.homePath}${sep}Downloads`,
+            ];
+            for (const dir of commonDirs) {
+                await this.scanDirectoryForMedia(dir);
+            }
         }
     }
 

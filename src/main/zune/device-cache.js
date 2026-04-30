@@ -41,6 +41,19 @@ class DeviceCache {
       // File may not exist
     }
   }
+
+  async clear() {
+    try {
+      const entries = await fs.readdir(this.cacheDir);
+      await Promise.all(
+        entries
+          .filter(e => e.endsWith('.json'))
+          .map(e => fs.unlink(path.join(this.cacheDir, e)).catch(() => {}))
+      );
+    } catch {
+      // cacheDir may not exist yet — nothing to clear
+    }
+  }
 }
 
 module.exports = { DeviceCache };
