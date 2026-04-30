@@ -2138,17 +2138,7 @@ class ZuneExplorer {
             this._onPreferenceChanged(evt);
         });
 
-        const firstRun = await new Promise((resolve) => {
-            const handler = (payload) => {
-                window.electronAPI.offFirstRun(handler);
-                resolve(payload);
-            };
-            window.electronAPI.onFirstRun(handler);
-            setTimeout(() => {
-                window.electronAPI.offFirstRun(handler);
-                resolve(null);
-            }, 500);
-        });
+        const firstRun = await window.electronAPI.consumeFirstRun();
 
         if (firstRun) {
             const splash = new window.BootSplash();

@@ -179,12 +179,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return handler;
   },
   offPreferencesChanged: (h) => ipcRenderer.removeListener('preferences-changed', h),
-  onFirstRun: (cb) => {
-    const handler = (_e, payload) => cb(payload);
-    ipcRenderer.on('first-run', handler);
-    return handler;
-  },
-  offFirstRun: (h) => ipcRenderer.removeListener('first-run', h),
+  consumeFirstRun: () => ipcRenderer.invoke('consume-first-run'),
   pickFolder: (title) => ipcRenderer.invoke('pick-folder', title),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   clearMetadataCache: () => ipcRenderer.invoke('clear-metadata-cache'),

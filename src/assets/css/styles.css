@@ -498,6 +498,7 @@ body {
     justify-content: center;
     padding: 40px 60px;
     position: relative;
+    overflow-y: auto;
     transform-origin: right center;
     transition: transform var(--transition-duration) var(--transition-easing);
 }
@@ -2454,6 +2455,7 @@ body.platform-linux .now-playing-panel {
     color: rgba(255, 255, 255, 0.55);
     line-height: 0.75;
     text-transform: lowercase;
+    white-space: nowrap;
     position: absolute;
     top: -160px;
     left: -6px;

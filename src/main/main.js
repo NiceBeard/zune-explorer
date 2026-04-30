@@ -26,6 +26,7 @@ let podcastManager = null;
 const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev');
 
 let mainWindow;
+let pendingFirstRun = null;
 
 // Path validation: restrict file operations to allowed directories
 function isAllowedPath(filePath) {
@@ -109,7 +110,6 @@ app.whenReady().then(async () => {
 
   await preferences.load(userDataDir, { defaultHome: app.getPath('home') });
 
-  let firstRunPayload = null;
   if (!hadPreferencesFile) {
     const legacyPatch = await importLegacyFiles(userDataDir);
     if (Object.keys(legacyPatch).length > 0) {
@@ -118,7 +118,7 @@ app.whenReady().then(async () => {
     await preferences.update({
       meta: { installedVersion: app.getVersion(), firstRunAt: new Date().toISOString() },
     });
-    firstRunPayload = { type: install.type, version: app.getVersion() };
+    pendingFirstRun = { type: install.type, version: app.getVersion() };
   }
 
   preferences.subscribe((evt) => {
@@ -128,12 +128,6 @@ app.whenReady().then(async () => {
   });
 
   createWindow();
-
-  mainWindow.webContents.once('did-finish-load', () => {
-    if (firstRunPayload) {
-      mainWindow.webContents.send('first-run', firstRunPayload);
-    }
-  });
 
   // Start Zune USB detection
   zuneManager.start();
@@ -538,6 +532,12 @@ ipcMain.handle('fix-extensionless-files', async (event, filePaths) => {
 });
 
 // Preferences IPC
+ipcMain.handle('consume-first-run', async () => {
+  const payload = pendingFirstRun;
+  pendingFirstRun = null;
+  return payload;
+});
+
 ipcMain.handle('preferences-load', async () => {
   const current = preferences.get('');
   if (current !== undefined) return { success: true, preferences: current };
