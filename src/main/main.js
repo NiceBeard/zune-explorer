@@ -99,18 +99,20 @@ app.whenReady().then(async () => {
   metadataCache = new MetadataCache(app.getPath('userData'));
   zuneManager.metadataCache = metadataCache;
 
-  podcastManager = new PodcastManager(app.getPath('userData'), {
-    getDownloadDirectory: () => preferences.get('podcasts.downloadDirectory'),
-  });
-  podcastManager.cleanupPartialDownloads();
-
-  // Preferences: load, migrate legacy files on first run after upgrade
+  // Preferences: load, migrate legacy files on first run after upgrade.
+  // Must happen before podcastManager is constructed so its getDownloadDirectory
+  // injection can read from the loaded store.
   const userDataDir = app.getPath('userData');
   const install = await detectInstallType(userDataDir);
   const prefFile = path.join(userDataDir, 'preferences.json');
   const hadPreferencesFile = await fs.access(prefFile).then(() => true).catch(() => false);
 
   await preferences.load(userDataDir, { defaultHome: app.getPath('home') });
+
+  podcastManager = new PodcastManager(app.getPath('userData'), {
+    getDownloadDirectory: () => preferences.get('podcasts.downloadDirectory'),
+  });
+  podcastManager.cleanupPartialDownloads();
 
   if (!hadPreferencesFile) {
     const legacyPatch = await importLegacyFiles(userDataDir);
