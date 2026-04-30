@@ -191,7 +191,31 @@ class SettingsView {
     ];
   }
 
-  _syncItems()     { return [{ kind: 'placeholder', label: 'sync — pending' }]; }
+  _syncItems() {
+    const dest = this.explorer.preferences?.sync?.pullDestination;
+    return [
+      { kind: 'info', label: 'pull destination', value: dest || '(not set)' },
+      {
+        kind: 'action',
+        label: dest ? 'change destination' : 'choose destination',
+        onClick: async () => {
+          const r = await window.electronAPI.pickFolder('Choose pull destination');
+          if (r && r.success) {
+            await window.electronAPI.preferencesUpdate({ sync: { pullDestination: r.path } });
+          }
+        },
+      },
+      {
+        kind: 'action',
+        label: 'clear destination',
+        disabled: !dest,
+        onClick: async () => {
+          if (!dest) return;
+          await window.electronAPI.preferencesUpdate({ sync: { pullDestination: null } });
+        },
+      },
+    ];
+  }
   _podcastsItems() { return [{ kind: 'placeholder', label: 'podcasts — pending' }]; }
   _dataItems()     { return [{ kind: 'placeholder', label: 'data — pending' }]; }
   _aboutItems()    { return [{ kind: 'placeholder', label: 'about — pending' }]; }
