@@ -2137,6 +2137,33 @@ class ZuneExplorer {
             this._onPreferenceChanged(evt);
         });
 
+        const firstRun = await new Promise((resolve) => {
+            const handler = (payload) => {
+                window.electronAPI.offFirstRun(handler);
+                resolve(payload);
+            };
+            window.electronAPI.onFirstRun(handler);
+            setTimeout(() => {
+                window.electronAPI.offFirstRun(handler);
+                resolve(null);
+            }, 500);
+        });
+
+        if (firstRun) {
+            const splash = new window.BootSplash();
+            const message = firstRun.type === 'new'
+                ? 'welcome to zune explorer'
+                : `updated to v${firstRun.version}`;
+            await splash.show({ message });
+
+            if (firstRun.type === 'upgrade' && !this.preferences.meta?.behaviorChangeToastShown) {
+                setTimeout(() => {
+                    this.showToast?.('desktop & downloads are no longer scanned by default. re-enable in settings → library.');
+                }, 500);
+                await window.electronAPI.preferencesUpdate({ meta: { behaviorChangeToastShown: true } });
+            }
+        }
+
         this.podcastPanel = new PodcastPanel(this);
         const sf = await window.electronAPI.getSpecialFolders();
         if (this.platform === 'win32') {
