@@ -4103,3 +4103,39 @@ body.platform-linux .now-playing-panel {
   color: rgba(255, 255, 255, 0.5);
   margin-top: 12px;
 }
+
+/* Boot / Update splash ------------------------------------------------ */
+.boot-splash {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 300ms ease-out;
+}
+.boot-splash.fading { opacity: 0; pointer-events: none; }
+
+.boot-splash-bar {
+  width: 10vw;
+  min-width: 32px;
+  max-width: 72px;
+  height: 0;
+  max-height: 40vh;
+  background: #EC008C;
+  transition:
+    height 2s cubic-bezier(0.25, 0.1, 0.25, 1),
+    background-color 2s linear;
+}
+.boot-splash-bar.active { height: 40vh; }
+
+.boot-splash-message {
+  margin-top: 32px;
+  font-size: 28px;
+  font-weight: 100;
+  color: rgba(255, 255, 255, 0.7);
+  text-transform: lowercase;
+  letter-spacing: 1px;
+}
