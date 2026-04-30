@@ -95,8 +95,20 @@ class SettingsView {
   }
 
   _rootItems() {
-    return [{ kind: 'placeholder', label: 'coming soon…' }];
+    return [
+      { kind: 'nav', label: 'library',  onClick: () => this.push({ title: 'library',  buildItems: () => this._libraryItems()  }) },
+      { kind: 'nav', label: 'sync',     onClick: () => this.push({ title: 'sync',     buildItems: () => this._syncItems()     }) },
+      { kind: 'nav', label: 'podcasts', onClick: () => this.push({ title: 'podcasts', buildItems: () => this._podcastsItems() }) },
+      { kind: 'nav', label: 'data',     onClick: () => this.push({ title: 'data',     buildItems: () => this._dataItems()     }) },
+      { kind: 'nav', label: 'about',    onClick: () => this.push({ title: 'about',    buildItems: () => this._aboutItems()    }) },
+    ];
   }
+
+  _libraryItems()  { return [{ kind: 'placeholder', label: 'library — pending' }]; }
+  _syncItems()     { return [{ kind: 'placeholder', label: 'sync — pending' }]; }
+  _podcastsItems() { return [{ kind: 'placeholder', label: 'podcasts — pending' }]; }
+  _dataItems()     { return [{ kind: 'placeholder', label: 'data — pending' }]; }
+  _aboutItems()    { return [{ kind: 'placeholder', label: 'about — pending' }]; }
 }
 
 window.SettingsView = SettingsView;
