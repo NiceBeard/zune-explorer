@@ -494,14 +494,30 @@ class ZuneManager extends EventEmitter {
   }
 
   async _createAlbumObjects(albumMap) {
-    // First, create Artist objects for each unique artist.
-    // The Zune uses Artist objects (format 0xB218) to manage artist metadata.
-    // Albums and tracks link to artists via ArtistId (0xDAB9) property.
+    // The Zune uses Artist objects (format 0xB218) and AbstractAudioAlbum
+    // objects (0xBA03) to group tracks. Albums and tracks link to an artist
+    // via the ArtistId (0xDAB9) property; tracks attach to an album via
+    // SetObjectReferences on the album.
+    //
+    // Each sendFiles() invocation produces one local albumMap. To avoid
+    // creating a fresh album object for every drop (which produces N copies
+    // of the same album, each holding one track — see issue #6), we first
+    // discover the artists/albums already on the device and reuse them.
+    const existing = await this._discoverExistingEntities();
+
     const artistHandles = new Map(); // artist name -> object handle
 
+    // Resolve or create an Artist object for each unique artist in this batch
     for (const [, albumInfo] of albumMap) {
       const artistName = albumInfo.artist;
       if (artistHandles.has(artistName)) continue;
+
+      const reused = existing.artists.get(artistName);
+      if (reused) {
+        artistHandles.set(artistName, reused);
+        console.log(`ZuneManager: reusing artist "${artistName}" (handle=${reused})`);
+        continue;
+      }
 
       try {
         const artistFilename = `${artistName}.art`;
@@ -512,11 +528,8 @@ class ZuneManager extends EventEmitter {
           compressedSize: 0,
           filename: artistFilename,
         });
-
-        // Send empty object data to complete the handshake
         await this.mtp.sendObject(Buffer.alloc(0));
 
-        // Set the artist name
         try {
           await this.mtp.setObjectPropString(artistHandle, ObjectProperty.Name, artistName);
         } catch (err) {
@@ -530,68 +543,92 @@ class ZuneManager extends EventEmitter {
       }
     }
 
-    // Now create album objects and link them to artists and tracks
+    // Resolve or create an AbstractAudioAlbum for each album in this batch
     for (const [key, albumInfo] of albumMap) {
       try {
         const { artist, album, genre, albumArt, trackHandles } = albumInfo;
-        const albumFilename = `${artist}--${album}.alb`;
         const artistHandle = artistHandles.get(artist);
+        const matches = existing.albums.get(`${artist}|||${album}`) || [];
 
-        console.log(`ZuneManager: creating album "${album}" by "${artist}" (${trackHandles.length} tracks)`);
+        let albumHandle;
+        let isNew = false;
+        const mergedRefs = new Set(trackHandles);
 
-        // Create the AbstractAudioAlbum object
-        const { objectHandle: albumHandle } = await this.mtp.sendObjectInfo(this.storageId, 0, {
-          objectFormat: ObjectFormat.AbstractAudioAlbum,
-          compressedSize: 0,
-          filename: albumFilename,
-        });
+        if (matches.length > 0) {
+          // Reuse the first matching album; absorb refs from any duplicates
+          // that exist from the pre-fix bug, then delete those duplicates.
+          albumHandle = matches[0];
+          console.log(`ZuneManager: reusing album "${album}" by "${artist}" (handle=${albumHandle}${matches.length > 1 ? `, ${matches.length - 1} duplicate(s) to merge` : ''})`);
 
-        // Send empty object data to complete the handshake
-        await this.mtp.sendObject(Buffer.alloc(0));
+          for (const h of matches) {
+            try {
+              const refs = await this.mtp.getObjectReferences(h);
+              for (const r of refs) mergedRefs.add(r);
+            } catch (err) {
+              console.log(`ZuneManager: could not read refs from album ${h}: ${err.message}`);
+            }
+          }
 
-        console.log(`ZuneManager: album object created (handle=${albumHandle}), setting properties`);
+          for (let i = 1; i < matches.length; i++) {
+            try {
+              await this.mtp.deleteObject(matches[i]);
+              console.log(`ZuneManager: deleted duplicate album object ${matches[i]}`);
+            } catch (err) {
+              console.log(`ZuneManager: could not delete duplicate album ${matches[i]}: ${err.message}`);
+            }
+          }
+        } else {
+          // No existing album — create a fresh one
+          isNew = true;
+          const albumFilename = `${artist}--${album}.alb`;
+          console.log(`ZuneManager: creating album "${album}" by "${artist}" (${trackHandles.length} tracks)`);
 
-        // Set album name
-        try {
-          await this.mtp.setObjectPropString(albumHandle, ObjectProperty.Name, album);
-        } catch (err) {
-          console.log(`ZuneManager: could not set album Name: ${err.message}`);
-        }
+          const { objectHandle } = await this.mtp.sendObjectInfo(this.storageId, 0, {
+            objectFormat: ObjectFormat.AbstractAudioAlbum,
+            compressedSize: 0,
+            filename: albumFilename,
+          });
+          await this.mtp.sendObject(Buffer.alloc(0));
+          albumHandle = objectHandle;
+          console.log(`ZuneManager: album object created (handle=${albumHandle}), setting properties`);
 
-        // Set artist string (may be ignored, but try it)
-        try {
-          await this.mtp.setObjectPropString(albumHandle, ObjectProperty.Artist, artist);
-        } catch (err) {
-          console.log(`ZuneManager: could not set album Artist: ${err.message}`);
-        }
-
-        // Link album to artist via ArtistId
-        if (artistHandle) {
           try {
-            await this.mtp.setObjectPropUint32(albumHandle, ObjectProperty.ArtistId, artistHandle);
-            console.log(`ZuneManager: linked album to artist (artistHandle=${artistHandle})`);
+            await this.mtp.setObjectPropString(albumHandle, ObjectProperty.Name, album);
           } catch (err) {
-            console.log(`ZuneManager: could not set album ArtistId: ${err.message}`);
+            console.log(`ZuneManager: could not set album Name: ${err.message}`);
+          }
+          try {
+            await this.mtp.setObjectPropString(albumHandle, ObjectProperty.Artist, artist);
+          } catch (err) {
+            console.log(`ZuneManager: could not set album Artist: ${err.message}`);
+          }
+          if (artistHandle) {
+            try {
+              await this.mtp.setObjectPropUint32(albumHandle, ObjectProperty.ArtistId, artistHandle);
+              console.log(`ZuneManager: linked album to artist (artistHandle=${artistHandle})`);
+            } catch (err) {
+              console.log(`ZuneManager: could not set album ArtistId: ${err.message}`);
+            }
+          }
+          if (genre) {
+            try {
+              await this.mtp.setObjectPropString(albumHandle, ObjectProperty.Genre, genre);
+            } catch (err) {
+              console.log(`ZuneManager: could not set album Genre: ${err.message}`);
+            }
           }
         }
 
-        if (genre) {
-          try {
-            await this.mtp.setObjectPropString(albumHandle, ObjectProperty.Genre, genre);
-          } catch (err) {
-            console.log(`ZuneManager: could not set album Genre: ${err.message}`);
-          }
-        }
-
-        // Link track handles to the album via SetObjectReferences
+        // Attach the merged track set (existing + newly synced, deduped)
         try {
-          await this.mtp.setObjectReferences(albumHandle, trackHandles);
-          console.log(`ZuneManager: linked ${trackHandles.length} tracks to album "${album}"`);
+          const refs = [...mergedRefs];
+          await this.mtp.setObjectReferences(albumHandle, refs);
+          console.log(`ZuneManager: linked ${refs.length} track(s) to album "${album}"`);
         } catch (err) {
           console.log(`ZuneManager: could not set object references for album "${album}": ${err.message}`);
         }
 
-        // Also set ArtistId on each track so the Zune associates tracks with the artist
+        // Always set ArtistId on the freshly synced tracks
         if (artistHandle) {
           for (const trackHandle of trackHandles) {
             try {
@@ -600,29 +637,28 @@ class ZuneManager extends EventEmitter {
               console.log(`ZuneManager: could not set ArtistId on track ${trackHandle}: ${err.message}`);
             }
           }
-          console.log(`ZuneManager: set ArtistId on ${trackHandles.length} tracks`);
+          console.log(`ZuneManager: set ArtistId on ${trackHandles.length} track(s)`);
         }
 
-        // Set album art via RepresentativeSampleData on the album object
-        if (albumArt && albumArt.data) {
+        // Album art: only set on a freshly created album. Don't overwrite art
+        // already present on a reused album — the user (or a prior good sync)
+        // may have set something better.
+        if (isNew && albumArt && albumArt.data) {
           const artData = Buffer.isBuffer(albumArt.data) ? albumArt.data : Buffer.from(albumArt.data);
           console.log(`ZuneManager: attempting album art (${artData.length} bytes, ${albumArt.format})`);
 
-          // Try setting each property independently — the Zune may only support some
           try {
             await this.mtp.setObjectPropArray(albumHandle, ObjectProperty.RepresentativeSampleData, artData);
             console.log(`ZuneManager: set RepresentativeSampleData OK`);
           } catch (err) {
             console.log(`ZuneManager: RepresentativeSampleData failed: ${err.message}`);
           }
-
           try {
             await this.mtp.setObjectPropUint32(albumHandle, ObjectProperty.RepresentativeSampleSize, artData.length);
             console.log(`ZuneManager: set RepresentativeSampleSize OK`);
           } catch (err) {
             console.log(`ZuneManager: RepresentativeSampleSize failed: ${err.message}`);
           }
-
           try {
             await this.mtp.setObjectPropUint16(albumHandle, ObjectProperty.RepresentativeSampleFormat, ObjectFormat.JPEG);
             console.log(`ZuneManager: set RepresentativeSampleFormat OK`);
@@ -631,9 +667,66 @@ class ZuneManager extends EventEmitter {
           }
         }
       } catch (err) {
-        console.log(`ZuneManager: failed to create album object for "${key}": ${err.message}`);
+        console.log(`ZuneManager: failed to handle album for "${key}": ${err.message}`);
       }
     }
+  }
+
+  // Enumerate Artist (0xB218) and AbstractAudioAlbum (0xBA03) objects on the
+  // device so subsequent syncs can reuse them instead of creating duplicates.
+  // Returns { artists: Map<name, handle>, albums: Map<"artist|||name", handle[]> }.
+  // Failures degrade silently — caller proceeds as if nothing exists.
+  async _discoverExistingEntities() {
+    const result = {
+      artists: new Map(),
+      albums: new Map(),
+    };
+
+    try {
+      const artistHandles = await this.mtp.getObjectHandles(this.storageId, ObjectFormat.Artist);
+      const artistById = new Map();
+      for (const h of artistHandles) {
+        try {
+          const name = await this.mtp.getObjectPropString(h, ObjectProperty.Name);
+          if (!name) continue;
+          if (!result.artists.has(name)) result.artists.set(name, h);
+          artistById.set(h, name);
+        } catch (err) {
+          // Skip artists we can't read
+        }
+      }
+      console.log(`ZuneManager: discovered ${result.artists.size} existing artist(s) on device`);
+
+      const albumHandles = await this.mtp.getObjectHandles(this.storageId, ObjectFormat.AbstractAudioAlbum);
+      for (const h of albumHandles) {
+        let albumName = null;
+        try { albumName = await this.mtp.getObjectPropString(h, ObjectProperty.Name); } catch (_) {}
+        if (!albumName) continue;
+
+        let artistName = null;
+        try {
+          const artistId = await this.mtp.getObjectPropUint32(h, ObjectProperty.ArtistId);
+          if (artistId) artistName = artistById.get(artistId) || null;
+        } catch (_) {}
+        if (!artistName) {
+          try { artistName = await this.mtp.getObjectPropString(h, ObjectProperty.Artist); } catch (_) {}
+        }
+        if (!artistName) artistName = 'Unknown Artist';
+
+        const key = `${artistName}|||${albumName}`;
+        const list = result.albums.get(key);
+        if (list) list.push(h);
+        else result.albums.set(key, [h]);
+      }
+
+      let totalAlbums = 0;
+      for (const list of result.albums.values()) totalAlbums += list.length;
+      console.log(`ZuneManager: discovered ${totalAlbums} album object(s) across ${result.albums.size} unique album(s)`);
+    } catch (err) {
+      console.log(`ZuneManager: existing-entity discovery failed (will create fresh): ${err.message}`);
+    }
+
+    return result;
   }
 
   cancelTransfer() {
