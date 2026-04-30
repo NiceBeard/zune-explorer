@@ -13,14 +13,9 @@ class BootSplash {
     this.root.classList.remove('fading');
     void this.bar.offsetHeight;
 
-    const stops = ['#EC008C', '#F58220', '#00ADA7', '#2B3990'];
-    const stopDuration = minDurationMs / (stops.length - 1);
     this.bar.classList.add('active');
 
-    for (let i = 1; i < stops.length; i++) {
-      await new Promise((r) => setTimeout(r, stopDuration));
-      this.bar.style.backgroundColor = stops[i];
-    }
+    await new Promise((r) => setTimeout(r, minDurationMs));
 
     if (task && typeof task.then === 'function') {
       try { await task; } catch (err) { console.warn('BootSplash task failed', err); }
@@ -30,7 +25,6 @@ class BootSplash {
     await new Promise((r) => setTimeout(r, fadeMs));
     this.root.style.display = 'none';
     this.bar.classList.remove('active');
-    this.bar.style.backgroundColor = '';
   }
 }
 
