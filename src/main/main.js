@@ -99,7 +99,9 @@ app.whenReady().then(async () => {
   metadataCache = new MetadataCache(app.getPath('userData'));
   zuneManager.metadataCache = metadataCache;
 
-  podcastManager = new PodcastManager(app.getPath('userData'));
+  podcastManager = new PodcastManager(app.getPath('userData'), {
+    getDownloadDirectory: () => preferences.get('podcasts.downloadDirectory'),
+  });
   podcastManager.cleanupPartialDownloads();
 
   // Preferences: load, migrate legacy files on first run after upgrade
@@ -1144,11 +1146,16 @@ ipcMain.handle('podcast-get-preferences', async () => {
 ipcMain.handle('podcast-pick-download-directory', async () => {
   try {
     const { dialog } = require('electron');
-    const directory = await podcastManager.pickDownloadDirectory(dialog);
-    if (directory) {
-      return { success: true, directory };
+    const r = await dialog.showOpenDialog({
+      title: 'Choose Podcast Download Directory',
+      properties: ['openDirectory', 'createDirectory'],
+      defaultPath: preferences.get('podcasts.downloadDirectory') || undefined,
+    });
+    if (r.canceled || !r.filePaths || r.filePaths.length === 0) {
+      return { success: false, cancelled: true };
     }
-    return { success: false, cancelled: true };
+    await preferences.update({ podcasts: { downloadDirectory: r.filePaths[0] } });
+    return { success: true, directory: r.filePaths[0] };
   } catch (error) {
     return { success: false, error: error.message };
   }
