@@ -2047,14 +2047,15 @@ class ZuneExplorer {
         this.currentCategory = null;
         this.currentMenuIndex = 0;
         this.currentViewMode = 'grid'; // grid, list
-        this.categories = ['music', 'videos', 'pictures', 'podcasts', 'documents', 'applications'];
+        this.categories = ['music', 'videos', 'pictures', 'podcasts', 'documents', 'applications', 'settings'];
         this.categorizedFiles = {
             music: [],
             videos: [],
             pictures: [],
             podcasts: [],
             documents: [],
-            applications: []
+            applications: [],
+            settings: []
         };
         this.recentFiles = [];
         this.pinnedItems = [];
@@ -2509,6 +2510,9 @@ class ZuneExplorer {
             if (this.podcastPanel) this.podcastPanel.render();
         } else if (this.currentCategory === 'documents') {
             this.renderRootView();
+        } else if (this.currentCategory === 'settings') {
+            if (!this.settingsView) this.settingsView = new window.SettingsView(this);
+            this.settingsView.render();
         } else {
             this.renderCategoryContent();
         }
