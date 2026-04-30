@@ -104,7 +104,93 @@ class SettingsView {
     ];
   }
 
-  _libraryItems()  { return [{ kind: 'placeholder', label: 'library — pending' }]; }
+  _libraryItems() {
+    const prefs = this.explorer.preferences;
+    return [
+      {
+        kind: 'nav',
+        label: 'music folders',
+        onClick: () => this.push({ title: 'music folders', buildItems: () => this._folderListItems('music') }),
+      },
+      {
+        kind: 'nav',
+        label: 'video folders',
+        onClick: () => this.push({ title: 'video folders', buildItems: () => this._folderListItems('videos') }),
+      },
+      {
+        kind: 'nav',
+        label: 'picture folders',
+        onClick: () => this.push({ title: 'picture folders', buildItems: () => this._folderListItems('pictures') }),
+      },
+      {
+        kind: 'toggle',
+        label: 'scan desktop and downloads',
+        value: !!prefs?.library?.scanDesktopAndDownloads,
+        onToggle: async (newVal) => {
+          await window.electronAPI.preferencesUpdate({ library: { scanDesktopAndDownloads: newVal } });
+        },
+      },
+    ];
+  }
+
+  _folderListItems(category) {
+    const list = this.explorer.preferences?.library?.[category] || [];
+    const items = list.map((folderPath) => ({
+      kind: 'nav',
+      label: folderPath,
+      onClick: () => this.push({
+        title: folderPath.split(/[/\\]/).pop() || folderPath,
+        buildItems: () => this._folderLeafItems(category, folderPath),
+      }),
+    }));
+    items.push({
+      kind: 'action',
+      label: '+ add folder',
+      onClick: async () => {
+        const r = await window.electronAPI.pickFolder(`Choose a ${category} folder`);
+        if (r && r.success) {
+          const cur = this.explorer.preferences.library[category] || [];
+          if (cur.includes(r.path)) return;
+          await window.electronAPI.preferencesUpdate({
+            library: { [category]: [...cur, r.path] },
+          });
+        }
+      },
+    });
+    return items;
+  }
+
+  _folderLeafItems(category, folderPath) {
+    const list = this.explorer.preferences?.library?.[category] || [];
+    const isLast = list.length <= 1;
+    return [
+      { kind: 'info', label: 'path', value: folderPath },
+      {
+        kind: 'action',
+        label: 'reveal in finder',
+        onClick: () => window.electronAPI.showItemInFolder?.(folderPath),
+      },
+      {
+        kind: 'action',
+        label: isLast ? 'remove (last folder — disabled)' : 'remove from library',
+        disabled: isLast,
+        onClick: async () => {
+          if (isLast) return;
+          const confirmed = await this.explorer.showConfirmModal?.(
+            'Remove folder',
+            `Stop scanning ${folderPath}?`
+          );
+          if (!confirmed) return;
+          const next = list.filter((p) => p !== folderPath);
+          await window.electronAPI.preferencesUpdate({
+            library: { [category]: next },
+          });
+          this.pop();
+        },
+      },
+    ];
+  }
+
   _syncItems()     { return [{ kind: 'placeholder', label: 'sync — pending' }]; }
   _podcastsItems() { return [{ kind: 'placeholder', label: 'podcasts — pending' }]; }
   _dataItems()     { return [{ kind: 'placeholder', label: 'data — pending' }]; }
