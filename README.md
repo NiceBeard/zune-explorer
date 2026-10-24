@@ -86,7 +86,7 @@ The app is ad-hoc signed but not notarized by Apple, so macOS will block it on f
 3. Go to **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to Zune Explorer
 4. Confirm with your password and click **Open**
 
-You only need to do this once. Alternatively, run in Terminal:
+The **Open Anyway** button only appears for about an hour after the blocked launch — if it's missing, open the app again and repeat step 3. You only need to do this once. Alternatively, run in Terminal:
 ```bash
 xattr -cr /Applications/Zune\ Explorer.app
 ```
