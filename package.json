@@ -19,11 +19,11 @@
   "author": "NiceBeard",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^31.2.0",
-    "electron-builder": "^24.13.3"
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0"
   },
   "dependencies": {
-    "fast-xml-parser": "^4.5.1",
+    "fast-xml-parser": "^5.11.2",
     "ffmpeg-static": "^5.3.0",
     "music-metadata": "^11.12.1",
     "usb": "^2.17.0"
@@ -37,6 +37,11 @@
     "mac": {
       "category": "public.app-category.utilities",
       "icon": "build-resources/icon.icns",
+      "identity": "-",
+      "hardenedRuntime": true,
+      "entitlements": "build-resources/entitlements.mac.plist",
+      "entitlementsInherit": "build-resources/entitlements.mac.plist",
+      "minimumSystemVersion": "12.0",
       "target": [
         {
           "target": "dmg",

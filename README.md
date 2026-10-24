@@ -79,11 +79,12 @@ Grab the latest release from the [Releases page](https://github.com/NiceBeard/zu
 
 ### macOS Gatekeeper Notice
 
-The app is not yet code-signed. macOS will block it on first launch. To open it:
+The app is ad-hoc signed but not notarized by Apple, so macOS will block it on first launch with a "could not verify" warning. To open it:
 
 1. Open the DMG and drag Zune Explorer to Applications
-2. **Right-click** (or Control-click) the app in Applications → **Open**
-3. Click **Open** in the dialog that appears
+2. Open the app once — macOS will show a warning. Click **Done** (not Move to Trash)
+3. Go to **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to Zune Explorer
+4. Confirm with your password and click **Open**
 
 You only need to do this once. Alternatively, run in Terminal:
 ```bash
