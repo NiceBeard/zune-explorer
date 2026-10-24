@@ -42,9 +42,11 @@ After building, you'll find in the `dist` directory:
 4. Launch Zune Explorer from Applications or Launchpad
 
 ### First Launch:
-On first launch, macOS may show a security warning. To open:
-1. Right-click the app and choose "Open"
-2. Click "Open" in the security dialog
+The app is ad-hoc signed (`mac.identity: "-"` in `package.json`) but not notarized, so a downloaded copy shows a "could not verify" warning on first launch. To open:
+1. Click "Done" in the warning dialog
+2. Open System Settings → Privacy & Security and click "Open Anyway"
+
+To ship a fully trusted build, replace `"identity": "-"` with a Developer ID Application certificate and provide notarization credentials (`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`).
 
 ## Development Mode
 To run in development mode without building:
@@ -60,4 +62,4 @@ Make sure your icon.png is at least 1024x1024 pixels and saved in `build-resourc
 ### Build Fails
 1. Delete the `dist` directory and try again
 2. Make sure all dependencies are installed: `npm install`
-3. Check that you're using a compatible Node.js version (14.x or higher)
+3. Check that you're using a compatible Node.js version (22.x or higher)
