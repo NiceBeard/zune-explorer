@@ -3062,6 +3062,38 @@ body.platform-linux .now-playing-panel {
     letter-spacing: -1px;
 }
 
+/* Artist photo backdrop (artist + album pages). #content-panel has a transform,
+   so position: fixed pins the photo to the panel while the page scrolls. */
+.artist-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-size: cover;
+    background-position: center top;
+    background-repeat: no-repeat;
+    pointer-events: none;
+}
+
+.artist-backdrop::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+}
+
+.artist-backdrop-artist::after {
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0.6) 45%, rgba(0, 0, 0, 0.88) 100%);
+}
+
+.artist-backdrop-album::after {
+    background: linear-gradient(to right, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.7) 50%, rgba(0, 0, 0, 0.35) 100%);
+}
+
+.has-artist-photo .music-artist-detail-header,
+.has-artist-photo .music-album-detail-name,
+.has-artist-photo .music-album-detail-artist {
+    text-shadow: 0 1px 12px rgba(0, 0, 0, 0.6);
+}
+
 /* ==============================
    Alpha Jump Overlay
    ============================== */
