@@ -75,6 +75,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   metadataCacheSet: (artist, album, data) => ipcRenderer.invoke('metadata-cache-set', artist, album, data),
   metadataCacheGetAll: () => ipcRenderer.invoke('metadata-cache-get-all'),
 
+  // Artist images (all resolve null while artist images are turned off)
+  artistImageGet: (name) => ipcRenderer.invoke('artist-image-get', name),
+  artistImageFind: (name) => ipcRenderer.invoke('artist-image-find', name),
+  artistImageNext: (name) => ipcRenderer.invoke('artist-image-next', name),
+  artistImageRemove: (name) => ipcRenderer.invoke('artist-image-remove', name),
+  artistImageRestore: (name) => ipcRenderer.invoke('artist-image-restore', name),
+  clearArtistImages: () => ipcRenderer.invoke('clear-artist-images'),
+
   // Drag-and-drop path resolution (sandbox-safe)
   getPathForFile: (file) => webUtils.getPathForFile(file),
 

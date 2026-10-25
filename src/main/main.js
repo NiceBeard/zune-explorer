@@ -10,6 +10,8 @@ const { ZuneManager } = require('./zune/zune-manager');
 const { DeviceCache } = require('./zune/device-cache');
 const { MetadataCache } = require('./metadata-cache.js');
 const musicbrainz = require('./musicbrainz.js');
+const { ArtistImages } = require('./artist-images');
+const { getFanartApiKey } = require('./app-config');
 const PodcastManager = require('./podcast-manager');
 const preferences = require('./preferences');
 const { detectInstallType, importLegacyFiles } = require('./preferences-migrations');
@@ -20,6 +22,7 @@ const ffmpegPath = require('ffmpeg-static');
 const zuneManager = new ZuneManager();
 let deviceCache = null; // initialized after app.whenReady
 let metadataCache;
+let artistImages = null;
 let podcastManager = null;
 
 // Simple dev mode detection
@@ -97,6 +100,12 @@ function createWindow() {
 app.whenReady().then(async () => {
   deviceCache = new DeviceCache(app.getPath('userData'));
   metadataCache = new MetadataCache(app.getPath('userData'));
+  artistImages = new ArtistImages(app.getPath('userData'), {
+    searchArtists: musicbrainz.searchArtists,
+    fetchJson: musicbrainz.fetchJsonUnlimited,
+    fetchBinary: musicbrainz.fetchUnlimited,
+    getApiKey: () => getFanartApiKey(),
+  });
   zuneManager.metadataCache = metadataCache;
 
   // Preferences: load, migrate legacy files on first run after upgrade.
@@ -979,6 +988,34 @@ ipcMain.handle('metadata-cache-set', async (event, artist, album, data) => {
 ipcMain.handle('metadata-cache-get-all', async () => {
   const data = await metadataCache.getAll();
   return { success: true, data };
+});
+
+// Artist images: every handler is a no-op unless the user turned them on,
+// so nothing is downloaded without opt-in.
+function artistImageHandler(method) {
+  return async (_event, name) => {
+    if (!preferences.get('artistImages.enabled') || typeof name !== 'string' || !artistImages) return null;
+    try {
+      return (await artistImages[method](name)) || null;
+    } catch (err) {
+      console.error(`artist image ${method} failed`, err);
+      return null;
+    }
+  };
+}
+ipcMain.handle('artist-image-get', artistImageHandler('get'));
+ipcMain.handle('artist-image-find', artistImageHandler('find'));
+ipcMain.handle('artist-image-next', artistImageHandler('next'));
+ipcMain.handle('artist-image-remove', artistImageHandler('remove'));
+ipcMain.handle('artist-image-restore', artistImageHandler('restore'));
+
+ipcMain.handle('clear-artist-images', async () => {
+  try {
+    if (artistImages) await artistImages.clear();
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 });
 
 ipcMain.handle('window-minimize', async () => {
