@@ -1,9 +1,13 @@
 // Artist name matching for photo lookups: better no photo than the wrong person,
 // so only names that are identical after normalising count as a match.
 
-function normalizeArtistName(name) {
+function normalizeArtistName(name, { keepInitials = false } = {}) {
   if (!name) return '';
-  return String(name)
+  let text = String(name);
+  // Cache keys keep initialisms apart from words (M.I.A. vs Mia); matching against
+  // sources stays loose so a library "A.F.I." still finds Deezer's "AFI".
+  if (keepInitials) text = text.replace(/\./g, ' ');
+  return text
     .normalize('NFKD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
@@ -33,7 +37,13 @@ function isPlaceholderArtist(name) {
   return PLACEHOLDERS.has(normalizeArtistName(name));
 }
 
-const artistName = { normalizeArtistName, artistNamesMatch, primaryArtist, isPlaceholderArtist };
+// Cache key for an artist's photo: one entry per distinct library artist.
+function artistCacheKey(name) {
+  const primary = primaryArtist(name);
+  return isPlaceholderArtist(primary) ? '' : normalizeArtistName(primary, { keepInitials: true });
+}
+
+const artistName = { normalizeArtistName, artistNamesMatch, primaryArtist, isPlaceholderArtist, artistCacheKey };
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = artistName;

@@ -273,3 +273,95 @@ test('find: different artists at once all end up in the index', async () => {
   const index = await readIndex();
   for (const n of names) assert.ok(index[n.toLowerCase()], `missing ${n}`);
 });
+
+test('find: a failed download moves on to the next candidate', async () => {
+  const { store, calls } = makeStore({
+    binary: (url) => {
+      if (url === 'https://f/b2.jpg') throw httpError(404);
+      return { data: Buffer.from('img:' + url), contentType: 'image/jpeg' };
+    },
+  });
+  const r = await store.find(PETTY);
+  assert.equal(r.source, 'fanart');
+  assert.deepEqual(calls.binary, ['https://f/b2.jpg', 'https://f/b1.jpg']);
+  assert.equal((await readIndex())[PETTY_KEY].index, 1);
+});
+
+test('find: every candidate failing to download records nothing', async () => {
+  const { store } = makeStore({ binary: () => { throw new Error('Request timeout'); } });
+  assert.equal(await store.find(PETTY), null);
+  assert.equal((await readIndex())[PETTY_KEY], undefined);
+});
+
+// Hold the first fetchBinary until released, to interleave operations with a find in flight.
+function gatedBinary() {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let first = true;
+  return {
+    release: () => release(),
+    binary: async (url) => {
+      if (first) { first = false; await gate; }
+      return { data: Buffer.from('img:' + url), contentType: 'image/jpeg' };
+    },
+  };
+}
+
+test('remove during an in-flight find stays removed', async () => {
+  const g = gatedBinary();
+  const { store } = makeStore({ binary: g.binary });
+  const finding = store.find(PETTY);
+  await new Promise((r) => setTimeout(r, 10));
+  const removing = store.remove(PETTY);
+  g.release();
+  await Promise.all([finding, removing]);
+  assert.equal(await store.get(PETTY), null);
+  assert.equal(await store.state(PETTY), 'removed');
+});
+
+test('next during an in-flight find advances after it', async () => {
+  const g = gatedBinary();
+  const { store } = makeStore({ binary: g.binary });
+  const finding = store.find(PETTY);
+  await new Promise((r) => setTimeout(r, 10));
+  const nexting = store.next(PETTY);
+  g.release();
+  const [a, b] = await Promise.all([finding, nexting]);
+  assert.notEqual(a.url, b.url);
+  assert.equal((await readIndex())[PETTY_KEY].index, 1);
+});
+
+test('clear during an in-flight find leaves the cache empty', async () => {
+  const g = gatedBinary();
+  const { store } = makeStore({ binary: g.binary });
+  const finding = store.find(PETTY);
+  await new Promise((r) => setTimeout(r, 10));
+  await store.clear();
+  g.release();
+  await finding;
+  assert.equal(await store.get(PETTY), null);
+  assert.deepEqual(await readIndex(), {});
+});
+
+test('state: none, cached, removed', async () => {
+  const { store } = makeStore();
+  assert.equal(await store.state(PETTY), 'none');
+  await store.find(PETTY);
+  assert.equal(await store.state(PETTY), 'cached');
+  await store.remove(PETTY);
+  assert.equal(await store.state(PETTY), 'removed');
+  assert.equal(await store.state('Various Artists'), 'none');
+});
+
+test('M.I.A. and Mia in one library keep separate photos', async () => {
+  const { store } = makeStore({
+    key: null,
+    deezer: (url) => {
+      const q = decodeURIComponent(url.split('q=')[1]);
+      return { data: [{ name: q, picture_xl: `https://d/${encodeURIComponent(q)}.jpg` }] };
+    },
+  });
+  const a = await store.find('M.I.A.');
+  const b = await store.find('Mia');
+  assert.notEqual(a.url, b.url);
+});

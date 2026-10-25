@@ -2,7 +2,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
 const { pathToFileURL } = require('url');
-const { normalizeArtistName, artistNamesMatch, primaryArtist, isPlaceholderArtist } = require('../shared/artist-name');
+const { artistNamesMatch, primaryArtist, artistCacheKey } = require('../shared/artist-name');
 
 const MISS_RETRY_MS = 14 * 24 * 60 * 60 * 1000;
 const MIN_MB_SCORE = 90;
@@ -20,14 +20,15 @@ class ArtistImages {
     this.getApiKey = getApiKey;
     this.now = now;
     this.index = null; // lazy loaded
-    this._inflight = new Map();
+    this._inflight = new Map(); // key -> shared find() promise
+    this._queues = new Map();   // key -> tail of that artist's operation queue
+    this._epoch = 0;            // bumped by clear(); older operations then write nothing
     this._saving = Promise.resolve();
   }
 
   // '' for names that must never be looked up (placeholders like "Various Artists").
   _key(name) {
-    const primary = primaryArtist(name);
-    return isPlaceholderArtist(primary) ? '' : normalizeArtistName(primary);
+    return artistCacheKey(name);
   }
 
   async _load() {
@@ -66,12 +67,24 @@ class ArtistImages {
     };
   }
 
-  // Share one in-flight operation per artist so concurrent callers don't double-fetch.
-  _once(key, fn) {
-    if (this._inflight.has(key)) return this._inflight.get(key);
-    const p = fn().finally(() => this._inflight.delete(key));
-    this._inflight.set(key, p);
-    return p;
+  // Operations on one artist run one after another, so next/remove can't interleave with a find.
+  _enqueue(key, fn) {
+    const prev = this._queues.get(key) || Promise.resolve();
+    const run = prev.then(fn);
+    const tail = run.catch(() => {});
+    this._queues.set(key, tail);
+    tail.then(() => { if (this._queues.get(key) === tail) this._queues.delete(key); });
+    return run;
+  }
+
+  // 'removed' (user removed the photo), 'cached' (photo on disk) or 'none'.
+  async state(name) {
+    const key = this._key(name);
+    if (!key) return 'none';
+    await this._load();
+    const entry = this.index[key];
+    if (entry && entry.removed) return 'removed';
+    return (await this._result(entry)) ? 'cached' : 'none';
   }
 
   async get(name) {
@@ -84,10 +97,16 @@ class ArtistImages {
   find(name) {
     const key = this._key(name);
     if (!key) return Promise.resolve(null);
-    return this._once(key, () => this._find(key, primaryArtist(name)));
+    // Concurrent finds for the same artist share one lookup.
+    if (this._inflight.has(key)) return this._inflight.get(key);
+    const p = this._enqueue(key, () => this._find(key, primaryArtist(name)))
+      .finally(() => this._inflight.delete(key));
+    this._inflight.set(key, p);
+    return p;
   }
 
   async _find(key, name) {
+    const epoch = this._epoch;
     await this._load();
     const entry = this.index[key];
     if (entry) {
@@ -109,6 +128,7 @@ class ArtistImages {
       return null;
     }
 
+    if (epoch !== this._epoch) return null; // cleared meanwhile
     if (candidates.length === 0) {
       // Only a clean "nothing found" from every source counts as a miss.
       if (!complete) return null;
@@ -116,7 +136,16 @@ class ArtistImages {
       await this._save();
       return null;
     }
-    return this._useCandidate(key, { candidates, mbid, index: 0 });
+    return this._useFirstWorking(key, { candidates, mbid, order: candidates.map((_, i) => i), epoch });
+  }
+
+  // Try candidates in `order` until one downloads; dead links are skipped.
+  async _useFirstWorking(key, { candidates, mbid, order, epoch }) {
+    for (const index of order) {
+      const r = await this._useCandidate(key, { candidates, mbid, index, epoch });
+      if (r) return r;
+    }
+    return null;
   }
 
   // complete is false when fanart.tv/MusicBrainz failed, so an empty result isn't a real miss.
@@ -169,7 +198,7 @@ class ArtistImages {
   }
 
   // Download candidates[index] and make it the artist's photo. Returns null on failure, changing nothing.
-  async _useCandidate(key, { candidates, mbid, index }) {
+  async _useCandidate(key, { candidates, mbid, index, epoch }) {
     const candidate = candidates[index];
     let data, contentType;
     try {
@@ -178,6 +207,7 @@ class ArtistImages {
       console.warn('artist image download failed', candidate.url, err.message);
       return null;
     }
+    if (epoch !== this._epoch) return null; // cleared while downloading
     const ext = EXTENSIONS[(contentType || '').split(';')[0].trim().toLowerCase()] || 'jpg';
     const hash = crypto.createHash('sha1').update(key).digest('hex');
     const file = `${hash}-${index}.${ext}`;
@@ -196,38 +226,45 @@ class ArtistImages {
   next(name) {
     const key = this._key(name);
     if (!key) return Promise.resolve(null);
-    return this._once(key, async () => {
+    return this._enqueue(key, async () => {
+      const epoch = this._epoch;
       await this._load();
       const entry = this.index[key];
       if (!entry || !entry.candidates || entry.candidates.length === 0) return null;
-      const index = (entry.index + 1) % entry.candidates.length;
-      const r = await this._useCandidate(key, { candidates: entry.candidates, mbid: entry.mbid, index });
+      const n = entry.candidates.length;
+      const order = Array.from({ length: n - 1 }, (_, i) => (entry.index + 1 + i) % n);
+      const r = await this._useFirstWorking(key, { candidates: entry.candidates, mbid: entry.mbid, order, epoch });
       return r || this._result(entry);
     });
   }
 
-  async remove(name) {
+  remove(name) {
     const key = this._key(name);
-    if (!key) return;
-    await this._load();
-    this.index[key] = { ...(this.index[key] || {}), removed: true };
-    await this._save();
+    if (!key) return Promise.resolve();
+    return this._enqueue(key, async () => {
+      await this._load();
+      this.index[key] = { ...(this.index[key] || {}), removed: true };
+      await this._save();
+    });
   }
 
   async restore(name) {
     const key = this._key(name);
     if (!key) return null;
-    await this._load();
-    const entry = this.index[key];
-    if (entry && entry.removed) {
-      delete entry.removed;
-      if (!entry.file) delete this.index[key];
-      await this._save();
-    }
+    await this._enqueue(key, async () => {
+      await this._load();
+      const entry = this.index[key];
+      if (entry && entry.removed) {
+        delete entry.removed;
+        if (!entry.file) delete this.index[key];
+        await this._save();
+      }
+    });
     return this.find(name);
   }
 
   async clear() {
+    this._epoch++;
     this._inflight.clear();
     this.index = {};
     await fs.rm(this.dir, { recursive: true, force: true });

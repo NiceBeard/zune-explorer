@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeArtistName, artistNamesMatch, primaryArtist, isPlaceholderArtist } = require('../src/shared/artist-name');
+const { normalizeArtistName, artistNamesMatch, primaryArtist, isPlaceholderArtist, artistCacheKey } = require('../src/shared/artist-name');
 
 test('normalize: case, diacritics, ampersand, leading the', () => {
   assert.equal(normalizeArtistName('Beyoncé'), 'beyonce');
@@ -37,4 +37,16 @@ test('isPlaceholderArtist: compilation and unknown placeholders', () => {
   assert.equal(isPlaceholderArtist('unknown'), true);
   assert.equal(isPlaceholderArtist(''), true);
   assert.equal(isPlaceholderArtist('Coheed and Cambria'), false);
+});
+
+test('artistCacheKey: initialisms get their own entry, spelling variants share one', () => {
+  assert.notEqual(artistCacheKey('M.I.A.'), artistCacheKey('Mia'));
+  assert.equal(artistCacheKey('M.I.A.'), artistCacheKey('m.i.a.'));
+  assert.equal(artistCacheKey('St. Vincent'), artistCacheKey('St Vincent'));
+  assert.equal(artistCacheKey('Calvin Harris feat. Rihanna'), artistCacheKey('Calvin Harris'));
+  assert.equal(artistCacheKey('Various Artists'), '');
+});
+
+test('match: library "A.F.I." still matches Deezer "AFI"', () => {
+  assert.equal(artistNamesMatch('A.F.I.', 'AFI'), true);
 });
