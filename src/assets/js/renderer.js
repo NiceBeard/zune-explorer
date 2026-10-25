@@ -4944,6 +4944,9 @@ class ZuneExplorer {
 
         const detail = document.createElement('div');
         detail.className = 'music-album-detail';
+        // Same artist the album's artist link navigates to, so both pages show the same photo
+        const libArtist = this.musicLibrary.artists.get(this.resolveArtistKey(album.artist));
+        const photoArtist = libArtist ? libArtist.name : album.artist;
 
         // Header
         const header = document.createElement('div');
@@ -5000,11 +5003,11 @@ class ZuneExplorer {
         header.addEventListener('contextmenu', (e) => {
             this.showMusicItemContextMenu(e, album.tracks, [
                 { label: 'Pin to sidebar', action: () => this.pinMusicItem('album', { label: album.name, meta: { albumKey: album.key, category: 'music' } }) },
-                ...this.artistPhotoMenuItems(detail, album.artist),
+                ...this.artistPhotoMenuItems(detail, photoArtist),
             ]);
         });
         detail.appendChild(header);
-        this.attachArtistBackdrop(detail, album.artist, 'album');
+        this.attachArtistBackdrop(detail, photoArtist, 'album');
 
         // Track list
         const trackList = document.createElement('div');

@@ -143,7 +143,7 @@ class Screensaver {
   }
 
   async _tick() {
-    if (!this.isOpen) return;
+    if (!this.isOpen || document.visibilityState === 'hidden') return;
     const motion = window.screensaverMotion;
     for (const set of this.sets) {
       if (set.rows.every((r) => r.anim.playState === 'finished')) set.rotor.remove();
@@ -173,6 +173,10 @@ class Screensaver {
       }
       this.pending = prepared;
     }
+
+    // The window may have been hidden while the set was being prepared; launching now
+    // would run it while the older sets are paused. Keep it for when we're visible again.
+    if (document.visibilityState === 'hidden') return;
 
     const viewport = this._viewport();
     const outgoing = [];
@@ -210,15 +214,24 @@ class Screensaver {
       try { cover = this.explorer.findAlbumArtForTrack(file) || null; } catch { cover = null; }
     }
     const libTrack = !isPodcast && file.path ? this.explorer.musicLibrary?.tracks.get(file.path) : null;
-    const photoArtist = isPodcast ? null : ((libTrack && libTrack.albumArtist) || metadata.artist || null);
+    // Compilations: "Various Artists" is not a person; use the track's own artist instead.
+    const { isPlaceholderArtist } = window.artistName;
+    let photoArtist = null;
+    if (!isPodcast) {
+      const albumArtist = libTrack && libTrack.albumArtist;
+      photoArtist = albumArtist && !isPlaceholderArtist(albumArtist) ? albumArtist : (metadata.artist || null);
+    }
     return { title, album, artist, cover, isPodcast, photoArtist };
   }
 
   async _resolveBackground(info) {
     if (info.photoArtist && this.explorer.preferences?.artistImages?.enabled) {
+      // Use the cache only, so a new artist never leaves the screen empty while a photo
+      // downloads; the lookup runs in the background and a later set picks it up.
       try {
-        const photo = await window.electronAPI.artistImageFind(info.photoArtist);
+        const photo = await window.electronAPI.artistImageGet(info.photoArtist);
         if (photo) return { url: photo.url, kind: 'photo' };
+        window.electronAPI.artistImageFind(info.photoArtist).catch(() => {});
       } catch { /* fall back to the cover */ }
     }
     if (info.cover) return { url: info.cover, kind: 'cover' };

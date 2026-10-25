@@ -220,3 +220,56 @@ test('image file names never contain the artist name', async () => {
   const files = await fs.readdir(path.join(tmpDir, 'artist-images'));
   for (const f of files) assert.match(f, /^(index\.json|[0-9a-f]{40}-\d+\.(jpg|png|webp))$/);
 });
+
+test('find: fanart 401 still falls back to Deezer, without recording a miss when Deezer has nothing', async () => {
+  const { store } = makeStore({ fanart: () => { throw httpError(401); } });
+  const r = await store.find(PETTY);
+  assert.equal(r.source, 'deezer');
+  const { store: store2 } = makeStore({ fanart: () => { throw httpError(401); }, deezer: () => ({ data: [] }) });
+  await fs.rm(path.join(tmpDir, 'artist-images'), { recursive: true, force: true });
+  assert.equal(await store2.find(PETTY), null);
+  assert.equal((await readIndex())[PETTY_KEY], undefined);
+});
+
+test('find: MusicBrainz error still tries Deezer', async () => {
+  const { store } = makeStore({ search: () => { throw httpError(503); } });
+  const r = await store.find(PETTY);
+  assert.equal(r.source, 'deezer');
+});
+
+test('find: Deezer error reply is not cached as a miss', async () => {
+  const { store } = makeStore({ key: null, deezer: () => ({ error: { type: 'Exception', message: 'Quota limit exceeded', code: 4 } }) });
+  assert.equal(await store.find(PETTY), null);
+  assert.equal((await readIndex())[PETTY_KEY], undefined);
+});
+
+test('find: Deezer placeholder picture (empty hash) is skipped', async () => {
+  const { store, calls } = makeStore({
+    key: null,
+    deezer: () => ({ data: [{ name: PETTY, picture_xl: 'https://cdn-images.dzcdn.net/images/artist//1000x1000-000000-80-0-0.jpg' }] }),
+  });
+  assert.equal(await store.find(PETTY), null);
+  assert.equal(calls.binary.length, 0);
+});
+
+test('find: placeholder artist names never hit the network', async () => {
+  const { store, networkCalls } = makeStore();
+  assert.equal(await store.find('Various Artists'), null);
+  assert.equal(await store.find('Unknown Artist'), null);
+  assert.equal(networkCalls(), 0);
+});
+
+test('find: different artists at once all end up in the index', async () => {
+  const names = ['Alpha Band', 'Beta Band', 'Gamma Band', 'Delta Band', 'Epsilon Band', 'Zeta Band'];
+  const { store } = makeStore({
+    key: null,
+    deezer: (url) => {
+      const q = decodeURIComponent(url.split('q=')[1]);
+      return { data: [{ name: q, picture_xl: `https://d/${encodeURIComponent(q)}.jpg` }] };
+    },
+  });
+  const results = await Promise.all(names.map((n) => store.find(n)));
+  assert.ok(results.every((r) => r && r.source === 'deezer'));
+  const index = await readIndex();
+  for (const n of names) assert.ok(index[n.toLowerCase()], `missing ${n}`);
+});

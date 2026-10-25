@@ -19,14 +19,21 @@ function artistNamesMatch(a, b) {
   return na !== '' && na === normalizeArtistName(b);
 }
 
-const FEATURING = /\s+(?:feat\.?|ft\.|featuring|with)\s+/i;
+const FEATURING = /\s+(?:feat\.?|ft\.|featuring)\s+/i;
 
 function primaryArtist(name) {
   if (!name) return '';
   return String(name).split(FEATURING)[0].trim();
 }
 
-const artistName = { normalizeArtistName, artistNamesMatch, primaryArtist };
+// Tag placeholders, not real artists: never look these up.
+const PLACEHOLDERS = new Set(['', 'various artists', 'various', 'va', 'unknown artist', 'unknown', 'artist']);
+
+function isPlaceholderArtist(name) {
+  return PLACEHOLDERS.has(normalizeArtistName(name));
+}
+
+const artistName = { normalizeArtistName, artistNamesMatch, primaryArtist, isPlaceholderArtist };
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = artistName;
