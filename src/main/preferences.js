@@ -19,6 +19,8 @@ function defaultPrefs(defaultHome) {
     },
     sync: { pullDestination: null },
     podcasts: { downloadDirectory: null },
+    artistImages: { enabled: false },
+    screensaver: { autoStart: true, idleMinutes: 2 },
     meta: {
       installedVersion: null,
       firstRunAt: null,
