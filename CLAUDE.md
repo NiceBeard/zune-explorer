@@ -71,3 +71,6 @@ npm run build # Build for distribution
 - [ ] Linux: applications discovered from .desktop files
 - [ ] Linux: recent files populated from recently-used.xbel
 - [ ] Linux: external volumes detected from /proc/mounts
+- [ ] Artist images off by default; on → photo backdrop on artist and album pages
+- [ ] Screensaver auto-starts after idle while playing, including when unfocused; any input exits
+- [ ] Screensaver directions alternate with no fades or collisions
