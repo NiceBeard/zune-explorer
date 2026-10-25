@@ -2203,6 +2203,7 @@ class ZuneExplorer {
         this.setupKeyboardNavigation();
         this.focusMenu();
         this.setupPlayer();
+        this.setupScreensaver();
 
         // Start music scan early so pinned album/artist art is available
         if (this.musicLibrary.scanState === 'idle' && this.categorizedFiles.music.length > 0) {
@@ -2290,6 +2291,17 @@ class ZuneExplorer {
 
     setupKeyboardNavigation() {
         document.addEventListener('keydown', (e) => {
+            // Z starts the screensaver (not while typing)
+            if ((e.key === 'z' || e.key === 'Z') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                const el = document.activeElement;
+                const typing = el && (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable);
+                if (!typing) {
+                    e.preventDefault();
+                    this.startScreensaver();
+                    return;
+                }
+            }
+
             // Escape closes alpha jump overlay first
             if (e.key === 'Escape' && document.getElementById('alpha-jump-overlay').classList.contains('open')) {
                 e.preventDefault();
@@ -2393,6 +2405,40 @@ class ZuneExplorer {
         });
         this.audioPlayer.on('queueend', () => this.onPlayStateChange(false));
         this.audioPlayer.on('playbackerror', ({ message }) => this.showToast(message));
+    }
+
+    setupScreensaver() {
+        this.screensaver = new window.Screensaver(this, { onClose: () => this.idleTimer.poke() });
+        this.idleTimer = new window.IdleTimer({
+            timeoutMs: (this.preferences?.screensaver?.idleMinutes ?? 2) * 60000,
+            onIdle: () => this.maybeAutoStartScreensaver(),
+        });
+        // Idle means no input to this app; the window does not need focus.
+        for (const type of ['mousemove', 'mousedown', 'keydown', 'wheel', 'touchstart']) {
+            document.addEventListener(type, () => this.idleTimer.poke(), { capture: true, passive: true });
+        }
+        this.audioPlayer.on('play', () => this.idleTimer.poke());
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') this.idleTimer.poke();
+        });
+
+        document.getElementById('player-bar-screensaver').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.startScreensaver();
+        });
+
+        this.idleTimer.poke();
+    }
+
+    startScreensaver() {
+        if (!this.screensaver || this.screensaver.isOpen || !this.audioPlayer?.getCurrentFile()) return;
+        this.screensaver.open();
+    }
+
+    maybeAutoStartScreensaver() {
+        if (this.preferences?.screensaver?.autoStart === false) return;
+        if (!this.audioPlayer?.isPlaying || document.visibilityState !== 'visible') return;
+        this.startScreensaver();
     }
 
     showToast(message) {
@@ -2921,6 +2967,9 @@ class ZuneExplorer {
 
         if (evt.path.startsWith('library.')) {
             this._handleLibraryPrefChange(evt.path, oldValue, evt.newValue);
+        }
+        if (evt.path === 'screensaver.idleMinutes' && this.idleTimer) {
+            this.idleTimer.setTimeoutMs(evt.newValue * 60000);
         }
         if (evt.path === 'artistImages.enabled' && this.currentCategory === 'music' &&
             ['artist', 'album'].includes(this.musicDrillDown?.type)) {
