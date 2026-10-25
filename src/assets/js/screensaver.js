@@ -210,7 +210,7 @@ class Screensaver {
     const artist = isPodcast ? album : (metadata.artist || 'unknown artist');
     let cover = metadata.albumArt || null;
     if (!cover && isPodcast && file.artworkPath) {
-      cover = 'file://' + file.artworkPath.split('/').map(encodeURIComponent).join('/');
+      cover = window.pathUtils.toFileUrl(file.artworkPath);
     }
     if (!cover && !isPodcast) {
       try { cover = this.explorer.findAlbumArtForTrack(file) || null; } catch { cover = null; }

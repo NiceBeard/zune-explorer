@@ -3304,7 +3304,7 @@ class ZuneExplorer {
         if (category === 'pictures') {
             const img = document.createElement('img');
             img.className = 'recent-file-thumb';
-            img.src = `file://${file.path}`;
+            img.src = window.pathUtils.toFileUrl(file.path);
             img.alt = file.name;
             img.onerror = () => { img.style.display = 'none'; };
             div.appendChild(img);
@@ -3482,7 +3482,7 @@ class ZuneExplorer {
         if (pin.type === 'file' && pin.meta && pin.meta.category === 'pictures') {
             const img = document.createElement('img');
             img.className = 'recent-file-thumb';
-            img.src = `file://${pin.path}`;
+            img.src = window.pathUtils.toFileUrl(pin.path);
             img.onerror = () => { img.style.display = 'none'; };
             div.appendChild(img);
         }
@@ -3730,7 +3730,7 @@ class ZuneExplorer {
         // Use image preview for picture files, fallback to icon
         if (category === 'pictures') {
             const img = document.createElement('img');
-            img.src = `file://${file.path}`;
+            img.src = window.pathUtils.toFileUrl(file.path);
             img.draggable = false;
             img.style.width = '100%';
             img.style.height = '100%';
