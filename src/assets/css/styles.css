@@ -971,6 +971,35 @@ body.platform-linux .zune-sync-panel {
     display: flex;
 }
 
+/* Keep the player bar clear of the Zune sync panel, which sits above it on the right:
+   the 32px edge strip when a device is known, the 300px panel (+ strip) when open,
+   and the wide sync view when expanded. */
+.player-bottom-bar {
+    transition: right var(--transition-duration) var(--transition-easing);
+}
+
+body:has(#zune-toggle-btn:not([style*="none"])) .player-bottom-bar {
+    right: 32px;
+}
+
+body:has(#zune-sync-panel.open) .player-bottom-bar {
+    right: 332px;
+}
+
+body:has(#zune-sync-panel.expanded) .player-bottom-bar {
+    right: 65vw;
+}
+
+/* The expanded sync view leaves the bar ~35vw wide: drop the progress row, keep the controls */
+body:has(#zune-sync-panel.expanded) .player-bar-progress {
+    display: none;
+}
+
+body:has(#zune-sync-panel.expanded) .player-bar-info {
+    flex: 1;
+    min-width: 0;
+}
+
 .player-bar-art {
     width: 44px;
     height: 44px;
