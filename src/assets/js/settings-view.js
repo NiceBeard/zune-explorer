@@ -312,6 +312,7 @@ class SettingsView {
           );
           if (!ok) return;
           const r = await window.electronAPI.clearArtistImages();
+          this.explorer._artistPhotoMemo?.clear();
           this.explorer.showToast?.(r && r.success ? 'artist images cleared' : 'failed to clear artist images');
         },
       },

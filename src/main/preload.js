@@ -81,6 +81,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   artistImageNext: (name) => ipcRenderer.invoke('artist-image-next', name),
   artistImageRemove: (name) => ipcRenderer.invoke('artist-image-remove', name),
   artistImageRestore: (name) => ipcRenderer.invoke('artist-image-restore', name),
+  artistImageState: (name) => ipcRenderer.invoke('artist-image-state', name),
   clearArtistImages: () => ipcRenderer.invoke('clear-artist-images'),
 
   // Drag-and-drop path resolution (sandbox-safe)

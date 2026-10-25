@@ -2084,6 +2084,7 @@ class ZuneExplorer {
         this.preferences = null;
         this._prefChangeHandler = null;
         this.settingsView = null;
+        this._artistPhotoMemo = new Map(); // lowercased artist name -> last photo seen this session
 
         // Music library state
         this.musicLibrary = {
@@ -2292,7 +2293,7 @@ class ZuneExplorer {
     setupKeyboardNavigation() {
         document.addEventListener('keydown', (e) => {
             // Z starts the screensaver (not while typing)
-            if ((e.key === 'z' || e.key === 'Z') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            if ((e.key === 'z' || e.key === 'Z') && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 const el = document.activeElement;
                 const typing = el && (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable);
                 if (!typing) {
@@ -2971,6 +2972,7 @@ class ZuneExplorer {
         if (evt.path === 'screensaver.idleMinutes' && this.idleTimer) {
             this.idleTimer.setTimeoutMs(evt.newValue * 60000);
         }
+        if (evt.path === 'artistImages.enabled') this._artistPhotoMemo.clear();
         if (evt.path === 'artistImages.enabled' && this.currentCategory === 'music' &&
             ['artist', 'album'].includes(this.musicDrillDown?.type)) {
             this.renderMusicView();
@@ -5061,39 +5063,62 @@ class ZuneExplorer {
         return key;
     }
 
-    // Artist photo behind the artist/album page. Fetches in the background and only
-    // paints if this page is still on screen when the photo arrives.
+    // Artist photo behind the artist/album page. A photo already seen this session paints
+    // immediately (no flicker on re-render); otherwise it's fetched in the background and
+    // only painted if this page is still on screen when it arrives.
     attachArtistBackdrop(detailEl, artistName, variant) {
         if (!this.preferences?.artistImages?.enabled || !artistName) return;
-        detailEl.dataset.artistPhotoState = 'loading';
-        window.electronAPI.artistImageFind(artistName).then((photo) => {
-            if (!detailEl.isConnected) return;
-            if (!photo) {
-                detailEl.dataset.artistPhotoState = 'none';
-                return;
-            }
+        const memoKey = artistName.toLowerCase();
+        const paint = (photo) => {
             detailEl.dataset.artistPhotoState = 'shown';
             detailEl.dataset.artistPhotoCount = String(photo.candidateCount);
-            const backdrop = document.createElement('div');
-            backdrop.className = `artist-backdrop artist-backdrop-${variant}`;
+            let backdrop = detailEl.querySelector(':scope > .artist-backdrop');
+            if (!backdrop) {
+                backdrop = document.createElement('div');
+                backdrop.className = `artist-backdrop artist-backdrop-${variant}`;
+                detailEl.prepend(backdrop);
+            }
             backdrop.style.backgroundImage = `url("${photo.url}")`;
-            detailEl.prepend(backdrop);
             detailEl.classList.add('has-artist-photo');
+        };
+        const known = this._artistPhotoMemo.get(memoKey);
+        if (known) paint(known);
+        else detailEl.dataset.artistPhotoState = 'loading';
+
+        window.electronAPI.artistImageFind(artistName).then(async (photo) => {
+            if (photo) {
+                this._artistPhotoMemo.set(memoKey, photo);
+                if (detailEl.isConnected && (!known || known.url !== photo.url)) paint(photo);
+                return;
+            }
+            this._artistPhotoMemo.delete(memoKey);
+            const state = await window.electronAPI.artistImageState(artistName);
+            if (!detailEl.isConnected) return;
+            detailEl.querySelector(':scope > .artist-backdrop')?.remove();
+            detailEl.classList.remove('has-artist-photo');
+            detailEl.dataset.artistPhotoState = state === 'removed' ? 'removed' : 'none';
         }).catch((err) => console.warn('artist photo failed', err));
     }
 
     artistPhotoMenuItems(detailEl, artistName) {
         if (!this.preferences?.artistImages?.enabled || !artistName) return [];
-        const rerender = () => this.renderMusicView();
-        if (detailEl.dataset.artistPhotoState === 'shown') {
+        const state = detailEl.dataset.artistPhotoState;
+        const changed = () => {
+            this._artistPhotoMemo.delete(artistName.toLowerCase());
+            this.renderMusicView();
+        };
+        if (state === 'shown') {
             const items = [];
             if (Number(detailEl.dataset.artistPhotoCount) > 1) {
-                items.push({ label: 'next artist photo', action: () => window.electronAPI.artistImageNext(artistName).then(rerender) });
+                items.push({ label: 'next artist photo', action: () => window.electronAPI.artistImageNext(artistName).then(changed) });
             }
-            items.push({ label: 'remove artist photo', action: () => window.electronAPI.artistImageRemove(artistName).then(rerender) });
+            items.push({ label: 'remove artist photo', action: () => window.electronAPI.artistImageRemove(artistName).then(changed) });
             return items;
         }
-        return [{ label: 'use artist photo', action: () => window.electronAPI.artistImageRestore(artistName).then(rerender) }];
+        if (state === 'removed') {
+            return [{ label: 'use artist photo', action: () => window.electronAPI.artistImageRestore(artistName).then(changed) }];
+        }
+        return []; // still loading, or no photo exists
     }
 
     renderArtistDetail(fileDisplay) {

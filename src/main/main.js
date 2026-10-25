@@ -1008,6 +1008,7 @@ ipcMain.handle('artist-image-find', artistImageHandler('find'));
 ipcMain.handle('artist-image-next', artistImageHandler('next'));
 ipcMain.handle('artist-image-remove', artistImageHandler('remove'));
 ipcMain.handle('artist-image-restore', artistImageHandler('restore'));
+ipcMain.handle('artist-image-state', artistImageHandler('state'));
 
 ipcMain.handle('clear-artist-images', async () => {
   try {

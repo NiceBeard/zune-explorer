@@ -99,6 +99,8 @@ class Screensaver {
     }
     e.preventDefault();
     e.stopPropagation();
+    // A held key (e.g. Z that just opened us) repeats; only a fresh press exits.
+    if (e.type === 'keydown' && e.repeat) return;
     this.close();
   }
 
