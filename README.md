@@ -12,6 +12,8 @@ Built with Electron. Runs on macOS, Windows, and Linux.
 - **Dark theme** with orange-to-magenta accent gradient
 - **Music sub-categories** — albums, artists, songs, genres, and playlists with album art grids, letter dividers, and alpha jump overlay
 - **Built-in music player** with album art display and unsupported format notifications
+- **Artist images** — artist and album pages show the artist's photo full-bleed behind the album art, from fanart.tv with Deezer as a fallback. Off by default; turn on in Settings → library. Right-click to pick another photo or remove it
+- **Zune HD screensaver** — album art and track info scroll horizontally, vertically and diagonally in mixed font weights. Starts after the app has been idle while music plays (even when you're in another window), or press **Z** or the player bar button
 - **Playlists** — create, edit, and reorder playlists from anywhere in the music section. Individual JSON files per playlist with drag-to-reorder and play all
 - **Now Playing** — persistent queue that survives app restarts. Click a song to replace the queue, "Add to Now Playing" to append. Accessible from the Playlists tab
 - **Podcasts** — search, subscribe, stream, and download podcasts. iTunes search, direct RSS, and OPML import. Episode playback with position resume, download management, and audio/video sub-tabs
@@ -74,7 +76,7 @@ Grab the latest release from the [Releases page](https://github.com/NiceBeard/zu
 |----------|-------------|------|
 | macOS | Apple Silicon (M1/M2/M3/M4) | `Zune Explorer-*-arm64.dmg` |
 | macOS | Intel | `Zune Explorer-*.dmg` |
-| Windows | x64 | `Zune Explorer Setup *.exe` |
+| Windows | x64 | `Zune Explorer Setup *.exe` (installer) or `Zune Explorer *.exe` (portable) |
 | Linux | x64 | `Zune Explorer-*.AppImage` |
 
 ### macOS Gatekeeper Notice
@@ -140,6 +142,14 @@ npm run build
 ```
 
 Produces a DMG on macOS (with a custom Zune-themed installer background), NSIS/portable on Windows, and AppImage on Linux. See [BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md) for details.
+
+### fanart.tv Key (optional)
+
+Artist images use fanart.tv first when an API key is available, and Deezer otherwise. Without a key, source builds use Deezer only. To use fanart.tv, set your key in the environment:
+```bash
+FANART_API_KEY=yourkey npm start
+```
+Release builds get the key from the `FANART_API_KEY` GitHub Actions secret, written to the git-ignored `src/main/build-config.json` by `scripts/write-build-config.js`.
 
 ### MTPZ Keys
 
