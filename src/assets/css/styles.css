@@ -971,6 +971,35 @@ body.platform-linux .zune-sync-panel {
     display: flex;
 }
 
+/* Keep the player bar clear of the Zune sync panel, which sits above it on the right:
+   the 32px edge strip when a device is known, the 300px panel (+ strip) when open,
+   and the wide sync view when expanded. */
+.player-bottom-bar {
+    transition: right var(--transition-duration) var(--transition-easing);
+}
+
+body:has(#zune-toggle-btn:not([style*="none"])) .player-bottom-bar {
+    right: 32px;
+}
+
+body:has(#zune-sync-panel.open) .player-bottom-bar {
+    right: 332px;
+}
+
+body:has(#zune-sync-panel.expanded) .player-bottom-bar {
+    right: 65vw;
+}
+
+/* The expanded sync view leaves the bar ~35vw wide: drop the progress row, keep the controls */
+body:has(#zune-sync-panel.expanded) .player-bar-progress {
+    display: none;
+}
+
+body:has(#zune-sync-panel.expanded) .player-bar-info {
+    flex: 1;
+    min-width: 0;
+}
+
 .player-bar-art {
     width: 44px;
     height: 44px;
@@ -3062,6 +3091,38 @@ body.platform-linux .now-playing-panel {
     letter-spacing: -1px;
 }
 
+/* Artist photo backdrop (artist + album pages). #content-panel has a transform,
+   so position: fixed pins the photo to the panel while the page scrolls. */
+.artist-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-size: cover;
+    background-position: center top;
+    background-repeat: no-repeat;
+    pointer-events: none;
+}
+
+.artist-backdrop::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+}
+
+.artist-backdrop-artist::after {
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0.6) 45%, rgba(0, 0, 0, 0.88) 100%);
+}
+
+.artist-backdrop-album::after {
+    background: linear-gradient(to right, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.7) 50%, rgba(0, 0, 0, 0.35) 100%);
+}
+
+.has-artist-photo .music-artist-detail-header,
+.has-artist-photo .music-album-detail-name,
+.has-artist-photo .music-album-detail-artist {
+    text-shadow: 0 1px 12px rgba(0, 0, 0, 0.6);
+}
+
 /* ==============================
    Alpha Jump Overlay
    ============================== */
@@ -4194,3 +4255,85 @@ body.platform-linux .now-playing-panel {
 }
 .settings-toggle.on { background: #ff6900; border-color: #ff6900; }
 .settings-toggle.on::before { transform: translateX(20px); background: #fff; }
+
+/* ==============================
+   Screensaver
+   ============================== */
+
+.screensaver-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    background: #000;
+    overflow: hidden;
+    cursor: none;
+    user-select: none;
+}
+
+.ss-bg {
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center;
+}
+
+.ss-bg::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+}
+
+.ss-bg-photo::after { background: rgba(0, 0, 0, 0.25); }
+.ss-bg-cover::after { background: rgba(0, 0, 0, 0.55); }
+
+.ss-rotor {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+}
+
+.ss-row {
+    position: absolute;
+    left: 0;
+    white-space: nowrap;
+    line-height: 0.9;
+    text-transform: uppercase;
+}
+
+.ss-track {
+    display: inline-block;
+    will-change: transform;
+}
+
+.ss-track > span { padding-right: 0.6em; }
+
+.ss-giant { font-weight: 100; color: rgba(255, 255, 255, 0.92); }
+.ss-small { font-weight: 300; color: rgba(255, 255, 255, 0.85); }
+.ss-small b { font-weight: 700; }
+.ss-bold { font-weight: 800; color: #fff; }
+.ss-mid { font-weight: 300; color: #fff; }
+.ss-cover-row { line-height: 1; }
+
+.ss-cover {
+    width: 1em;
+    height: 1em;
+    overflow: hidden;
+    background: #1a1a1a;
+    vertical-align: top;
+}
+
+.ss-cover img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.ss-cover-text {
+    font-size: 0.1em;
+    font-weight: 800;
+    line-height: 1.1;
+    padding: 0.6em;
+    white-space: normal;
+    color: rgba(255, 255, 255, 0.85);
+}

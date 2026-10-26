@@ -132,3 +132,19 @@ test('load: malformed JSON is preserved as .bad and defaults used', async () => 
   const bad = await fs.readFile(path.join(tmpDir, 'preferences.json.bad'), 'utf-8');
   assert.equal(bad, '{not json');
 });
+
+test('defaults: artistImages off, screensaver on at 2 minutes', async () => {
+  const prefs = freshModule();
+  const store = await prefs.load(tmpDir, { defaultHome: '/Users/test' });
+  assert.equal(store.artistImages.enabled, false);
+  assert.equal(store.screensaver.autoStart, true);
+  assert.equal(store.screensaver.idleMinutes, 2);
+});
+
+test('defaults: existing file without new sections gets them merged', async () => {
+  await fs.writeFile(path.join(tmpDir, 'preferences.json'), JSON.stringify({ version: 1, library: { music: ['/a'] } }));
+  const prefs = freshModule();
+  const store = await prefs.load(tmpDir, { defaultHome: '/Users/test' });
+  assert.equal(store.artistImages.enabled, false);
+  assert.equal(store.screensaver.idleMinutes, 2);
+});

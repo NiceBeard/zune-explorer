@@ -6,3 +6,4 @@ dist/
 .claude/
 .worktrees/
 .superpowers/
+src/main/build-config.json

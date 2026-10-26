@@ -99,6 +99,7 @@ class SettingsView {
       { kind: 'nav', label: 'library',  onClick: () => this.push({ title: 'library',  buildItems: () => this._libraryItems()  }) },
       { kind: 'nav', label: 'sync',     onClick: () => this.push({ title: 'sync',     buildItems: () => this._syncItems()     }) },
       { kind: 'nav', label: 'podcasts', onClick: () => this.push({ title: 'podcasts', buildItems: () => this._podcastsItems() }) },
+      { kind: 'nav', label: 'screensaver', onClick: () => this.push({ title: 'screensaver', buildItems: () => this._screensaverItems() }) },
       { kind: 'nav', label: 'data',     onClick: () => this.push({ title: 'data',     buildItems: () => this._dataItems()     }) },
       { kind: 'nav', label: 'about',    onClick: () => this.push({ title: 'about',    buildItems: () => this._aboutItems()    }) },
     ];
@@ -130,7 +131,48 @@ class SettingsView {
           await window.electronAPI.preferencesUpdate({ library: { scanDesktopAndDownloads: newVal } });
         },
       },
+      {
+        kind: 'toggle',
+        label: 'download artist images',
+        value: !!prefs?.artistImages?.enabled,
+        onToggle: async (newVal) => {
+          await window.electronAPI.preferencesUpdate({ artistImages: { enabled: newVal } });
+        },
+      },
+      { kind: 'info', label: 'artist images', value: 'from fanart.tv and deezer, saved on this computer' },
     ];
+  }
+
+  _screensaverItems() {
+    const ss = this.explorer.preferences?.screensaver || {};
+    const minutes = ss.idleMinutes ?? 2;
+    return [
+      {
+        kind: 'toggle',
+        label: 'start automatically',
+        value: ss.autoStart !== false,
+        onToggle: async (newVal) => {
+          await window.electronAPI.preferencesUpdate({ screensaver: { autoStart: newVal } });
+        },
+      },
+      {
+        kind: 'nav',
+        label: `start after ${minutes === 1 ? '1 minute' : `${minutes} minutes`}`,
+        onClick: () => this.push({ title: 'start after', buildItems: () => this._idleMinutesItems() }),
+      },
+    ];
+  }
+
+  _idleMinutesItems() {
+    const current = this.explorer.preferences?.screensaver?.idleMinutes ?? 2;
+    return [1, 2, 5, 10].map((m) => ({
+      kind: 'action',
+      label: `${m === current ? '• ' : ''}${m === 1 ? '1 minute' : `${m} minutes`}`,
+      onClick: async () => {
+        await window.electronAPI.preferencesUpdate({ screensaver: { idleMinutes: m } });
+        this.pop();
+      },
+    }));
   }
 
   _folderListItems(category) {
@@ -260,6 +302,20 @@ class SettingsView {
           this.explorer.showToast?.(r && r.success ? 'device cache cleared' : 'failed to clear device cache');
         },
       },
+      {
+        kind: 'action',
+        label: 'clear artist images',
+        onClick: async () => {
+          const ok = await this.explorer.showConfirmModal?.(
+            'Clear artist images',
+            'Downloaded artist photos will be deleted and re-downloaded as needed. Continue?'
+          );
+          if (!ok) return;
+          const r = await window.electronAPI.clearArtistImages();
+          this.explorer._artistPhotoMemo?.clear();
+          this.explorer.showToast?.(r && r.success ? 'artist images cleared' : 'failed to clear artist images');
+        },
+      },
     ];
   }
   _aboutItems() {
@@ -272,6 +328,7 @@ class SettingsView {
       },
       { kind: 'info', label: 'author',  value: 'NiceBeard' },
       { kind: 'info', label: 'license', value: 'MIT' },
+      { kind: 'info', label: 'artist images', value: 'fanart.tv · deezer' },
     ];
   }
 }

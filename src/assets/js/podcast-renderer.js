@@ -96,7 +96,7 @@ class PodcastPanel {
 
   _renderSubscriptionRow(sub) {
     const artSrc = sub.artworkPath
-      ? 'file://' + this.explorer.userDataPath + '/podcasts/' + sub.artworkPath
+      ? window.pathUtils.toFileUrl(this.explorer.userDataPath + '/podcasts/' + sub.artworkPath)
       : '';
 
     let html = '<div class="podcast-row" data-sub-id="' + sub.id + '">';
@@ -185,7 +185,7 @@ class PodcastPanel {
     // Header with artwork
     html += '<div class="podcast-episode-header">';
     if (sub.artworkPath) {
-      html += '<img class="podcast-episode-art" src="file://' + this.explorer.userDataPath + '/podcasts/' + sub.artworkPath + '">';
+      html += '<img class="podcast-episode-art" src="' + window.pathUtils.toFileUrl(this.explorer.userDataPath + '/podcasts/' + sub.artworkPath) + '">';
     }
     html += '<div class="podcast-episode-header-info">';
     html += '<div class="podcast-episode-title">' + this._escapeHtml(sub.title) + '</div>';

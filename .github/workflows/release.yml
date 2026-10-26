@@ -23,6 +23,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Write build config
+        run: node scripts/write-build-config.js
+        env:
+          FANART_API_KEY: ${{ secrets.FANART_API_KEY }}
+
       - name: Build macOS (arm64 + x64)
         run: npx electron-builder --mac --arm64 --x64 --publish never
 
@@ -48,6 +53,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Write build config
+        run: node scripts/write-build-config.js
+        env:
+          FANART_API_KEY: ${{ secrets.FANART_API_KEY }}
 
       - name: Build Windows (x64)
         run: npx electron-builder --win --x64 --publish never
@@ -75,6 +85,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Write build config
+        run: node scripts/write-build-config.js
+        env:
+          FANART_API_KEY: ${{ secrets.FANART_API_KEY }}
 
       - name: Build Linux (x64)
         run: npx electron-builder --linux --x64 --publish never

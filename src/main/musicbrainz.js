@@ -133,7 +133,10 @@ function fetchUnlimited(url) {
         return;
       }
       if (res.statusCode !== 200) {
-        reject(new Error(`HTTP ${res.statusCode}`));
+        res.resume();
+        const err = new Error(`HTTP ${res.statusCode}`);
+        err.statusCode = res.statusCode;
+        reject(err);
         return;
       }
       const chunks = [];
@@ -143,6 +146,20 @@ function fetchUnlimited(url) {
     req.on('error', reject);
     req.setTimeout(10000, () => { req.destroy(); reject(new Error('Request timeout')); });
   });
+}
+
+// JSON from a non-MusicBrainz service (fanart.tv, Deezer): no MusicBrainz rate limit
+async function fetchJsonUnlimited(url) {
+  const { data } = await fetchUnlimited(url);
+  try { return JSON.parse(data.toString('utf-8')); }
+  catch { throw new Error('Invalid JSON response'); }
+}
+
+async function searchArtists(name) {
+  const query = encodeURIComponent(`artist:"${name.replace(/"/g, '')}"`);
+  const url = `https://musicbrainz.org/ws/2/artist/?query=${query}&limit=5&fmt=json`;
+  const data = await rateLimitedFetch(url);
+  return (data.artists || []).map(a => ({ mbid: a.id, name: a.name, score: a.score || 0 }));
 }
 
 async function getThumbnail(mbid) {
@@ -155,4 +172,4 @@ async function getThumbnail(mbid) {
   }
 }
 
-module.exports = { searchReleases, getRelease, getCoverArt, getThumbnail };
+module.exports = { searchReleases, getRelease, getCoverArt, getThumbnail, searchArtists, fetchUnlimited, fetchJsonUnlimited };

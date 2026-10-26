@@ -2084,6 +2084,7 @@ class ZuneExplorer {
         this.preferences = null;
         this._prefChangeHandler = null;
         this.settingsView = null;
+        this._artistPhotoMemo = new Map(); // lowercased artist name -> last photo seen this session
 
         // Music library state
         this.musicLibrary = {
@@ -2203,6 +2204,7 @@ class ZuneExplorer {
         this.setupKeyboardNavigation();
         this.focusMenu();
         this.setupPlayer();
+        this.setupScreensaver();
 
         // Start music scan early so pinned album/artist art is available
         if (this.musicLibrary.scanState === 'idle' && this.categorizedFiles.music.length > 0) {
@@ -2290,6 +2292,17 @@ class ZuneExplorer {
 
     setupKeyboardNavigation() {
         document.addEventListener('keydown', (e) => {
+            // Z starts the screensaver (not while typing)
+            if ((e.key === 'z' || e.key === 'Z') && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                const el = document.activeElement;
+                const typing = el && (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable);
+                if (!typing) {
+                    e.preventDefault();
+                    this.startScreensaver();
+                    return;
+                }
+            }
+
             // Escape closes alpha jump overlay first
             if (e.key === 'Escape' && document.getElementById('alpha-jump-overlay').classList.contains('open')) {
                 e.preventDefault();
@@ -2393,6 +2406,40 @@ class ZuneExplorer {
         });
         this.audioPlayer.on('queueend', () => this.onPlayStateChange(false));
         this.audioPlayer.on('playbackerror', ({ message }) => this.showToast(message));
+    }
+
+    setupScreensaver() {
+        this.screensaver = new window.Screensaver(this, { onClose: () => this.idleTimer.poke() });
+        this.idleTimer = new window.IdleTimer({
+            timeoutMs: (this.preferences?.screensaver?.idleMinutes ?? 2) * 60000,
+            onIdle: () => this.maybeAutoStartScreensaver(),
+        });
+        // Idle means no input to this app; the window does not need focus.
+        for (const type of ['mousemove', 'mousedown', 'keydown', 'wheel', 'touchstart']) {
+            document.addEventListener(type, () => this.idleTimer.poke(), { capture: true, passive: true });
+        }
+        this.audioPlayer.on('play', () => this.idleTimer.poke());
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') this.idleTimer.poke();
+        });
+
+        document.getElementById('player-bar-screensaver').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.startScreensaver();
+        });
+
+        this.idleTimer.poke();
+    }
+
+    startScreensaver() {
+        if (!this.screensaver || this.screensaver.isOpen || !this.audioPlayer?.getCurrentFile()) return;
+        this.screensaver.open();
+    }
+
+    maybeAutoStartScreensaver() {
+        if (this.preferences?.screensaver?.autoStart === false) return;
+        if (!this.audioPlayer?.isPlaying || document.visibilityState !== 'visible') return;
+        this.startScreensaver();
     }
 
     showToast(message) {
@@ -2922,6 +2969,14 @@ class ZuneExplorer {
         if (evt.path.startsWith('library.')) {
             this._handleLibraryPrefChange(evt.path, oldValue, evt.newValue);
         }
+        if (evt.path === 'screensaver.idleMinutes' && this.idleTimer) {
+            this.idleTimer.setTimeoutMs(evt.newValue * 60000);
+        }
+        if (evt.path === 'artistImages.enabled') this._artistPhotoMemo.clear();
+        if (evt.path === 'artistImages.enabled' && this.currentCategory === 'music' &&
+            ['artist', 'album'].includes(this.musicDrillDown?.type)) {
+            this.renderMusicView();
+        }
         if (this.settingsView && this.settingsView.isOpen) {
             this.settingsView.refresh();
         }
@@ -3249,7 +3304,7 @@ class ZuneExplorer {
         if (category === 'pictures') {
             const img = document.createElement('img');
             img.className = 'recent-file-thumb';
-            img.src = `file://${file.path}`;
+            img.src = window.pathUtils.toFileUrl(file.path);
             img.alt = file.name;
             img.onerror = () => { img.style.display = 'none'; };
             div.appendChild(img);
@@ -3427,7 +3482,7 @@ class ZuneExplorer {
         if (pin.type === 'file' && pin.meta && pin.meta.category === 'pictures') {
             const img = document.createElement('img');
             img.className = 'recent-file-thumb';
-            img.src = `file://${pin.path}`;
+            img.src = window.pathUtils.toFileUrl(pin.path);
             img.onerror = () => { img.style.display = 'none'; };
             div.appendChild(img);
         }
@@ -3675,7 +3730,7 @@ class ZuneExplorer {
         // Use image preview for picture files, fallback to icon
         if (category === 'pictures') {
             const img = document.createElement('img');
-            img.src = `file://${file.path}`;
+            img.src = window.pathUtils.toFileUrl(file.path);
             img.draggable = false;
             img.style.width = '100%';
             img.style.height = '100%';
@@ -4891,6 +4946,9 @@ class ZuneExplorer {
 
         const detail = document.createElement('div');
         detail.className = 'music-album-detail';
+        // Same artist the album's artist link navigates to, so both pages show the same photo
+        const libArtist = this.musicLibrary.artists.get(this.resolveArtistKey(album.artist));
+        const photoArtist = libArtist ? libArtist.name : album.artist;
 
         // Header
         const header = document.createElement('div');
@@ -4947,9 +5005,11 @@ class ZuneExplorer {
         header.addEventListener('contextmenu', (e) => {
             this.showMusicItemContextMenu(e, album.tracks, [
                 { label: 'Pin to sidebar', action: () => this.pinMusicItem('album', { label: album.name, meta: { albumKey: album.key, category: 'music' } }) },
+                ...this.artistPhotoMenuItems(detail, photoArtist),
             ]);
         });
         detail.appendChild(header);
+        this.attachArtistBackdrop(detail, photoArtist, 'album');
 
         // Track list
         const trackList = document.createElement('div');
@@ -5003,6 +5063,64 @@ class ZuneExplorer {
         return key;
     }
 
+    // Artist photo behind the artist/album page. A photo already seen this session paints
+    // immediately (no flicker on re-render); otherwise it's fetched in the background and
+    // only painted if this page is still on screen when it arrives.
+    attachArtistBackdrop(detailEl, artistName, variant) {
+        if (!this.preferences?.artistImages?.enabled || !artistName) return;
+        const memoKey = artistName.toLowerCase();
+        const paint = (photo) => {
+            detailEl.dataset.artistPhotoState = 'shown';
+            detailEl.dataset.artistPhotoCount = String(photo.candidateCount);
+            let backdrop = detailEl.querySelector(':scope > .artist-backdrop');
+            if (!backdrop) {
+                backdrop = document.createElement('div');
+                backdrop.className = `artist-backdrop artist-backdrop-${variant}`;
+                detailEl.prepend(backdrop);
+            }
+            backdrop.style.backgroundImage = `url("${photo.url}")`;
+            detailEl.classList.add('has-artist-photo');
+        };
+        const known = this._artistPhotoMemo.get(memoKey);
+        if (known) paint(known);
+        else detailEl.dataset.artistPhotoState = 'loading';
+
+        window.electronAPI.artistImageFind(artistName).then(async (photo) => {
+            if (photo) {
+                this._artistPhotoMemo.set(memoKey, photo);
+                if (detailEl.isConnected && (!known || known.url !== photo.url)) paint(photo);
+                return;
+            }
+            this._artistPhotoMemo.delete(memoKey);
+            const state = await window.electronAPI.artistImageState(artistName);
+            if (!detailEl.isConnected) return;
+            detailEl.querySelector(':scope > .artist-backdrop')?.remove();
+            detailEl.classList.remove('has-artist-photo');
+            detailEl.dataset.artistPhotoState = state === 'removed' ? 'removed' : 'none';
+        }).catch((err) => console.warn('artist photo failed', err));
+    }
+
+    artistPhotoMenuItems(detailEl, artistName) {
+        if (!this.preferences?.artistImages?.enabled || !artistName) return [];
+        const state = detailEl.dataset.artistPhotoState;
+        const changed = () => {
+            this._artistPhotoMemo.delete(artistName.toLowerCase());
+            this.renderMusicView();
+        };
+        if (state === 'shown') {
+            const items = [];
+            if (Number(detailEl.dataset.artistPhotoCount) > 1) {
+                items.push({ label: 'next artist photo', action: () => window.electronAPI.artistImageNext(artistName).then(changed) });
+            }
+            items.push({ label: 'remove artist photo', action: () => window.electronAPI.artistImageRemove(artistName).then(changed) });
+            return items;
+        }
+        if (state === 'removed') {
+            return [{ label: 'use artist photo', action: () => window.electronAPI.artistImageRestore(artistName).then(changed) }];
+        }
+        return []; // still loading, or no photo exists
+    }
+
     renderArtistDetail(fileDisplay) {
         const resolvedKey = this.resolveArtistKey(this.musicDrillDown.name);
         const artist = this.musicLibrary.artists.get(resolvedKey);
@@ -5018,7 +5136,12 @@ class ZuneExplorer {
         const header = document.createElement('div');
         header.className = 'music-artist-detail-header';
         header.textContent = artist.name;
+        header.addEventListener('contextmenu', (e) => {
+            const items = this.artistPhotoMenuItems(detail, artist.name);
+            if (items.length > 0) this.showDynamicContextMenu(e, items);
+        });
         detail.appendChild(header);
+        this.attachArtistBackdrop(detail, artist.name, 'artist');
 
         // Albums grid (filtered to this artist)
         const grid = document.createElement('div');

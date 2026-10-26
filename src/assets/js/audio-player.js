@@ -66,7 +66,7 @@ class AudioPlayer {
         };
         // Use local file if downloaded, otherwise stream from URL
         if (file.localPath) {
-          this.audio.src = 'file://' + file.localPath.split('/').map(encodeURIComponent).join('/');
+          this.audio.src = window.pathUtils.toFileUrl(file.localPath);
         } else {
           this.audio.src = file.enclosureUrl;
         }
@@ -86,7 +86,7 @@ class AudioPlayer {
         // Music track — existing behavior
         const metadata = await window.electronAPI.getAudioMetadata(file.path);
         this.currentMetadata = metadata;
-        this.audio.src = 'file://' + file.path.split('/').map(encodeURIComponent).join('/');
+        this.audio.src = window.pathUtils.toFileUrl(file.path);
       }
       await this.audio.play();
       this.isPlaying = true;

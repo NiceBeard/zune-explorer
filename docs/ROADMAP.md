@@ -45,6 +45,12 @@ Create, edit, and save playlists as individual JSON files. PLAYLISTS sub-tab und
 ### ~~Now Playing~~ (Done)
 Persistent Now Playing queue. Clicking a song/album/artist replaces the queue; "Add to Now Playing" appends without interrupting playback. Queue persists across app restarts (no auto-play on launch). Accessible as a special entry at the top of the Playlists tab with current-track highlighting.
 
+### ~~Artist Images~~ (Done)
+Opt-in (off by default) artist photos from fanart.tv, with Deezer as fallback, cached on disk. The photo fills the artist page and that artist's album pages behind the album art, in its original colours. Right-click the header to switch to the next photo or remove it. The fanart.tv key is injected at release build time from a GitHub Actions secret; local builds use Deezer only.
+
+### ~~Screensaver~~ (Done)
+Zune HD-style screensaver: the album, song title with live play time, artist and cover scroll across the artist photo in mixed weights and sizes, horizontally, vertically and on both diagonals. No fades; each new set comes in from the edges the previous set has vacated, so sets never cross. Starts after idle while music plays (even when the window isn't focused), with the Z key, or with the player-bar button; any input exits.
+
 ### Spotify / Streaming Integration
 Connect to Spotify (or other services) via OAuth and browse your library through the Zune UI. Use the Web Playback SDK to play tracks directly in the app. Full Zune HD experience with your actual streaming library.
 
