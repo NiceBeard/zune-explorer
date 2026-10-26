@@ -9,6 +9,9 @@ function freshModule() {
   return require('../src/main/preferences');
 }
 
+// Defaults are built with path.join, so expected paths use the platform separator.
+const homeDir = (name) => path.join('/Users/test', name);
+
 let tmpDir;
 
 beforeEach(async () => {
@@ -19,9 +22,9 @@ test('load: missing file writes defaults', async () => {
   const prefs = freshModule();
   const store = await prefs.load(tmpDir, { defaultHome: '/Users/test' });
   assert.equal(store.version, 1);
-  assert.deepEqual(store.library.music, ['/Users/test/Music']);
-  assert.deepEqual(store.library.videos, ['/Users/test/Movies']);
-  assert.deepEqual(store.library.pictures, ['/Users/test/Pictures']);
+  assert.deepEqual(store.library.music, [homeDir('Music')]);
+  assert.deepEqual(store.library.videos, [homeDir('Movies')]);
+  assert.deepEqual(store.library.pictures, [homeDir('Pictures')]);
   assert.equal(store.library.scanDesktopAndDownloads, false);
 
   const raw = await fs.readFile(path.join(tmpDir, 'preferences.json'), 'utf-8');
@@ -55,7 +58,7 @@ test('load: missing nested keys get defaults merged in', async () => {
   const prefs = freshModule();
   const store = await prefs.load(tmpDir, { defaultHome: '/Users/test' });
   assert.deepEqual(store.library.music, ['/a']);
-  assert.deepEqual(store.library.videos, ['/Users/test/Movies']);
+  assert.deepEqual(store.library.videos, [homeDir('Movies')]);
   assert.equal(store.library.scanDesktopAndDownloads, false);
   assert.equal(store.sync.pullDestination, null);
 });
@@ -63,7 +66,7 @@ test('load: missing nested keys get defaults merged in', async () => {
 test('get: returns value at dot path', async () => {
   const prefs = freshModule();
   await prefs.load(tmpDir, { defaultHome: '/Users/test' });
-  assert.deepEqual(prefs.get('library.music'), ['/Users/test/Music']);
+  assert.deepEqual(prefs.get('library.music'), [homeDir('Music')]);
   assert.equal(prefs.get('library.scanDesktopAndDownloads'), false);
   assert.equal(prefs.get('sync.pullDestination'), null);
   assert.equal(prefs.get('nonexistent.path'), undefined);
@@ -74,7 +77,7 @@ test('update: deep merges patch and persists', async () => {
   await prefs.load(tmpDir, { defaultHome: '/Users/test' });
   await prefs.update({ library: { music: ['/new'] } });
   assert.deepEqual(prefs.get('library.music'), ['/new']);
-  assert.deepEqual(prefs.get('library.videos'), ['/Users/test/Movies']);
+  assert.deepEqual(prefs.get('library.videos'), [homeDir('Movies')]);
   const fresh = freshModule();
   const store = await fresh.load(tmpDir, { defaultHome: '/Users/test' });
   assert.deepEqual(store.library.music, ['/new']);
@@ -112,7 +115,7 @@ test('reset: section reset restores defaults for that section only', async () =>
     sync: { pullDestination: '/y' },
   });
   await prefs.reset('library');
-  assert.deepEqual(prefs.get('library.music'), ['/Users/test/Music']);
+  assert.deepEqual(prefs.get('library.music'), [homeDir('Music')]);
   assert.equal(prefs.get('sync.pullDestination'), '/y');
 });
 
