@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
+const { fileURLToPath } = require('node:url');
 const { ArtistImages } = require('../src/main/artist-images');
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -79,8 +80,8 @@ test('find: fanart background preferred, saved, then served from cache', async (
   assert.deepEqual(calls.binary, ['https://f/b2.jpg']);
   assert.match(r.url, /^file:\/\/.+\?v=\d+$/);
   assert.ok(calls.json[0].includes('/v3/music/m1?api_key=test-key'));
-  const saved = r.url.replace(/^file:\/\//, '').replace(/\?v=\d+$/, '');
-  assert.equal(await fs.readFile(decodeURIComponent(saved), 'utf-8'), 'img:https://f/b2.jpg');
+  const saved = fileURLToPath(r.url);
+  assert.equal(await fs.readFile(saved, 'utf-8'), 'img:https://f/b2.jpg');
 
   const before = networkCalls();
   const again = await store.find('tom petty and the heartbreakers');
