@@ -36,7 +36,7 @@ Found during verification:
 - **DisableTrustedFiles (0x9215) must not be sent mid-session.** After it, writes fail with AccessDenied (0x200F).
 - **Fixed an existing bug:** the idle sync block was re-shown over the diff view after any transfer.
 
-Task 7 (pull into subscriptions) is not done. Pull currently saves "<show> - <title>.mp3" to the chosen folder.
+Task 7 is done: "copy to computer" on the podcasts tab files episodes under their subscription (creating it from the device's show data if needed), in `<downloadDir>/<show>/`. Verified with three Zune Desktop episodes, including a live-feed refresh: Radiolab's 2011 feed now redirects and its files moved hosts, so imported episodes adopt feed GUIDs by URL first, then by title. Show artwork can't be read from Zune Desktop `.ser` objects; it comes from the feed on refresh.
 
 ## Not in scope / follow-ups
 
