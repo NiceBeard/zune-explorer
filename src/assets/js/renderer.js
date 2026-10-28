@@ -593,20 +593,21 @@ class ZuneSyncPanel {
                 if (progress.storage) this._updateStorage(progress.storage);
                 setTimeout(() => {
                     completeEl.style.display = 'none';
-                    idleEl.style.display = 'block';
+                    // The diff view replaces the idle block; don't stack it on top
+                    if (!this.diffActive) idleEl.style.display = 'block';
                 }, 3000);
                 break;
 
             case 'cancelled':
                 progressEl.style.display = 'none';
-                idleEl.style.display = 'block';
+                if (!this.diffActive) idleEl.style.display = 'block';
                 document.getElementById('zune-sync-title').textContent = (this.deviceModel || 'zune').toLowerCase();
                 document.getElementById('zune-sync-subtitle').textContent = 'connected';
                 break;
 
             case 'error':
                 progressEl.style.display = 'none';
-                idleEl.style.display = 'block';
+                if (!this.diffActive) idleEl.style.display = 'block';
                 document.getElementById('zune-sync-title').textContent = (this.deviceModel || 'zune').toLowerCase();
                 document.getElementById('zune-sync-subtitle').textContent =
                     'transfer error: ' + (progress.error || 'unknown');
