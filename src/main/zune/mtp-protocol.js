@@ -5,6 +5,15 @@ const {
   CONTAINER_HEADER_SIZE,
 } = require('./mtp-constants.js');
 
+// MTP property data type codes
+const DataType = {
+  UINT8:   0x0002,
+  UINT16:  0x0004,
+  UINT32:  0x0006,
+  AUINT16: 0x4004,
+  STRING:  0xFFFF,
+};
+
 // Reverse lookup for response codes so error messages are human-readable
 const ResponseCodeName = Object.fromEntries(
   Object.entries(ResponseCode).map(([name, code]) => [code, name])
@@ -381,6 +390,157 @@ class MtpProtocol {
     buf.writeUInt16LE(value, 0);
     await this.sendData(OperationCode.SetObjectPropValue, buf);
     await this.receiveResponse();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Property lists and Zune vendor operations (podcast sync)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Generic transaction: command, optional outbound data, optional inbound data.
+   * Errors carry `code` and the response `params` (e.g. 0xA801 reports the index
+   * of the rejected property).
+   */
+  async transaction(opcode, params = [], outData = null, timeoutMs = 15000) {
+    await this.sendCommand(opcode, params);
+    if (outData) await this.sendData(opcode, outData);
+
+    const label = `0x${opcode.toString(16)}`;
+    const read = () => {
+      let timer;
+      return Promise.race([
+        this.receiveData(),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`MTP timeout (${timeoutMs}ms) on ${label}`)), timeoutMs);
+        }),
+      ]).finally(() => clearTimeout(timer));
+    };
+
+    let data = null;
+    let container = await read();
+    if (container.type === ContainerType.DATA) {
+      data = container.payload;
+      container = await read();
+    }
+    if (container.type !== ContainerType.RESPONSE) {
+      throw new Error(`Expected RESPONSE for ${label}, got container type 0x${container.type.toString(16)}`);
+    }
+    if (container.code !== ResponseCode.OK) {
+      const codeName = ResponseCodeName[container.code] || `0x${container.code.toString(16).padStart(4, '0')}`;
+      const err = new Error(`MTP ${label} failed: ${codeName} params=[${container.params.map(p => '0x' + p.toString(16)).join(', ')}]`);
+      err.code = container.code;
+      err.params = container.params;
+      throw err;
+    }
+    return { data, params: container.params };
+  }
+
+  /**
+   * Encode an MTP ObjectPropList dataset. Each prop is { code, type, value } with
+   * type 'uint8' | 'uint16' | 'uint32' | 'string' | 'auint16'. `handle` is 0 for
+   * objects being created.
+   */
+  encodePropList(props, handle = 0) {
+    const parts = [Buffer.alloc(4)];
+    parts[0].writeUInt32LE(props.length, 0);
+
+    for (const { code, type, value } of props) {
+      const head = Buffer.alloc(8);
+      head.writeUInt32LE(handle >>> 0, 0);
+      head.writeUInt16LE(code, 4);
+      let body;
+      switch (type) {
+        case 'uint8':
+          head.writeUInt16LE(DataType.UINT8, 6);
+          body = Buffer.from([value & 0xFF]);
+          break;
+        case 'uint16':
+          head.writeUInt16LE(DataType.UINT16, 6);
+          body = Buffer.alloc(2);
+          body.writeUInt16LE(value, 0);
+          break;
+        case 'uint32':
+          head.writeUInt16LE(DataType.UINT32, 6);
+          body = Buffer.alloc(4);
+          body.writeUInt32LE(value >>> 0, 0);
+          break;
+        case 'string':
+          head.writeUInt16LE(DataType.STRING, 6);
+          body = value ? this._encodeMtpString(value.slice(0, 254)) : Buffer.from([0]);
+          break;
+        case 'auint16': {
+          // Array of UTF-16 code units. The Zune firmware needs the NUL terminator
+          // inside the array — without it, stale buffer bytes get appended.
+          head.writeUInt16LE(DataType.AUINT16, 6);
+          const units = Buffer.from(value ? value + '\0' : '', 'utf16le');
+          body = Buffer.alloc(4 + units.length);
+          body.writeUInt32LE(units.length / 2, 0);
+          units.copy(body, 4);
+          break;
+        }
+        default:
+          throw new Error(`Unsupported property type: ${type}`);
+      }
+      parts.push(head, body);
+    }
+
+    return Buffer.concat(parts);
+  }
+
+  /**
+   * SendObjectPropList (0x9808): create an object and its properties atomically.
+   * Follow with sendObject() (an empty buffer for folders / .ser objects).
+   * Returns the new object handle.
+   */
+  async sendObjectPropList(storageId, parentHandle, objectFormat, objectSize, props) {
+    // ObjectSize is split high word, then low word
+    const sizeHi = Math.floor(objectSize / 0x100000000);
+    const sizeLo = objectSize % 0x100000000;
+    const { params } = await this.transaction(
+      OperationCode.SendObjectPropList,
+      [storageId, parentHandle, objectFormat, sizeHi, sizeLo],
+      this.encodePropList(props)
+    );
+    return params[2] || 0;
+  }
+
+  async getObjectPropDesc(propCode, objectFormat) {
+    const { data } = await this.transaction(OperationCode.GetObjectPropDesc, [propCode, objectFormat]);
+    return data;
+  }
+
+  /** GetObjectPropList (0x9805). objectHandle 0 + depth 1 lists the root's children. */
+  async getObjectPropList(objectHandle, formatCode, propCode, groupCode, depth) {
+    const { data } = await this.transaction(OperationCode.GetObjectPropList,
+      [objectHandle, formatCode, propCode, groupCode, depth]);
+    return data;
+  }
+
+  async getDevicePropValue(propCode) {
+    const { data } = await this.transaction(OperationCode.GetDevicePropValue, [propCode]);
+    return data;
+  }
+
+  /** Zune vendor op 0x9217 — called with 1 before uploads and after writes. */
+  async syncDeviceDB(param = 1) {
+    await this.transaction(OperationCode.SyncDeviceDB, [param]);
+  }
+
+  /** Zune vendor op 0x9215 — sent at the end of a sync session. */
+  async disableTrustedFiles() {
+    await this.transaction(OperationCode.DisableTrustedFiles);
+  }
+
+  /**
+   * Zune vendor op 0x922A — registers the album/show name about to be written.
+   * 530 bytes: u64 0, u32 100, u32 0, u32 1, UTF-16LE name (NUL-terminated).
+   */
+  async registerTrackContext(name) {
+    const data = Buffer.alloc(530, 0);
+    data.writeUInt32LE(100, 8);
+    data.writeUInt32LE(1, 16);
+    Buffer.from((name || '').slice(0, 250), 'utf16le').copy(data, 20);
+    await this.transaction(OperationCode.RegisterTrackContext, [], data);
   }
 
   // ---------------------------------------------------------------------------
