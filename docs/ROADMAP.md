@@ -104,11 +104,11 @@ The dream: Zune HD's design language applied as a full desktop OS experience. Bo
 - Music sub-category tabs with Zune HD styling
 - Sync panel with Zune text-as-navigation, segmented storage, panel edge bar
 - Play icon on music menu item (matching Zune HD home screen)
-
-**Remaining:**
 - Now Playing screen in Zune HD style (full-screen album art, minimal controls)
 - Animations and transitions between views (slide, fade, momentum)
 - Touch/gesture support for horizontal panoramic scrolling
+
+**Remaining:**
 - Accent color theming (user-selectable color beyond orange)
 
 ## Distribution
