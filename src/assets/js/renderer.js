@@ -17,7 +17,10 @@ class ZuneSyncPanel {
         this.diffResult = null;
         this.diffTab = 'local-only';
         this.diffGroupBy = 'all';            // 'all' | 'album' | 'artist'
-        this.diffCategory = 'music';              // 'music' | 'videos' | 'pictures'
+        this.diffCategory = 'music';              // 'music' | 'videos' | 'pictures' | 'podcasts'
+        this.localPodcasts = [];              // downloaded episodes (from the main process)
+        this.devicePodcastsScanned = false;   // false for device caches made before podcast sync
+        this._positionSyncRunning = false;
         this.collapsedGroups = new Set();     // keys of collapsed group headers
         this.diffSelectedPaths = new Set();   // local-only selected paths
         this.diffSelectedHandles = new Set(); // device-only selected handles
@@ -183,8 +186,10 @@ class ZuneSyncPanel {
 
         // Diff category tabs
         document.querySelectorAll('.zune-diff-category-tab').forEach(tab => {
-            tab.addEventListener('click', () => {
+            tab.addEventListener('click', async () => {
+                if (tab.dataset.category === 'podcasts') await this._loadLocalPodcasts();
                 this.diffCategory = tab.dataset.category;
+                this._updateGroupLabels();
                 document.querySelectorAll('.zune-diff-category-tab').forEach(t => t.classList.remove('active'));
                 tab.classList.add('active');
                 this.diffTab = 'local-only';
@@ -208,6 +213,7 @@ class ZuneSyncPanel {
                 this._renderDiffSummary();
                 this._destroyDiffScroller();
                 this._renderDiffList();
+                if (this.diffCategory === 'podcasts') this._syncPodcastPositions();
             });
         });
 
@@ -619,6 +625,7 @@ class ZuneSyncPanel {
             if (cached.success && cached.data) {
                 this.cachedData = cached.data;
                 this.browseData = cached.data.contents;
+                this._normalizeBrowseData();
                 if (cached.data.contents.albumArtMap) {
                     this.browseAlbumArtMap = cached.data.contents.albumArtMap;
                 } else {
@@ -708,6 +715,7 @@ class ZuneSyncPanel {
             }
             // Keep browse data updated for progressive rendering
             this.browseData = data.contents;
+            this._normalizeBrowseData();
             this.browseAlbumArtMap = data.albumArtMap || this.browseAlbumArtMap || {};
         });
 
@@ -717,6 +725,7 @@ class ZuneSyncPanel {
 
         if (result.success) {
             this.browseData = result.contents;
+            this._normalizeBrowseData();
             this.browseAlbumArtMap = result.contents.albumArtMap || {};
 
             // Save to cache
@@ -726,11 +735,7 @@ class ZuneSyncPanel {
                 await window.electronAPI.zuneCacheSave(this.deviceKey, {
                     model,
                     scanDurationMs,
-                    counts: {
-                        music: result.contents.music?.length || 0,
-                        videos: result.contents.videos?.length || 0,
-                        pictures: result.contents.pictures?.length || 0,
-                    },
+                    counts: this._cacheCounts(result.contents),
                     contents: result.contents,
                 });
                 const cached = await window.electronAPI.zuneCacheLoad(this.deviceKey);
@@ -748,6 +753,41 @@ class ZuneSyncPanel {
             errorEl.style.display = 'block';
             document.getElementById('zune-scan-progress').style.display = 'block';
         }
+    }
+
+    _cacheCounts(contents) {
+        return {
+            music: contents.music?.length || 0,
+            videos: contents.videos?.length || 0,
+            pictures: contents.pictures?.length || 0,
+            podcasts: contents.podcasts?.length || 0,
+        };
+    }
+
+    _updateGroupLabels() {
+        const labels = this.diffCategory === 'podcasts'
+            ? { all: 'all episodes', album: 'by show', artist: 'by host' }
+            : { all: 'all tracks', album: 'by album', artist: 'by artist' };
+        document.querySelectorAll('.zune-diff-group-btn').forEach(btn => {
+            btn.textContent = labels[btn.dataset.group] || btn.textContent;
+        });
+    }
+
+    // Device caches saved before podcast sync have no `podcasts` list
+    _normalizeBrowseData() {
+        if (!this.browseData) return;
+        this.devicePodcastsScanned = Array.isArray(this.browseData.podcasts);
+        if (!this.devicePodcastsScanned) this.browseData.podcasts = [];
+    }
+
+    async _saveDeviceCache() {
+        if (!this.deviceKey || !this.browseData) return;
+        await window.electronAPI.zuneCacheSave(this.deviceKey, {
+            model: this.cachedData?.model || this.lastStatus?.model || 'Zune',
+            scanDurationMs: this.cachedData?.scanDurationMs || 0,
+            counts: this._cacheCounts(this.browseData),
+            contents: this.browseData,
+        });
     }
 
     _openDiffView() {
@@ -769,6 +809,7 @@ class ZuneSyncPanel {
 
         // Reset category tab state
         this.diffCategory = 'music';
+        this._updateGroupLabels();
         document.querySelectorAll('.zune-diff-category-tab').forEach(t => t.classList.remove('active'));
         document.querySelector('.zune-diff-category-tab[data-category="music"]').classList.add('active');
 
@@ -1122,8 +1163,8 @@ class ZuneSyncPanel {
                     deletedSet.delete(err.handle);
                 }
             }
-            for (const cat of ['music', 'videos', 'pictures']) {
-                this.browseData[cat] = this.browseData[cat].filter(
+            for (const cat of ['music', 'videos', 'pictures', 'podcasts']) {
+                this.browseData[cat] = (this.browseData[cat] || []).filter(
                     item => !deletedSet.has(item.handle)
                 );
             }
@@ -1137,11 +1178,7 @@ class ZuneSyncPanel {
             await window.electronAPI.zuneCacheSave(this.deviceKey, {
                 model: this.cachedData?.model || this.lastStatus?.model || 'Zune',
                 scanDurationMs: this.cachedData?.scanDurationMs || 0,
-                counts: {
-                    music: this.browseData.music?.length || 0,
-                    videos: this.browseData.videos?.length || 0,
-                    pictures: this.browseData.pictures?.length || 0,
-                },
+                counts: this._cacheCounts(this.browseData),
                 contents: this.browseData,
             });
         }
@@ -1151,6 +1188,8 @@ class ZuneSyncPanel {
     _computeDiff() {
         if (this.diffCategory === 'music') {
             this._computeMusicDiff();
+        } else if (this.diffCategory === 'podcasts') {
+            this._computePodcastDiff();
         } else {
             this._computeMediaDiff(this.diffCategory);
         }
@@ -1287,6 +1326,121 @@ class ZuneSyncPanel {
         this.diffResult = { matched, localOnly, deviceOnly };
     }
 
+    async _loadLocalPodcasts() {
+        try {
+            this.localPodcasts = await window.electronAPI.podcastGetAllDownloaded();
+        } catch (err) {
+            console.warn('Could not load downloaded podcast episodes:', err);
+            this.localPodcasts = [];
+        }
+    }
+
+    // Podcast items carry album = show and artist = host so the music diff's
+    // grouping, filtering and headers apply unchanged.
+    _computePodcastDiff() {
+        const artByShow = new Map();
+        const local = (this.localPodcasts || []).map(ep => {
+            const albumArt = ep.artworkPath ? window.pathUtils.toFileUrl(ep.artworkPath) : null;
+            if (albumArt) {
+                artByShow.set((ep.subscriptionTitle || '').toLowerCase(), albumArt);
+                if (ep.feedUrl) artByShow.set(ep.feedUrl.toLowerCase(), albumArt);
+            }
+            return { ...ep, path: ep.localPath, album: ep.subscriptionTitle, artist: ep.author, albumArt };
+        });
+        const device = (this.browseData?.podcasts || []).map(d => ({
+            ...d,
+            album: d.seriesName || 'Unknown Show',
+            artist: d.author || '',
+            albumArt: artByShow.get((d.seriesFeedUrl || '').toLowerCase())
+                || artByShow.get((d.seriesName || '').toLowerCase()) || null,
+        }));
+        this.diffResult = window.podcastMatching.matchPodcastEpisodes(local, device);
+    }
+
+    /**
+     * Furthest position wins for episodes on both sides: device bookmarks update
+     * the app, app positions are written to the device (TimeBookmark).
+     */
+    async _syncPodcastPositions() {
+        if (this._positionSyncRunning || !this.diffResult || this.diffCategory !== 'podcasts') return;
+        this._positionSyncRunning = true;
+        let toLocal = 0;
+        const writes = [];
+        try {
+            for (const { local, device } of this.diffResult.matched) {
+                // A finished episode stays finished; don't pull its position back
+                if (local.played) continue;
+                const durationMs = (local.duration || 0) * 1000 || device.duration || 0;
+                const sync = window.podcastMatching.resolvePositionSync({
+                    localMs: (local.playbackPosition || 0) * 1000,
+                    deviceMs: device.bookmarkMs || 0,
+                    durationMs,
+                });
+                if (sync.direction === 'to-local') {
+                    const r = await window.electronAPI.podcastUpdatePositionFromSync(
+                        local.subscriptionId, local.episodeId, sync.positionMs / 1000, sync.played);
+                    if (r && r.success) {
+                        local.playbackPosition = sync.positionMs / 1000;
+                        if (sync.played) local.played = true;
+                        toLocal++;
+                    }
+                } else if (sync.direction === 'to-device') {
+                    writes.push({ handle: device.handle, positionMs: sync.positionMs });
+                }
+            }
+
+            let toDevice = 0;
+            if (writes.length) {
+                const r = await window.electronAPI.zuneSetPodcastBookmarks(writes);
+                if (r.success) {
+                    const failed = new Set((r.errors || []).map(e => e.handle));
+                    for (const w of writes) {
+                        if (failed.has(w.handle)) continue;
+                        const item = (this.browseData.podcasts || []).find(p => p.handle === w.handle);
+                        if (item) item.bookmarkMs = w.positionMs;
+                        toDevice++;
+                    }
+                    if (toDevice) await this._saveDeviceCache();
+                }
+            }
+
+            if (toLocal || toDevice) {
+                const parts = [];
+                if (toLocal) parts.push(`${toLocal} from zune`);
+                if (toDevice) parts.push(`${toDevice} to zune`);
+                this.explorer.showToast?.(`podcast positions synced: ${parts.join(', ')}`);
+                if (toLocal) await this._loadLocalPodcasts();
+                if (this.diffCategory === 'podcasts') {
+                    this._computeDiff();
+                    this._renderDiffSummary();
+                    this._destroyDiffScroller();
+                    this._renderDiffList();
+                }
+            }
+        } catch (err) {
+            console.warn('Podcast position sync failed:', err);
+        } finally {
+            this._positionSyncRunning = false;
+        }
+    }
+
+    _formatPodcastMeta(item) {
+        const parts = [];
+        if (item.album) parts.push(item.album);
+        // Local episodes keep seconds; device episodes come from ZMDB in ms
+        const durationMs = item.localPath ? (item.duration || 0) * 1000 : (item.duration || 0);
+        const positionMs = item.localPath ? (item.playbackPosition || 0) * 1000 : (item.bookmarkMs || 0);
+        if (item.played) {
+            parts.push('played');
+        } else if (durationMs > 0 && positionMs > 0) {
+            parts.push(`${Math.max(1, Math.round((durationMs - positionMs) / 60000))}m left`);
+        } else if (durationMs > 0) {
+            const mins = Math.round(durationMs / 60000);
+            parts.push(mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`);
+        }
+        return parts.join(' \u2014 ');
+    }
+
     _renderDiffSummary() {
         if (!this.diffResult) return;
 
@@ -1342,14 +1496,15 @@ class ZuneSyncPanel {
         }
 
         // Apply filter
-        const groupBy = (showCheckboxes && this.diffCategory === 'music') ? (this.diffGroupBy || 'all') : 'all';
+        const groupable = this.diffCategory === 'music' || this.diffCategory === 'podcasts';
+        const groupBy = (showCheckboxes && groupable) ? (this.diffGroupBy || 'all') : 'all';
         const filteredItems = this._getFilteredItems(items, groupBy);
 
         // Show/hide select-all and group bar based on checkbox mode
         const selectAllEl = document.getElementById('zune-diff-select-all');
         const groupBar = document.getElementById('zune-diff-group-bar');
         selectAllEl.style.display = showCheckboxes ? 'flex' : 'none';
-        groupBar.style.display = (showCheckboxes && this.diffCategory === 'music') ? 'flex' : 'none';
+        groupBar.style.display = (showCheckboxes && groupable) ? 'flex' : 'none';
         document.getElementById('zune-diff-filter').style.display = 'flex';
 
         if (filteredItems.length === 0) {
@@ -1361,6 +1516,8 @@ class ZuneSyncPanel {
                 emptyDiv.textContent = 'no matches';
             } else if (this.diffTab === 'local-only') {
                 emptyDiv.textContent = 'all local ' + this.diffCategory + ' on the device';
+            } else if (this.diffTab === 'device-only' && this.diffCategory === 'podcasts' && !this.devicePodcastsScanned) {
+                emptyDiv.textContent = 'rescan the device to read its podcasts';
             } else if (this.diffTab === 'device-only') {
                 emptyDiv.textContent = 'all device ' + this.diffCategory + ' on the computer';
             } else {
@@ -1480,7 +1637,8 @@ class ZuneSyncPanel {
                         metaEl.className = 'zune-diff-group-meta';
                         var metaParts = [];
                         if (group.artist) metaParts.push(group.artist);
-                        metaParts.push(group.tracks.length + ' track' + (group.tracks.length !== 1 ? 's' : ''));
+                        var unit = panel.diffCategory === 'podcasts' ? ' episode' : ' track';
+                        metaParts.push(group.tracks.length + unit + (group.tracks.length !== 1 ? 's' : ''));
                         metaEl.textContent = metaParts.join(' \u2014 ');
                         info.appendChild(metaEl);
                         el.appendChild(info);
@@ -1535,7 +1693,9 @@ class ZuneSyncPanel {
 
                         var metaSpan = document.createElement('span');
                         metaSpan.className = 'zune-diff-meta';
-                        if (panel.diffCategory === 'music') {
+                        if (panel.diffCategory === 'podcasts') {
+                            metaSpan.textContent = panel._formatPodcastMeta(panel.diffTab === 'matched' ? item.local : item);
+                        } else if (panel.diffCategory === 'music') {
                             if (panel.diffTab === 'matched') {
                                 var parts = [];
                                 if (item.local && item.local.artist) parts.push(item.local.artist);
@@ -1740,7 +1900,7 @@ class ZuneSyncPanel {
         if (!items || items.length === 0) {
             checkbox.checked = false;
             checkbox.indeterminate = false;
-            const emptyNoun = this.diffCategory === 'music' ? 'tracks' : 'files';
+            const emptyNoun = { music: 'tracks', podcasts: 'episodes' }[this.diffCategory] || 'files';
             label.textContent = `select all (0 ${emptyNoun})`;
             return;
         }
@@ -1751,7 +1911,7 @@ class ZuneSyncPanel {
         checkbox.indeterminate = someSelected && !allSelected;
 
         const count = items.length;
-        const noun = this.diffCategory === 'music' ? 'track' : 'file';
+        const noun = { music: 'track', podcasts: 'episode' }[this.diffCategory] || 'file';
         if (allSelected) {
             label.textContent = `deselect all (${count} ${noun}${count !== 1 ? 's' : ''})`;
         } else {
@@ -1763,7 +1923,7 @@ class ZuneSyncPanel {
         const pushBtn = document.getElementById('zune-push-btn');
         const pullBtn = document.getElementById('zune-pull-btn');
         const deleteBtn = document.getElementById('zune-diff-delete-btn');
-        const noun = this.diffCategory === 'music' ? 'tracks' : 'files';
+        const noun = { music: 'tracks', podcasts: 'episodes' }[this.diffCategory] || 'files';
 
         if (this.diffTab === 'local-only') {
             pushBtn.textContent = this.diffSelectedPaths.size > 0
@@ -1789,6 +1949,7 @@ class ZuneSyncPanel {
 
     // ---- Push (sync to device) ----
     async _pushToDevice() {
+        if (this.diffCategory === 'podcasts') return this._pushPodcastsToDevice();
         if (this.diffSelectedPaths.size === 0) return;
 
         const paths = Array.from(this.diffSelectedPaths);
@@ -1828,11 +1989,7 @@ class ZuneSyncPanel {
             await window.electronAPI.zuneCacheSave(this.deviceKey, {
                 model: this.cachedData?.model || this.lastStatus?.model || 'Zune',
                 scanDurationMs: this.cachedData?.scanDurationMs || 0,
-                counts: {
-                    music: this.browseData.music?.length || 0,
-                    videos: this.browseData.videos?.length || 0,
-                    pictures: this.browseData.pictures?.length || 0,
-                },
+                counts: this._cacheCounts(this.browseData),
                 contents: this.browseData,
             });
         }
@@ -1842,6 +1999,36 @@ class ZuneSyncPanel {
         this._renderDiffSummary();
         this._destroyDiffScroller();
         this._renderDiffList();
+    }
+
+    async _pushPodcastsToDevice() {
+        const selected = (this.diffResult?.localOnly || []).filter(ep => this.diffSelectedPaths.has(ep.path));
+        if (selected.length === 0) return;
+        this.diffSelectedPaths.clear();
+
+        const refs = selected.map(ep => ({ subscriptionId: ep.subscriptionId, episodeId: ep.episodeId }));
+        const result = await window.electronAPI.zuneSendPodcastEpisodes(refs);
+
+        if (!result.success) {
+            this.explorer.showToast?.(`podcast sync failed: ${result.error}`);
+        } else {
+            const feedByShow = new Map(selected.map(ep => [ep.subscriptionTitle, ep.feedUrl]));
+            for (const ep of result.newDeviceEpisodes || []) {
+                this.browseData.podcasts.push({ ...ep, seriesFeedUrl: feedByShow.get(ep.seriesName) || '' });
+            }
+            this.devicePodcastsScanned = true;
+            await this._saveDeviceCache();
+            if (result.skipped) {
+                this.explorer.showToast?.(`${result.skipped} episode${result.skipped !== 1 ? 's were' : ' was'} already on the zune`);
+            }
+        }
+
+        if (this.diffCategory === 'podcasts') {
+            this._computeDiff();
+            this._renderDiffSummary();
+            this._destroyDiffScroller();
+            this._renderDiffList();
+        }
     }
 
     // ---- Pull (copy to computer) ----
@@ -1875,7 +2062,10 @@ class ZuneSyncPanel {
                 const deviceItem = deviceItems.find(i => i.handle === handle);
                 if (!deviceItem) continue;
 
-                const filename = deviceItem.filename || ('file_' + handle);
+                const filename = category === 'podcasts'
+                    ? window.podcastMatching.zuneSafeName((deviceItem.seriesName ? deviceItem.seriesName + ' - ' : '') + (deviceItem.title || handle))
+                        + (deviceItem.format === 0xB901 ? '.wma' : '.mp3')
+                    : (deviceItem.filename || ('file_' + handle));
                 const metadata = category === 'music' ? {
                     title: deviceItem.title || null,
                     artist: deviceItem.artist || null,
@@ -1930,7 +2120,8 @@ class ZuneSyncPanel {
         pullBtn.disabled = false;
 
         // Keep the existing post-pull logic for adding to local files and triggering scan
-        if (pulledFiles.length > 0) {
+        // (pulled podcast episodes are plain files until they're tied to a subscription)
+        if (pulledFiles.length > 0 && this.explorer.categorizedFiles[category]) {
             for (const pf of pulledFiles) {
                 const ext = pf.path.split('.').pop().toLowerCase();
                 this.explorer.categorizedFiles[category].push({
@@ -2003,8 +2194,8 @@ class ZuneSyncPanel {
                         deletedSet.delete(err.handle);
                     }
                 }
-                for (const cat of ['music', 'videos', 'pictures']) {
-                    this.browseData[cat] = this.browseData[cat].filter(
+                for (const cat of ['music', 'videos', 'pictures', 'podcasts']) {
+                    this.browseData[cat] = (this.browseData[cat] || []).filter(
                         item => !deletedSet.has(item.handle)
                     );
                 }
@@ -2015,11 +2206,7 @@ class ZuneSyncPanel {
                 await window.electronAPI.zuneCacheSave(this.deviceKey, {
                     model: this.cachedData?.model || this.lastStatus?.model || 'Zune',
                     scanDurationMs: this.cachedData?.scanDurationMs || 0,
-                    counts: {
-                        music: this.browseData.music?.length || 0,
-                        videos: this.browseData.videos?.length || 0,
-                        pictures: this.browseData.pictures?.length || 0,
-                    },
+                    counts: this._cacheCounts(this.browseData),
                     contents: this.browseData,
                 });
             }
