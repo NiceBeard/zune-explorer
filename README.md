@@ -16,7 +16,7 @@ Built with Electron. Runs on macOS, Windows, and Linux.
 - **Zune HD screensaver** — album art and track info scroll horizontally, vertically and diagonally in mixed font weights. Starts after the app has been idle while music plays (even when you're in another window), or press **Z** or the player bar button
 - **Playlists** — create, edit, and reorder playlists from anywhere in the music section. Individual JSON files per playlist with drag-to-reorder and play all
 - **Now Playing** — persistent queue that survives app restarts. Click a song to replace the queue, "Add to Now Playing" to append. Accessible from the Playlists tab
-- **Podcasts** — search, subscribe, stream, and download podcasts. iTunes search, direct RSS, and OPML import. Episode playback with position resume, download management, and audio/video sub-tabs
+- **Podcasts** — search, subscribe, stream, and download podcasts. iTunes search, direct RSS, and OPML import. Episode playback with position resume, download management, and audio/video sub-tabs. Episodes sync to and from a Zune (see below)
 - **Pins** — pin any navigable item (file, folder, album, artist, genre, playlist) to the left sidebar. Right-click to pin/unpin. Pinned albums and artists show album art
 - **Unified back navigation** — the back button steps through your history one page at a time, just like the Zune HD. Works across all categories including circular music navigation (album → artist → album)
 - **Deep folder scanning** — recurses through your entire music/videos/pictures directory tree, no matter how nested
@@ -46,12 +46,15 @@ Connect a physical Zune to manage your music library — no Zune desktop softwar
 
 
 - **Pure JavaScript MTP/MTPZ stack** — implements the Zune's encrypted USB protocol from scratch
-- **Multi-category sync** — diff and transfer music, videos, and pictures between device and computer
+- **Multi-category sync** — diff and transfer music, videos, pictures, and podcasts between device and computer
+- **Podcast sync** — downloaded episodes appear under Podcasts on the Zune, filed under their show. Shows and episodes already on the device are reused rather than duplicated
+- **Podcasts from the Zune** — copy episodes off the device into your podcast library. A show the app doesn't know becomes a subscription, built from the feed URL stored on the Zune
+- **Resume where you left off** — podcast playback positions sync both ways, so whichever side you listened further on wins
 - **Delete from device** — remove selected files from the Zune directly in the sync diff view
 - **Pull destination picker** — choose where to save pulled tracks, with last-used folder memory
 - **Sync management view** — expanded diff view with grouped selection by album/artist, select-all, and collapsible groups
 - **Album art in sync view** — device-only tracks show cover art from your local library
-- **Smart diff engine** — compares local and device libraries by filename and metadata (music) or filename (videos/pictures) to show what's missing from each side
+- **Smart diff engine** — compares local and device libraries by filename and metadata (music), filename (videos/pictures), or enclosure URL and title (podcasts) to show what's missing from each side
 - **ZMDB fast scan** — reads the Zune's internal media database for instant library enumeration with auto-detection of HD vs Classic format
 - **Drag-and-drop transfer** with real-time progress streaming
 - **Automatic format conversion** — WAV/FLAC/OGG/AIFF to MP3 320k on push; WMA to MP3 320k on pull
@@ -168,13 +171,17 @@ src/main/zune/
 ├── mtp-constants.js    # Operation codes, response codes, object formats, property codes
 ├── mtpz-auth.js        # MTPZ RSA/AES/CMAC authentication handshake
 ├── zune-manager.js     # High-level orchestrator: connect, sync, browse, delete, eject
-├── zmdb-parser.js      # Zune Media Database binary parser (HD + Classic formats)
+├── podcast-sync.js     # Podcast push: shows, episode folders, de-duplication, bookmarks
+├── zmdb-parser.js      # Zune Media Database binary parser (HD + Classic formats, podcasts)
 └── device-cache.js     # Per-device scan result caching
 
 src/main/
 ├── musicbrainz.js      # MusicBrainz / Cover Art Archive API client
 ├── metadata-cache.js   # Persistent metadata cache (album art, year, genre)
-└── podcast-manager.js  # RSS/Atom parsing, iTunes search, OPML import, downloads
+└── podcast-manager.js  # RSS/Atom parsing, iTunes search, OPML import, downloads, device import
+
+src/shared/
+└── podcast-matching.js # Show/episode matching and position rules (main + renderer)
 ```
 
 ### Push-to-Device Pipeline
@@ -187,6 +194,13 @@ src/main/
 7. Artist object creation (format 0xB218)
 8. Abstract Audio Album creation (format 0xBA03) with track references and ArtistId linking
 9. Album art via RepresentativeSampleData
+
+### Podcast Sync Pipeline
+Follows the sequence the original Zune software uses (documented by [XuneSyncLibrary](https://github.com/xune-software/XuneSyncLibrary)):
+1. Read the device's ZMDB to find existing shows (by feed URL) and episodes (by enclosure URL), so nothing is uploaded twice
+2. Create the show object `Series/<show>.ser` (format 0xBA0B) and the folder `Podcasts/<show>/` only if they're missing
+3. Create each episode with one SendObjectPropList (real file size, MetaGenre 64, SeriesHandle → show), then SendObject
+4. Write the resume position to TimeBookmark (0xDD62); positions are synced both ways when the podcasts tab opens
 
 ### Pull-from-Device Pipeline
 1. MTP GetObject retrieves raw file bytes
