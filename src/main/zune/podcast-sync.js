@@ -341,8 +341,10 @@ class PodcastDeviceSync {
     }
   }
 
+  // Zune Desktop also sends DisableTrustedFiles (0x9215) here, but it ends trusted
+  // (MTPZ) write access for the rest of the session: later bookmark writes,
+  // pushes and deletes fail with AccessDenied (0x200F). Our session stays open.
   async _finalize() {
-    try { await this.mtp.disableTrustedFiles(); } catch (_) { /* optional */ }
     try { await this.mtp.syncDeviceDB(1); } catch (_) { /* optional */ }
   }
 

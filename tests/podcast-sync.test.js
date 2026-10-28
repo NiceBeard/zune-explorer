@@ -103,9 +103,10 @@ test('new show: creates Series/.ser, Podcasts/<show>/, and the episode with its 
 
   // Resume position written after upload
   assert.deepEqual(mtp.props, [[r.newDeviceEpisodes[0].handle, ObjectProperty.TimeBookmark, 12500]]);
-  // Session framing
+  // Session framing; trusted writes must stay enabled after a push
   assert.equal(mtp.calls[0][0], 'getDevicePropValue');
-  assert.deepEqual(mtp.calls.slice(-2).map(c => c[0]), ['disableTrustedFiles', 'syncDeviceDB']);
+  assert.equal(mtp.calls.at(-1)[0], 'syncDeviceDB');
+  assert.equal(mtp.calls.some(c => c[0] === 'disableTrustedFiles'), false);
 });
 
 test('existing show + episode: skipped, nothing created', async () => {
