@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   zuneCancelTransfer: () => ipcRenderer.invoke('zune-cancel-transfer'),
   zuneSendPodcastEpisodes: (refs) => ipcRenderer.invoke('zune-send-podcast-episodes', refs),
   zuneSetPodcastBookmarks: (writes) => ipcRenderer.invoke('zune-set-podcast-bookmarks', writes),
+  zunePullPodcastEpisode: (item) => ipcRenderer.invoke('zune-pull-podcast-episode', item),
   zuneBrowseContents: () => ipcRenderer.invoke('zune-browse-contents'),
   zuneDeleteObjects: (handles) => ipcRenderer.invoke('zune-delete-objects', handles),
   zuneEject: () => ipcRenderer.invoke('zune-eject'),

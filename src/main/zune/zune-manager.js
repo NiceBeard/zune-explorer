@@ -804,6 +804,7 @@ class ZuneManager extends EventEmitter {
           duration: ep.duration,
           bookmarkMs: ep.bookmarkMs,
           releaseDate: ep.releaseDate,
+          description: ep.description,
           size: ep.size,
           format: ep.codecId,
         });

@@ -4,6 +4,7 @@ const { XMLParser } = require('fast-xml-parser');
 const https = require('https');
 const http = require('http');
 const crypto = require('crypto');
+const { urlsMatch } = require('../shared/podcast-matching.js');
 
 class PodcastManager {
   constructor(userDataPath, options = {}) {
@@ -455,6 +456,9 @@ class PodcastManager {
     const sub = this._subscriptions.find(s => s.id === subscriptionId);
     if (!sub) throw new Error('Subscription not found');
 
+    // Shows imported from a Zune may have no feed to refresh from
+    if (!sub.feedUrl) return { subscriptionId, newEpisodeCount: 0 };
+
     try {
       const xml = await this._fetchUrl(sub.feedUrl);
       const feed = this._parseFeed(xml);
@@ -462,6 +466,36 @@ class PodcastManager {
       // Load existing episodes and build ID set
       const existingEpisodes = this._loadEpisodes(subscriptionId);
       const existingIds = new Set(existingEpisodes.map(e => e.id));
+
+      // Episodes imported from a Zune are keyed by enclosure URL; when the feed
+      // lists the same episode, adopt the feed's ID instead of listing it twice.
+      // Match by URL first, then by title (old feeds often moved their files).
+      const imported = existingEpisodes.filter(e => e.importedFromDevice);
+      const sameTitle = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+      const newFeedEpisodes = feed.episodes.filter(e => !existingIds.has(e.id));
+      const adoptions = [];
+      const free = (e) => !adoptions.some(([m]) => m === e);
+      for (const feedEp of newFeedEpisodes) {
+        const match = imported.find(e => free(e) && urlsMatch(e.enclosureUrl, feedEp.enclosureUrl));
+        if (match) adoptions.push([match, feedEp]);
+      }
+      for (const feedEp of newFeedEpisodes) {
+        if (adoptions.some(([, f]) => f === feedEp)) continue;
+        const match = imported.find(e => free(e) && sameTitle(e.title, feedEp.title));
+        if (match) adoptions.push([match, feedEp]);
+      }
+      for (const [match, feedEp] of adoptions) {
+        existingIds.delete(match.id);
+        Object.assign(match, {
+          id: feedEp.id,
+          description: match.description || feedEp.description,
+          publishDate: feedEp.publishDate || match.publishDate,
+          enclosureType: feedEp.enclosureType || match.enclosureType,
+          enclosureUrl: feedEp.enclosureUrl,
+        });
+        delete match.importedFromDevice;
+        existingIds.add(feedEp.id);
+      }
 
       // Find new episodes (not already stored)
       const newEpisodes = feed.episodes.filter(e => !existingIds.has(e.id));
@@ -928,6 +962,114 @@ class PodcastManager {
   }
 
   // --- Device sync ---
+
+  /**
+   * File an episode copied off a Zune under a subscription. `item` is a device
+   * podcast entry ({ seriesName, seriesFeedUrl, author, title, url, description,
+   * releaseDate, duration (ms), bookmarkMs }); `sourcePath` is the pulled file,
+   * which is moved into the download directory. Shows the app doesn't know yet
+   * become subscriptions built from the device's data (no feed fetch; artwork
+   * arrives with the first refresh).
+   * Throws an error with code NO_DOWNLOAD_DIR when no download directory is set.
+   */
+  importFromDevice(item, sourcePath) {
+    const dir = this._getDownloadDirectory() || this._preferences.downloadDirectory;
+    if (!dir) {
+      const err = new Error('No download directory set');
+      err.code = 'NO_DOWNLOAD_DIR';
+      throw err;
+    }
+
+    const showName = (item.seriesName || 'Podcast').trim();
+    let sub = (item.seriesFeedUrl && this._subscriptions.find(s => urlsMatch(item.seriesFeedUrl, s.feedUrl)))
+      || this._subscriptions.find(s => (s.title || '').trim().toLowerCase() === showName.toLowerCase());
+    let createdSubscription = false;
+
+    if (!sub) {
+      sub = {
+        id: crypto.randomUUID(),
+        feedUrl: item.seriesFeedUrl || null,
+        title: showName,
+        author: item.author || '',
+        description: '',
+        artworkUrl: null,
+        artworkPath: null,
+        category: 'audio',
+        episodeCount: 0,
+        newEpisodeCount: 0,
+        lastRefreshed: null,
+        subscribedAt: new Date().toISOString(),
+        error: null,
+        importedFromDevice: true,
+      };
+      this._subscriptions.push(sub);
+      createdSubscription = true;
+    }
+
+    const episodes = this._loadEpisodes(sub.id);
+    const title = (item.title || 'Untitled Episode').trim();
+    let episode = (item.url && episodes.find(e => urlsMatch(item.url, e.enclosureUrl)))
+      || episodes.find(e => (e.title || '').trim().toLowerCase() === title.toLowerCase());
+
+    const positionSec = (item.bookmarkMs || 0) / 1000;
+    if (!episode) {
+      episode = {
+        id: item.url || `zune-${crypto.randomUUID()}`,
+        title,
+        description: item.description || '',
+        publishDate: item.releaseDate || null,
+        duration: Math.round((item.duration || 0) / 1000),
+        enclosureUrl: item.url || '',
+        enclosureType: path.extname(sourcePath).toLowerCase() === '.mp3' ? 'audio/mpeg' : '',
+        enclosureSize: item.size || 0,
+        played: false,
+        playbackPosition: positionSec,
+        downloaded: false,
+        localPath: null,
+        importedFromDevice: true,
+      };
+      episodes.unshift(episode);
+    } else {
+      episode.playbackPosition = Math.max(episode.playbackPosition || 0, positionSec);
+    }
+
+    // Already have this file: keep it and drop the pulled copy
+    if (episode.downloaded && episode.localPath && fs.existsSync(episode.localPath)) {
+      try { fs.unlinkSync(sourcePath); } catch { /* temp file */ }
+    } else {
+      episode.localPath = this._placeImportedFile(dir, sub.title, episode, sourcePath);
+      episode.downloaded = true;
+    }
+
+    sub.episodeCount = episodes.length;
+    this._saveEpisodes(sub.id, episodes);
+    this._saveSubscriptions();
+
+    return { subscriptionId: sub.id, episodeId: episode.id, localPath: episode.localPath, createdSubscription };
+  }
+
+  // Same layout as downloadEpisode(): <downloadDir>/<podcast>/<episode>.<ext>
+  _placeImportedFile(dir, showTitle, episode, sourcePath) {
+    const podcastDir = path.join(dir, this._sanitizeFilename(showTitle));
+    fs.mkdirSync(podcastDir, { recursive: true });
+
+    const ext = path.extname(sourcePath).toLowerCase() || '.mp3';
+    const base = this._sanitizeFilename(episode.title);
+    let dest = path.join(podcastDir, `${base}${ext}`);
+    if (fs.existsSync(dest)) {
+      const dateStr = (episode.publishDate ? new Date(episode.publishDate) : new Date()).toISOString().slice(0, 10);
+      dest = path.join(podcastDir, `${base} (${dateStr})${ext}`);
+    }
+
+    try {
+      fs.renameSync(sourcePath, dest);
+    } catch {
+      // rename fails across filesystems
+      fs.copyFileSync(sourcePath, dest);
+      fs.unlinkSync(sourcePath);
+    }
+    return dest;
+  }
 
   /** Downloaded episodes (file still on disk) with the show details a device push needs. */
   getAllDownloaded() {
