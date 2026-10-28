@@ -441,6 +441,28 @@ ipcMain.handle('zune-send-files', async (event, filePaths) => {
   }
 });
 
+// `refs` are [{ subscriptionId, episodeId }]; file paths and metadata come from
+// the podcast manager rather than the renderer.
+ipcMain.handle('zune-send-podcast-episodes', async (event, refs) => {
+  try {
+    const wanted = new Set(refs.map(r => `${r.subscriptionId}\u0000${r.episodeId}`));
+    const episodes = podcastManager.getAllDownloaded()
+      .filter(ep => wanted.has(`${ep.subscriptionId}\u0000${ep.episodeId}`));
+    const result = await zuneManager.sendPodcastEpisodes(episodes);
+    return { success: true, ...result };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('zune-set-podcast-bookmarks', async (event, writes) => {
+  try {
+    return { success: true, ...(await zuneManager.setPodcastBookmarks(writes)) };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('zune-cancel-transfer', async () => {
   zuneManager.cancelTransfer();
   return { success: true };
@@ -1163,6 +1185,22 @@ ipcMain.handle('podcast-mark-played', async (event, subscriptionId, episodeId, p
   try {
     podcastManager.markPlayed(subscriptionId, episodeId, played);
     return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('podcast-get-all-downloaded', async () => {
+  try {
+    return { success: true, episodes: podcastManager.getAllDownloaded() };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('podcast-update-position-from-sync', async (event, subscriptionId, episodeId, positionSeconds, played) => {
+  try {
+    return { success: podcastManager.updatePositionFromSync(subscriptionId, episodeId, positionSeconds, played) };
   } catch (error) {
     return { success: false, error: error.message };
   }

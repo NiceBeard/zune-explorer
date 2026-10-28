@@ -927,6 +927,57 @@ class PodcastManager {
     }
   }
 
+  // --- Device sync ---
+
+  /** Downloaded episodes (file still on disk) with the show details a device push needs. */
+  getAllDownloaded() {
+    const result = [];
+    for (const sub of this._subscriptions) {
+      for (const ep of this._loadEpisodes(sub.id)) {
+        if (!ep.downloaded || !ep.localPath || !fs.existsSync(ep.localPath)) continue;
+        result.push({
+          subscriptionId: sub.id,
+          subscriptionTitle: sub.title,
+          feedUrl: sub.feedUrl,
+          author: sub.author || '',
+          artworkPath: sub.artworkPath ? path.join(this._podcastDir, sub.artworkPath) : null,
+          episodeId: ep.id,
+          title: ep.title,
+          description: ep.description || '',
+          enclosureUrl: ep.enclosureUrl || '',
+          localPath: ep.localPath,
+          duration: ep.duration || 0,
+          playbackPosition: ep.playbackPosition || 0,
+          played: !!ep.played,
+          publishDate: ep.publishDate || null,
+        });
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Apply a resume position that came from the device. Unlike markPlayed() this
+   * keeps the position, and only counts an episode as newly played once.
+   */
+  updatePositionFromSync(subscriptionId, episodeId, positionSeconds, played) {
+    const episodes = this._loadEpisodes(subscriptionId);
+    const episode = episodes.find(e => e.id === episodeId);
+    if (!episode) return false;
+
+    episode.playbackPosition = positionSeconds;
+    if (played && !episode.played) {
+      episode.played = true;
+      const sub = this._subscriptions.find(s => s.id === subscriptionId);
+      if (sub && sub.newEpisodeCount > 0) {
+        sub.newEpisodeCount--;
+        this._saveSubscriptions();
+      }
+    }
+    this._saveEpisodes(subscriptionId, episodes);
+    return true;
+  }
+
   persistLastPlaybackState() {
     if (!this._lastPlaybackState) return;
     const { subscriptionId, episodeId, position } = this._lastPlaybackState;
