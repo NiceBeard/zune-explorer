@@ -32,7 +32,21 @@ Pull files from the Zune to the computer via MTP GetObject. WMA files automatica
 Sync diff view now supports music, videos, and pictures via Zune HD-style category tabs (MUSIC / VIDEOS / PHOTOS). Music uses metadata+filename matching; videos/pictures use filename matching. Delete-from-device button with two-click confirmation on the device-only tab. ZMDB handle resolution extended to videos and pictures.
 
 ### ~~ZMDB Fast Path~~ (Done)
-Parses the Zune's internal binary media database (ZMDB) in a single vendor bulk transfer — 7561 tracks in 0.5 seconds vs 10+ minutes for MTP enumeration. Based on reverse-engineering work by [@magicisinthehole](https://github.com/magicisinthehole/XuneSyncLibrary). Supports both Classic (ZMed v2) and HD (ZMed v5) field layouts. ZMDB atom IDs work directly as MTP handles for GetObject, with a lazy resolver fallback. Pulled files saved as "Artist - Title.mp3" instead of cryptic device filenames.
+Parses the Zune's internal binary media database (ZMDB) in a single vendor bulk transfer — 7561 tracks in 0.5 seconds vs 10+ minutes for MTP enumeration. Based on reverse-engineering work by [@magicisinthehole](https://github.com/xune-software/XuneSyncLibrary). Supports both Classic (ZMed v2) and HD (ZMed v5) field layouts. ZMDB atom IDs work directly as MTP handles for GetObject, with a lazy resolver fallback. Pulled files saved as "Artist - Title.mp3" instead of cryptic device filenames.
+
+### ~~Podcast Sync~~ (Done, v1.7.0)
+Podcasts sync with the Zune in both directions, on a new PODCASTS tab in the sync diff view.
+- **Push:** downloaded episodes appear under Podcasts on the Zune and play there. Shows and episodes already on the device are found in ZMDB (by feed URL, then enclosure URL) and reused or skipped, so pushing twice never duplicates.
+- **Copy to computer:** episodes go into the podcast library. A show the app doesn't know becomes a subscription, built from the feed URL stored on the device. On the next refresh, imported episodes take over the feed's matching entry instead of being listed twice.
+- **Resume positions** sync both ways (furthest wins) through TimeBookmark (0xDD62).
+
+The upload sequence follows XuneSyncLibrary's captures of the Zune software's traffic (`Series/<show>.ser` + `Podcasts/<show>/`, SendObjectPropList with SeriesHandle). Earlier attempts failed on two bugs: the object size was sent in the wrong word order, and URL strings were missing their NUL terminator. Findings shared upstream in [XuneSyncLibrary#2](https://github.com/xune-software/XuneSyncLibrary/issues/2). Verified on a Zune HD.
+
+### Podcast Sync: Follow-ups
+- Video podcasts (ZMDB schema 0x02 records with a show reference)
+- Test podcast sync on a Zune 30 / Classic
+- Sync the "played" flag (ZMDB episode +0x20, bit 0x200). No writable MTP property found yet; only positions sync
+- Show artwork from the device: `.ser` objects made by the Zune software don't expose it, so imported shows get artwork from their feed on refresh
 
 ## Music Experience Enhancements
 
