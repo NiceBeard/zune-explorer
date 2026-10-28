@@ -29,6 +29,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   zuneDeviceInfo: () => ipcRenderer.invoke('zune-device-info'),
   zuneSendFiles: (paths) => ipcRenderer.invoke('zune-send-files', paths),
   zuneCancelTransfer: () => ipcRenderer.invoke('zune-cancel-transfer'),
+  zuneSendPodcastEpisodes: (refs) => ipcRenderer.invoke('zune-send-podcast-episodes', refs),
+  zuneSetPodcastBookmarks: (writes) => ipcRenderer.invoke('zune-set-podcast-bookmarks', writes),
+  zunePullPodcastEpisode: (item) => ipcRenderer.invoke('zune-pull-podcast-episode', item),
   zuneBrowseContents: () => ipcRenderer.invoke('zune-browse-contents'),
   zuneDeleteObjects: (handles) => ipcRenderer.invoke('zune-delete-objects', handles),
   zuneEject: () => ipcRenderer.invoke('zune-eject'),
@@ -136,6 +139,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   podcastDeleteDownload: (subId, epId) => ipcRenderer.invoke('podcast-delete-download', subId, epId),
   podcastSavePlaybackPosition: (subId, epId, pos) => ipcRenderer.invoke('podcast-save-playback-position', subId, epId, pos),
   podcastMarkPlayed: (subId, epId, played) => ipcRenderer.invoke('podcast-mark-played', subId, epId, played),
+  podcastGetAllDownloaded: async () => {
+    const r = await ipcRenderer.invoke('podcast-get-all-downloaded');
+    if (!r.success) throw new Error(r.error);
+    return r.episodes;
+  },
+  podcastUpdatePositionFromSync: (subId, epId, positionSeconds, played) =>
+    ipcRenderer.invoke('podcast-update-position-from-sync', subId, epId, positionSeconds, played),
   podcastGetPreferences: async () => {
     const r = await ipcRenderer.invoke('podcast-get-preferences');
     if (!r.success) throw new Error(r.error);

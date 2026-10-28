@@ -13,6 +13,7 @@ const { MtpProtocol } = require('./mtp-protocol.js');
 const { MtpzAuth } = require('./mtpz-auth.js');
 const { ExtensionToFormat, ObjectFormat, ObjectProperty } = require('./mtp-constants.js');
 const { ZMDBParser } = require('./zmdb-parser.js');
+const { PodcastDeviceSync } = require('./podcast-sync.js');
 
 // Audio formats the Zune can play natively
 const ZUNE_NATIVE_AUDIO = new Set(['.mp3', '.wma', '.aac', '.m4a']);
@@ -754,7 +755,7 @@ class ZuneManager extends EventEmitter {
       console.log(`ZuneManager: ZMDB parsed in ${parseElapsed}s`);
 
       // Convert ZMDB library to our browseContents format
-      const result = { music: [], videos: [], pictures: [] };
+      const result = { music: [], videos: [], pictures: [], podcasts: [] };
 
       for (const track of library.tracks) {
         result.music.push({
@@ -787,6 +788,25 @@ class ZuneManager extends EventEmitter {
           filename: pic.filename || pic.title || 'unknown',
           size: 0,
           format: 0,
+        });
+      }
+
+      for (const ep of library.podcastEpisodes) {
+        result.podcasts.push({
+          handle: ep.atomId,
+          filename: ep.title || 'unknown',
+          title: ep.title,
+          seriesName: ep.showName,
+          seriesHandle: ep.showAtomId,
+          seriesFeedUrl: ep.showFeedUrl,
+          url: ep.url,
+          author: ep.author,
+          duration: ep.duration,
+          bookmarkMs: ep.bookmarkMs,
+          releaseDate: ep.releaseDate,
+          description: ep.description,
+          size: ep.size,
+          format: ep.codecId,
         });
       }
 
@@ -924,7 +944,7 @@ class ZuneManager extends EventEmitter {
     console.log(`ZuneManager: browseContents() starting`);
 
     // Try ZMDB fast path first
-    this.emit('browse-progress', { phase: 'scanning', scanned: 0, total: 0, foldersScanned: 0, contents: { music: [], videos: [], pictures: [] } });
+    this.emit('browse-progress', { phase: 'scanning', scanned: 0, total: 0, foldersScanned: 0, contents: { music: [], videos: [], pictures: [], podcasts: [] } });
     const zmdbResult = await this._tryZMDB();
     if (zmdbResult) {
       console.log(`ZuneManager: [${elapsed()}] ZMDB fast path succeeded — ${zmdbResult.music.length} tracks, ${zmdbResult.videos.length} videos, ${zmdbResult.pictures.length} pictures`);
@@ -939,7 +959,8 @@ class ZuneManager extends EventEmitter {
 
     console.log(`ZuneManager: [${elapsed()}] falling back to MTP enumeration`);
 
-    const result = { music: [], videos: [], pictures: [] };
+    // Podcasts are only read from ZMDB (.ser show objects can't be enumerated over MTP)
+    const result = { music: [], videos: [], pictures: [], podcasts: [] };
 
     // Collect abstract objects for hierarchy building
     const artistObjHandles = [];
@@ -1390,6 +1411,71 @@ class ZuneManager extends EventEmitter {
     }
     contents.albumArtMap = albumArtMap;
     return contents;
+  }
+
+  _podcastSync() {
+    return new PodcastDeviceSync({
+      mtp: this.mtp,
+      storageId: this.storageId,
+      isHD: this.productId === 0x063E,
+      emitProgress: (progress) => this.emit('transfer-progress', progress),
+      convertToMp3: (inputPath) => this._convertForZune(inputPath),
+    });
+  }
+
+  /**
+   * Push downloaded podcast episodes. Shows/episodes already on the device are
+   * reused/skipped. Emits the same transfer-progress events as sendFiles().
+   */
+  async sendPodcastEpisodes(episodes) {
+    if (!this.connected) throw new Error('No Zune device connected');
+    if (this.transferring) throw new Error('A transfer is already in progress');
+
+    this.transferring = true;
+    this.cancelRequested = false;
+    const totalFiles = episodes.length;
+
+    try {
+      const result = await this._podcastSync().push(episodes, () => this.cancelRequested);
+
+      if (this.connected) {
+        try { this.storageInfo = await this.mtp.getStorageInfo(this.storageId); } catch (_) { /* keep last */ }
+      }
+
+      this.emit('transfer-progress', {
+        state: 'complete',
+        completedFiles: result.sent + result.skipped + result.failed,
+        totalFiles,
+        succeeded: result.sent + result.skipped,
+        failed: result.errors.map(e => ({ file: e.title || e.file, error: e.error })),
+        storage: this.storageInfo,
+      });
+
+      return { ...result, storage: this.storageInfo };
+    } catch (err) {
+      this.emit('transfer-progress', { state: 'error', error: err.message, completedFiles: 0, totalFiles });
+      throw err;
+    } finally {
+      this.transferring = false;
+    }
+  }
+
+  /** Write resume positions: [{ handle, positionMs }]. Returns per-handle errors. */
+  async setPodcastBookmarks(writes) {
+    if (!this.connected) throw new Error('No Zune device connected');
+    const sync = this._podcastSync();
+    const errors = [];
+    for (const { handle, positionMs } of writes) {
+      try {
+        await sync.setBookmark(handle, positionMs);
+      } catch (err) {
+        errors.push({ handle, error: err.message });
+      }
+    }
+    if (writes.length > errors.length) {
+      try { await this.mtp.syncDeviceDB(1); } catch (_) { /* device updates ZMDB on its own too */ }
+    }
+    return { written: writes.length - errors.length, errors };
   }
 
   async deleteObjects(handles) {

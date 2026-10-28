@@ -441,6 +441,28 @@ ipcMain.handle('zune-send-files', async (event, filePaths) => {
   }
 });
 
+// `refs` are [{ subscriptionId, episodeId }]; file paths and metadata come from
+// the podcast manager rather than the renderer.
+ipcMain.handle('zune-send-podcast-episodes', async (event, refs) => {
+  try {
+    const wanted = new Set(refs.map(r => `${r.subscriptionId}\u0000${r.episodeId}`));
+    const episodes = podcastManager.getAllDownloaded()
+      .filter(ep => wanted.has(`${ep.subscriptionId}\u0000${ep.episodeId}`));
+    const result = await zuneManager.sendPodcastEpisodes(episodes);
+    return { success: true, ...result };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('zune-set-podcast-bookmarks', async (event, writes) => {
+  try {
+    return { success: true, ...(await zuneManager.setPodcastBookmarks(writes)) };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('zune-cancel-transfer', async () => {
   zuneManager.cancelTransfer();
   return { success: true };
@@ -834,6 +856,45 @@ ipcMain.handle('zune-pull-file', async (event, handle, filename, destDir, metada
   }
 });
 
+// Copy one podcast episode off the Zune and file it under a subscription.
+// `item` is a device podcast entry from browseContents(). Returns
+// { success:false, code:'NO_DOWNLOAD_DIR' } so the renderer can ask for a folder.
+// Show artwork isn't read from the device: .ser objects synced by the Zune
+// software don't expose it, and unsupported property reads stall the session.
+
+ipcMain.handle('zune-pull-podcast-episode', async (event, item) => {
+  const tempFiles = [];
+  try {
+    const data = await zuneManager.getFile(item.handle);
+    if (!data || data.length === 0) {
+      return { success: false, error: 'Device returned empty file (0 bytes)' };
+    }
+
+    const isWma = item.format === 0xB901;
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const raw = path.join(os.tmpdir(), `zune-podcast-${stamp}${isWma ? '.wma' : '.mp3'}`);
+    await fs.writeFile(raw, data);
+    tempFiles.push(raw);
+
+    let source = raw;
+    if (isWma) {
+      // WMA doesn't play in the app on macOS; keep podcasts as MP3
+      source = path.join(os.tmpdir(), `zune-podcast-${stamp}.mp3`);
+      await execFileAsync(ffmpegPath, ['-i', raw, '-c:a', 'libmp3lame', '-b:a', '128k', '-y', source]);
+      tempFiles.push(source);
+    }
+
+    const result = podcastManager.importFromDevice(item, source);
+    return { success: true, ...result };
+  } catch (error) {
+    return { success: false, code: error.code, error: error.message };
+  } finally {
+    for (const tmp of tempFiles) {
+      try { await fs.unlink(tmp); } catch (_) { /* moved into place or already gone */ }
+    }
+  }
+});
+
 ipcMain.handle('zune-eject', async () => {
   try {
     await zuneManager.eject();
@@ -1163,6 +1224,22 @@ ipcMain.handle('podcast-mark-played', async (event, subscriptionId, episodeId, p
   try {
     podcastManager.markPlayed(subscriptionId, episodeId, played);
     return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('podcast-get-all-downloaded', async () => {
+  try {
+    return { success: true, episodes: podcastManager.getAllDownloaded() };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('podcast-update-position-from-sync', async (event, subscriptionId, episodeId, positionSeconds, played) => {
+  try {
+    return { success: podcastManager.updatePositionFromSync(subscriptionId, episodeId, positionSeconds, played) };
   } catch (error) {
     return { success: false, error: error.message };
   }

@@ -19,16 +19,25 @@ const OperationCode = {
   DeleteObject:     0x100B,
   SendObjectInfo:       0x100C,
   SendObject:           0x100D,
+  GetDevicePropValue:   0x1015,
   SetDevicePropValue:   0x1016,
+  GetObjectPropsSupported: 0x9801,
+  GetObjectPropDesc:    0x9802,
   GetObjectPropValue:   0x9803,
   SetObjectPropValue:   0x9804,
   GetObjectReferences:  0x9810,
+  GetObjectPropList:    0x9805,
+  SendObjectPropList:   0x9808, // create object + properties in one call (Zune Desktop's path)
   SetObjectReferences:  0x9811,
   // WMDRMPD vendor extensions (used by MTPZ)
   SendWMDRMPDAppRequest:        0x9212,
   GetWMDRMPDAppResponse:        0x9213,
   EnableTrustedFilesOperations: 0x9214,
+  DisableTrustedFiles:          0x9215,
   EndTrustedAppSession:         0x9216,
+  // Zune vendor operations (names from XuneSyncLibrary / AFTL pcap work)
+  SyncDeviceDB:                 0x9217,
+  RegisterTrackContext:         0x922A,
 };
 
 const ResponseCode = {
@@ -56,6 +65,7 @@ const ObjectFormat = {
   WMV:                0xB981,
   MP4:                0xB982,
   AbstractAudioAlbum: 0xBA03,
+  PodcastSeries:      0xBA0B, // .ser show object; episodes are ordinary MP3/WMA objects
   Artist:             0xB218,
 };
 
@@ -90,6 +100,25 @@ const ObjectProperty = {
   RepresentativeSampleData:   0xDC86, // byte array — the actual image data
   OriginalDate: 0xDC99,
   ArtistId:     0xDAB9, // uint32 — handle of an Artist object (format 0xB218)
+  StorageID:    0xDC01,
+  ObjectFileName: 0xDC07,
+  DateAuthored: 0xDC47, // string "YYYYMMDDTHHMMSS.0"
+  Description:  0xDC48, // AUINT16
+  MetaGenre:    0xDC95, // uint16 — 1 music, 64 audio podcast, 65 video podcast
+  // Podcast properties (XuneSyncLibrary ZuneMtpWriter.h; confirmed on Zune HD)
+  SeriesName:   0xDA9A, // string, episode
+  PodcastDA9B:  0xDA9B, // uint8, always 0 on episodes
+  IsPodcast:    0xDA9C, // uint8, 1 on series
+  PodcastDA9D:  0xDA9D, // uint32, 1 on series
+  SeriesHandle: 0xDA9E, // uint32, episode -> .ser handle (this is the show link)
+  URLSource:    0xDD60, // AUINT16 — feed URL (series) or enclosure URL (episode)
+  TimeBookmark: 0xDD62, // uint32 ms — episode resume position
+};
+
+const MetaGenre = {
+  Music:        1,
+  AudioPodcast: 64,
+  VideoPodcast: 65,
 };
 
 const CONTAINER_HEADER_SIZE = 12;
@@ -102,5 +131,6 @@ module.exports = {
   ExtensionToFormat,
   DeviceProperty,
   ObjectProperty,
+  MetaGenre,
   CONTAINER_HEADER_SIZE,
 };
