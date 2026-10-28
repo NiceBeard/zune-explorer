@@ -98,8 +98,8 @@ function resolvePositionSync({ localMs, deviceMs, durationMs }) {
 }
 
 /**
- * Pair downloaded episodes ({ episodeId, title, enclosureUrl, subscriptionTitle })
- * with device episodes ({ handle, title, url, seriesName }).
+ * Pair downloaded episodes ({ episodeId, title, enclosureUrl, subscriptionTitle, feedUrl })
+ * with device episodes ({ handle, title, url, seriesName, seriesFeedUrl }).
  */
 function matchPodcastEpisodes(localEpisodes, deviceEpisodes) {
   const matched = [];
@@ -116,14 +116,15 @@ function matchPodcastEpisodes(localEpisodes, deviceEpisodes) {
     }
   }
 
-  // Pass 2: title within the same show
+  // Pass 2: title within the same show (same feed URL or same show name)
   for (const local of localEpisodes) {
     if (usedLocal.has(local)) continue;
     const title = normalizeTitle(local.title);
     const show = normalizeTitle(local.subscriptionTitle);
+    const sameShow = (d) => urlsMatch(d.seriesFeedUrl, local.feedUrl) || normalizeTitle(d.seriesName) === show;
     const device = deviceEpisodes.find(d => !usedDevice.has(d.handle)
       && normalizeTitle(d.title) === title
-      && normalizeTitle(d.seriesName) === show);
+      && sameShow(d));
     if (device) {
       matched.push({ local, device });
       usedLocal.add(local);

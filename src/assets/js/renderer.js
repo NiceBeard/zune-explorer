@@ -2034,6 +2034,7 @@ class ZuneSyncPanel {
 
     // ---- Pull (copy to computer) ----
     async _pullFromDevice() {
+        if (this.diffCategory === 'podcasts') return this._pullPodcastsFromDevice();
         if (this.diffSelectedHandles.size === 0) return;
 
         const destResult = await window.electronAPI.pickPullDestination();
@@ -2063,10 +2064,7 @@ class ZuneSyncPanel {
                 const deviceItem = deviceItems.find(i => i.handle === handle);
                 if (!deviceItem) continue;
 
-                const filename = category === 'podcasts'
-                    ? window.podcastMatching.zuneSafeName((deviceItem.seriesName ? deviceItem.seriesName + ' - ' : '') + (deviceItem.title || handle))
-                        + (deviceItem.format === 0xB901 ? '.wma' : '.mp3')
-                    : (deviceItem.filename || ('file_' + handle));
+                const filename = deviceItem.filename || ('file_' + handle);
                 const metadata = category === 'music' ? {
                     title: deviceItem.title || null,
                     artist: deviceItem.artist || null,
@@ -2121,8 +2119,7 @@ class ZuneSyncPanel {
         pullBtn.disabled = false;
 
         // Keep the existing post-pull logic for adding to local files and triggering scan
-        // (pulled podcast episodes are plain files until they're tied to a subscription)
-        if (pulledFiles.length > 0 && this.explorer.categorizedFiles[category]) {
+        if (pulledFiles.length > 0) {
             for (const pf of pulledFiles) {
                 const ext = pf.path.split('.').pop().toLowerCase();
                 this.explorer.categorizedFiles[category].push({
@@ -2144,6 +2141,61 @@ class ZuneSyncPanel {
         this._renderDiffSummary();
         this._destroyDiffScroller();
         this._renderDiffList();
+    }
+
+    // Copy device episodes into the podcast library: each lands in the download
+    // folder under its show, and shows the app doesn't know become subscriptions.
+    async _pullPodcastsFromDevice() {
+        const items = (this.browseData?.podcasts || []).filter(p => this.diffSelectedHandles.has(p.handle));
+        if (items.length === 0) return;
+        this.diffSelectedHandles.clear();
+
+        const pullBtn = document.getElementById('zune-pull-btn');
+        pullBtn.disabled = true;
+        let pulled = 0;
+        const failed = [];
+        const newShows = new Set();
+
+        for (const item of items) {
+            pullBtn.textContent = `copying ${pulled + failed.length + 1} of ${items.length} \u2014 ${item.title}`;
+            let result = await window.electronAPI.zunePullPodcastEpisode(item);
+
+            if (!result.success && result.code === 'NO_DOWNLOAD_DIR') {
+                const dir = await window.electronAPI.podcastPickDownloadDirectory();
+                if (!dir) {
+                    failed.push(...items.slice(pulled + failed.length).map(i => i.title));
+                    break;
+                }
+                result = await window.electronAPI.zunePullPodcastEpisode(item);
+            }
+
+            if (result.success) {
+                pulled++;
+                if (result.createdSubscription) newShows.add(item.seriesName);
+            } else {
+                console.warn(`Pull "${item.title}" failed: ${result.error}`);
+                failed.push(item.title);
+            }
+        }
+
+        pullBtn.disabled = false;
+        pullBtn.style.color = failed.length ? '#ff6900' : '';
+        pullBtn.textContent = failed.length
+            ? `${pulled} copied, ${failed.length} failed`
+            : `${pulled} episode${pulled !== 1 ? 's' : ''} copied`;
+
+        const notes = [];
+        if (newShows.size) notes.push(`added ${newShows.size} show${newShows.size !== 1 ? 's' : ''} to podcasts`);
+        if (failed.length) notes.push(`couldn't copy: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '...' : ''}`);
+        if (notes.length) this.explorer.showToast?.(notes.join(' \u2014 '));
+
+        await this._loadLocalPodcasts();
+        if (this.diffCategory === 'podcasts') {
+            this._computeDiff();
+            this._renderDiffSummary();
+            this._destroyDiffScroller();
+            this._renderDiffList();
+        }
     }
 
     // ---- Delete from device (diff view) ----

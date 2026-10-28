@@ -121,3 +121,12 @@ test('matchPodcastEpisodes: pairs local downloads with device episodes', () => {
   assert.deepEqual(localOnly.map(e => e.episodeId), ['g3', 'g4']);
   assert.deepEqual(deviceOnly.map(e => e.handle), [13]);
 });
+
+test('matchPodcastEpisodes: title fallback also accepts the same show by feed URL', () => {
+  // After a feed refresh the show is renamed and the file moved hosts
+  const local = [{ episodeId: 'g', title: 'Desperately Seeking Symmetry', enclosureUrl: 'https://cdn.new/x.mp3',
+    subscriptionTitle: 'Radiolab', feedUrl: 'http://feeds.wnyc.org/radiolab' }];
+  const device = [{ handle: 1, title: 'Desperately Seeking Symmetry', url: 'http://feeds.wnyc.org/~r/old.mp3',
+    seriesName: "WNYC's Radiolab", seriesFeedUrl: 'http://feeds.wnyc.org/radiolab' }];
+  assert.equal(matchPodcastEpisodes(local, device).matched.length, 1);
+});
