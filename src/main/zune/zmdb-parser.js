@@ -147,6 +147,28 @@ function utf16LEToUTF8(data, start, end) {
   return result;
 }
 
+// UTF-16LE payload of a backwards-varint field. Some fields carry a leading pad
+// byte (odd length); all are NUL-terminated.
+function utf16Field(data) {
+  const d = (data.length % 2 === 1 && data[0] === 0) ? data.slice(1) : data;
+  return d.toString('utf16le').replace(/\0[\s\S]*$/, '');
+}
+
+// Windows FILETIME (100ns ticks since 1601) -> ISO string, or null
+function filetimeToISO(ft) {
+  if (!ft) return null;
+  const ms = Number(ft / 10000n) - 11644473600000;
+  return ms > 0 ? new Date(ms).toISOString() : null;
+}
+
+// Podcast backwards-varint field IDs (XuneSyncLibrary PodcastFieldId)
+const PodcastField = {
+  Description: 0x41,
+  Filename:    0x44,
+  Url:         0x45,
+  Author:      0x46,
+};
+
 // --------------------------------------------------------------------------
 // Backwards varint parser
 // --------------------------------------------------------------------------
@@ -179,7 +201,9 @@ function parseBackwardsVarints(recordData, entrySize) {
       if (pos < entrySize) break;
       const sizeByte2 = recordData[pos--];
       fieldSize = (sizeByte2 << 7) | (sizeByte1 & 0x7F);
-      if (sizeByte2 !== 0) {
+      // A third size byte follows only when byte 2 has its continuation bit set
+      // (checking `!== 0` mis-sized every field of 128+ bytes)
+      if (sizeByte2 & 0x80) {
         if (pos < entrySize) break;
         const sizeByte3 = recordData[pos--];
         fieldSize = (sizeByte3 << 14) | (fieldSize & 0x3FFF);
@@ -230,6 +254,8 @@ class ZMDBParser {
       videos: [],
       pictures: [],
       playlists: [],
+      podcastShows: [],     // { atomId, name, feedUrl, serFilename, author, folderRef, subscribed }
+      podcastEpisodes: [],  // see _parsePodcastEpisode
     };
 
     if (this.data.length < 0x30) return library;
@@ -376,9 +402,95 @@ class ZMDBParser {
     library.artists = Object.fromEntries(this.artistCache);
     library.genres = Object.fromEntries(this.genreCache);
 
-    console.log(`ZMDB: ${library.tracks.length} tracks, ${Object.keys(library.albums).length} albums, ${Object.keys(library.artists).length} artists, ${Object.keys(library.genres).length} genres, ${library.videos.length} videos, ${library.pictures.length} pictures, ${library.playlists.length} playlists`);
+    this._extractPodcasts(library);
+
+    console.log(`ZMDB: ${library.tracks.length} tracks, ${Object.keys(library.albums).length} albums, ${Object.keys(library.artists).length} artists, ${Object.keys(library.genres).length} genres, ${library.videos.length} videos, ${library.pictures.length} pictures, ${library.playlists.length} playlists, ${library.podcastShows.length} podcast shows, ${library.podcastEpisodes.length} podcast episodes`);
 
     return library;
+  }
+
+  // ---- Podcasts ----
+  // Record layouts from XuneSyncLibrary (Zune{HD,Classic}Parser), confirmed on a
+  // Zune HD against episodes synced by the original Zune software.
+
+  _extractPodcasts(library) {
+    for (const [atomId, offset] of this.indexTable) {
+      const schema = (atomId >> 24) & 0xFF;
+      if (schema !== Schema.PodcastShow && schema !== Schema.PodcastEpisode) continue;
+      const record = this._readRecord(offset);
+      if (!record) continue;
+      if (schema === Schema.PodcastShow) {
+        const show = this._parsePodcastShow(record, atomId);
+        if (show) library.podcastShows.push(show);
+      } else {
+        const ep = this._parsePodcastEpisode(record, atomId);
+        if (ep) library.podcastEpisodes.push(ep);
+      }
+    }
+
+    const showsById = new Map(library.podcastShows.map(s => [s.atomId, s]));
+    for (const ep of library.podcastEpisodes) {
+      const show = showsById.get(ep.showAtomId);
+      ep.showName = show ? show.name : '';
+      ep.showFeedUrl = show ? show.feedUrl : '';
+    }
+  }
+
+  // Show (schema 0x0f), same on HD and Classic:
+  //   +0x00 u32 folder ref (Series/), +0x05 u8 subscribed, +0x08 UTF-8 name, then varints
+  _parsePodcastShow(record, atomId) {
+    if (record.length < 9) return null;
+    const name = readNullTerminatedUTF8(record, 8);
+    const show = {
+      atomId,
+      name,
+      folderRef: readUint32LE(record, 0),
+      subscribed: record[5] !== 0,
+      serFilename: '',
+      author: '',
+      feedUrl: '',
+    };
+    const varStart = 8 + Buffer.byteLength(name, 'utf8') + 1;
+    for (const f of parseBackwardsVarints(record, varStart)) {
+      if (f.fieldId === PodcastField.Filename) show.serFilename = utf16Field(f.data);
+      else if (f.fieldId === PodcastField.Author) show.author = utf16Field(f.data);
+      else if (f.fieldId === PodcastField.Url) show.feedUrl = utf16Field(f.data);
+    }
+    return show;
+  }
+
+  // Audio episode (schema 0x10):
+  //   +0x00 u32 folder ref (Podcasts/<show>/)   +0x04 u32 show ref (= SeriesHandle)
+  //   +0x08 u32 duration ms                    +0x0c u32 bookmark ms (= TimeBookmark)
+  //   +0x10 u64 publish date (FILETIME)
+  //   HD:      +0x18 u32 size, +0x1e u16 codec, +0x20 u32 played flags, title at +0x24
+  //   Classic: +0x1a u16 codec, +0x1c u32 played flags, title at +0x20 (no size)
+  _parsePodcastEpisode(record, atomId) {
+    const titleOffset = this.isHD ? 0x24 : 0x20;
+    if (record.length < titleOffset) return null;
+    const title = readNullTerminatedUTF8(record, titleOffset);
+    const ep = {
+      atomId,
+      title,
+      folderRef: readUint32LE(record, 0x00),
+      showAtomId: readUint32LE(record, 0x04),
+      duration: readUint32LE(record, 0x08),
+      bookmarkMs: readUint32LE(record, 0x0c),
+      releaseDate: filetimeToISO(readUint64LE(record, 0x10)),
+      size: this.isHD ? readUint32LE(record, 0x18) : 0,
+      codecId: readUint16LE(record, this.isHD ? 0x1e : 0x1a),
+      playedFlags: readUint32LE(record, this.isHD ? 0x20 : 0x1c),
+      url: '',
+      author: '',
+      description: '',
+    };
+    const varStart = titleOffset + Buffer.byteLength(title, 'utf8') + 1;
+    for (const f of parseBackwardsVarints(record, varStart)) {
+      if (f.fieldId === PodcastField.Url) ep.url = utf16Field(f.data);
+      else if (f.fieldId === PodcastField.Author) ep.author = utf16Field(f.data);
+      else if (f.fieldId === PodcastField.Description) ep.description = utf16Field(f.data);
+    }
+    return ep;
   }
 
   // ---- Record reading ----
@@ -737,4 +849,4 @@ class ZMDBParser {
   }
 }
 
-module.exports = { ZMDBParser, Schema };
+module.exports = { ZMDBParser, Schema, parseBackwardsVarints };
